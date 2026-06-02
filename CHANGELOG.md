@@ -45,8 +45,13 @@ Use this section for changes that are merged but not released yet.
   forever.
 - Subscription creation no longer deletes a reactivated pre-existing
   subscription when webhook setup fails.
-- Per-repository webhook synchronization is serialized with a PostgreSQL
-  advisory lock so the GitHub hook cannot diverge from the database.
+- Per-repository webhook synchronization is serialized (in-process per repo) so
+  the GitHub hook cannot diverge from the database during concurrent edits.
+- State cleanup no longer cascade-deletes notification jobs that are still
+  pending or processing when their delivery record ages out.
+- Group-admin checks are reported honestly: a transient lookup failure is no
+  longer shown as "you must be an administrator", and the destination picker is
+  re-rendered with fresh tokens so the action can be retried.
 - Graceful shutdown waits for the worker and poller goroutines before the
   database pool closes.
 - User-facing errors no longer leak raw Go/GitHub/Telegram error strings;
@@ -55,7 +60,6 @@ Use this section for changes that are merged but not released yet.
   screen.
 - Humanized event labels, group titles, and status text in the UI and
   notifications.
-
 - Callback tokens for final subscription creation actions are consumed after use.
 - Subscription event arrays are normalized so equivalent event sets are stored in
   one stable order.
