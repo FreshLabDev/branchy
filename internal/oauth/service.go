@@ -25,6 +25,7 @@ type Store interface {
 
 type Notifier interface {
 	SendHTML(ctx context.Context, chatID int64, text string) error
+	SendHTMLWithButton(ctx context.Context, chatID int64, text, buttonText, callbackData string) error
 }
 
 type ServiceConfig struct {
@@ -132,7 +133,12 @@ func (s *Service) handleCallback(ctx context.Context, r *http.Request) error {
 		return err
 	}
 	if s.notifier != nil {
-		_ = s.notifier.SendHTML(ctx, state.TelegramUserID, "GitHub connected as <b>"+html.EscapeString(user.Login)+"</b>.")
+		// Send a message that drops the user straight into the (now connected)
+		// main menu, so they are not left looking at a stale "not connected"
+		// screen after returning from the browser.
+		_ = s.notifier.SendHTMLWithButton(ctx, state.TelegramUserID,
+			"Connected to GitHub as <b>"+html.EscapeString(user.Login)+"</b>.\nOpen Branchy to create a subscription.",
+			"Open Branchy", "home")
 	}
 	return nil
 }

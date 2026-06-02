@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -49,6 +50,37 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("telegram %s failed: %s", e.Method, description)
 }
 
+// IsMessageNotModified reports whether err is Telegram's benign "message is not
+// modified" response, which happens whenever an inline-keyboard tap re-renders
+// identical text (a toggle that yields the same state, or a double tap). It
+// should be treated as success so the bot does not post a duplicate message.
+func IsMessageNotModified(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return strings.Contains(strings.ToLower(apiErr.Description), "message is not modified")
+	}
+	return false
+}
+
+type Me struct {
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
+}
+
+func (c *Client) GetMe(ctx context.Context) (Me, error) {
+	var resp struct {
+		OK     bool `json:"ok"`
+		Result Me   `json:"result"`
+	}
+	if err := c.get(ctx, "getMe", url.Values{}, &resp); err != nil {
+		return Me{}, err
+	}
+	if !resp.OK {
+		return Me{}, fmt.Errorf("telegram getMe returned ok=false")
+	}
+	return resp.Result, nil
+}
+
 func (c *Client) GetUpdates(ctx context.Context, offset int64, timeoutSeconds int) ([]Update, error) {
 	values := url.Values{}
 	values.Set("timeout", strconv.Itoa(timeoutSeconds))
@@ -71,6 +103,19 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64, timeoutSeconds in
 
 func (c *Client) SendHTML(ctx context.Context, chatID int64, text string) error {
 	_, err := c.SendMessage(ctx, chatID, text, nil)
+	return err
+}
+
+// SendHTMLWithButton sends an HTML message with a single inline button bound to
+// a static callback action. It is used by decoupled callers (e.g. the OAuth
+// flow) that need to drop the user into a bot menu without importing the
+// Telegram UI types.
+func (c *Client) SendHTMLWithButton(ctx context.Context, chatID int64, text, buttonText, callbackData string) error {
+	_, err := c.SendMessage(ctx, chatID, text, &InlineKeyboardMarkup{
+		InlineKeyboard: [][]InlineKeyboardButton{
+			{{Text: buttonText, CallbackData: callbackData}},
+		},
+	})
 	return err
 }
 

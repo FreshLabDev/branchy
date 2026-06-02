@@ -115,7 +115,7 @@ func TestHandlerEnqueuesMatchingSubscription(t *testing.T) {
 	if job.SubscriptionID != "sub-1" || job.DestinationChatID != 123 {
 		t.Fatalf("unexpected job: %+v", job)
 	}
-	if !strings.Contains(job.Text, "acme/repo") || !strings.Contains(job.Text, "push") {
+	if !strings.Contains(job.Text, "acme/repo") || !strings.Contains(job.Text, "Push") {
 		t.Fatalf("job text did not include formatted notification: %q", job.Text)
 	}
 }

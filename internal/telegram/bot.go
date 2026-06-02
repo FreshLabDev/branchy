@@ -47,7 +47,13 @@ type Bot struct {
 	sealer       *oauth.TokenSealer
 	subs         *subscriptions.Service
 	lastPollUnix atomic.Int64
+	username     atomic.Value // string, the bot's @username, fetched lazily
 }
+
+const (
+	repoPageSize   = 10
+	branchPageSize = 20
+)
 
 func NewBot(store Store, client *Client, oauthSvc OAuthService, githubClient *github.Client, sealer *oauth.TokenSealer, subs *subscriptions.Service) *Bot {
 	return &Bot{store: store, client: client, oauth: oauthSvc, github: githubClient, sealer: sealer, subs: subs}
@@ -131,7 +137,13 @@ func (b *Bot) handleMessage(ctx context.Context, msg Message) error {
 	}
 	if msg.Text == "/start" {
 		if msg.Chat.Type != "private" {
-			_, err := b.client.SendMessage(ctx, msg.Chat.ID, "Open a DM with Branchy to configure notifications.", nil)
+			var markup *InlineKeyboardMarkup
+			if username := b.botUsername(ctx); username != "" {
+				markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{
+					{{Text: "Open Branchy in DM", URL: "https://t.me/" + username}},
+				}}
+			}
+			_, err := b.client.SendMessage(ctx, msg.Chat.ID, "Open a direct message with Branchy to configure notifications.", markup)
 			return err
 		}
 		text, markup, err := b.mainMenu(ctx, msg.From.ID)
@@ -165,194 +177,224 @@ func (b *Bot) handleCallback(ctx context.Context, cq CallbackQuery) error {
 	if err := b.upsertUser(ctx, cq.From); err != nil {
 		return err
 	}
-	if err := b.client.AnswerCallbackQuery(ctx, cq.ID, "", false); err != nil {
-		slog.Warn("answer callback failed", "error", err)
+	// Dispatch first, then answer the callback query exactly once with an
+	// optional toast. Answering once (rather than a blank pre-answer) lets
+	// confirmations surface as a toast while the underlying menu stays in place.
+	toast, err := b.dispatchCallback(ctx, cq)
+	if ackErr := b.client.AnswerCallbackQuery(ctx, cq.ID, toast, false); ackErr != nil {
+		slog.Warn("answer callback failed", "error", ackErr)
 	}
+	return err
+}
 
+func (b *Bot) dispatchCallback(ctx context.Context, cq CallbackQuery) (string, error) {
 	switch cq.Data {
 	case "home":
-		return b.renderHome(ctx, cq)
-	case "repo:list":
-		return b.renderRepoList(ctx, cq, false)
-	case "sub:new":
-		return b.renderRepoList(ctx, cq, true)
+		return "", b.renderHome(ctx, cq)
 	case "sub:list":
-		return b.renderSubscriptionList(ctx, cq)
+		return "", b.renderSubscriptionList(ctx, cq)
 	case "test:menu":
-		return b.renderTestList(ctx, cq)
+		return "", b.renderTestList(ctx, cq)
+	}
+	if page, ok := parsePage(cq.Data, "repo:list"); ok {
+		return "", b.renderRepoList(ctx, cq, false, page)
+	}
+	if page, ok := parsePage(cq.Data, "sub:new"); ok {
+		return "", b.renderRepoList(ctx, cq, true, page)
 	}
 
 	if !strings.HasPrefix(cq.Data, "t:") {
-		return nil
+		return "", nil
 	}
 	tokenValue := strings.TrimPrefix(cq.Data, "t:")
 	token, err := b.store.GetCallbackToken(ctx, cq.From.ID, tokenValue)
 	if err != nil {
-		return b.respond(ctx, cq, "This action expired. Open the menu again.", backHome())
+		return "This action expired.", b.renderHome(ctx, cq)
 	}
 	if isConsumedAction(token.Action) {
 		token, err = b.store.ConsumeCallbackToken(ctx, cq.From.ID, tokenValue)
 		if err != nil {
-			return b.respond(ctx, cq, "This action already ran. Open the menu again.", backHome())
+			return "This action already ran.", b.renderHome(ctx, cq)
 		}
 	}
 	return b.handleToken(ctx, cq, token)
 }
 
-func (b *Bot) handleToken(ctx context.Context, cq CallbackQuery, token db.CallbackToken) error {
+// parsePage matches a static callback prefix optionally suffixed with ":<page>".
+func parsePage(data, prefix string) (int, bool) {
+	if data == prefix {
+		return 0, true
+	}
+	if rest, ok := strings.CutPrefix(data, prefix+":"); ok {
+		if n, err := strconv.Atoi(rest); err == nil && n >= 0 {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+func (b *Bot) handleToken(ctx context.Context, cq CallbackQuery, token db.CallbackToken) (string, error) {
 	switch token.Action {
 	case "repo.info":
 		var payload repoPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
-		return b.renderRepoInfo(ctx, cq, payload.Repo)
+		return "", b.renderRepoInfo(ctx, cq, payload.Repo)
 	case "repo.denied":
 		var payload repoPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
-		text := "<b>" + esc(payload.Repo.FullName) + "</b>\nBranchy can list this repository, but GitHub did not report webhook admin permission for your OAuth token."
-		return b.respond(ctx, cq, text, backHome())
+		text := "<b>" + esc(payload.Repo.FullName) + "</b>\nYou need admin rights on this repository to add a webhook. Ask an owner to grant access, or choose another repository."
+		return "", b.respond(ctx, cq, text, backHome())
 	case "sub.repo":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
-			return err
+			return "", err
 		}
-		return b.renderDestinationPicker(ctx, cq, draft, false, "")
+		return "", b.renderDestinationPicker(ctx, cq, draft, false, "")
 	case "sub.dest":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
-			return err
+			return "", err
 		}
 		if draft.DestinationType == "group" {
 			if err := b.requireGroupAdmin(ctx, draft.DestinationChatID, cq.From.ID); err != nil {
-				return b.respond(ctx, cq, "Group delivery requires you to be a group administrator.", backHome())
+				return "You must be a group administrator.", nil
 			}
 		}
-		return b.renderEventPicker(ctx, cq, draft)
+		return "", b.renderEventPicker(ctx, cq, draft)
 	case "sub.events.toggle":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
-			return err
+			return "", err
 		}
-		draft.Events = toggleEvent(draft.Events, draft.ToggleEvent)
-		draft.ToggleEvent = ""
-		return b.renderEventPicker(ctx, cq, draft)
+		if draft.ToggleEvent != "" {
+			draft.Events = toggleEvent(draft.Events, draft.ToggleEvent)
+			draft.ToggleEvent = ""
+		}
+		return "", b.renderEventPicker(ctx, cq, draft)
 	case "sub.branch":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
-			return err
+			return "", err
 		}
 		if draft.BranchMode == "selected" && draft.BranchName == "" {
-			return b.renderBranchList(ctx, cq, draft, false)
+			return "", b.renderBranchList(ctx, cq, draft)
 		}
 		return b.createSubscription(ctx, cq, draft)
 	case "sub.branch.selected":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
-			return err
+			return "", err
 		}
 		return b.createSubscription(ctx, cq, draft)
 	case "sub.view":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
-		return b.renderSubscription(ctx, cq, payload.ID)
+		return "", b.renderSubscription(ctx, cq, payload.ID)
 	case "sub.status":
 		var payload statusPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
 		if err := b.subs.SetStatus(ctx, cq.From.ID, payload.ID, payload.Status); err != nil {
-			return b.respond(ctx, cq, "Could not update subscription status: "+esc(err.Error()), backHome())
+			return "", b.respond(ctx, cq, esc(b.userMessage(err, "update the subscription")), backHome())
 		}
-		return b.renderSubscription(ctx, cq, payload.ID)
+		toast := "Subscription paused."
+		if payload.Status == "active" {
+			toast = "Subscription resumed."
+		}
+		return toast, b.renderSubscription(ctx, cq, payload.ID)
 	case "sub.delete":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
 		if err := b.subs.Delete(ctx, cq.From.ID, payload.ID); err != nil {
-			return b.respond(ctx, cq, "Could not delete subscription: "+esc(err.Error()), backHome())
+			return "", b.respond(ctx, cq, esc(b.userMessage(err, "delete the subscription")), backHome())
 		}
-		return b.respond(ctx, cq, "Subscription deleted.", backHome())
+		return "Subscription deleted.", b.renderSubscriptionList(ctx, cq)
 	case "sub.test":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
 		if err := b.subs.SendTest(ctx, b.client, cq.From.ID, payload.ID); err != nil {
-			return b.respond(ctx, cq, "Could not send test notification: "+esc(err.Error()), backHome())
+			return "", b.respond(ctx, cq, esc(b.userMessage(err, "send the test notification")), backHome())
 		}
-		return b.respond(ctx, cq, "Test notification sent.", backHome())
+		return "Test notification sent.", b.renderSubscription(ctx, cq, payload.ID)
 	case "sub.edit.events":
 		var payload editEventsPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
-		return b.renderEditEvents(ctx, cq, payload.ID, payload.Events)
+		return "", b.renderEditEvents(ctx, cq, payload.ID, payload.Events)
 	case "sub.edit.events.toggle":
 		var payload editEventsPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
-		payload.Events = toggleEvent(payload.Events, payload.ToggleEvent)
-		payload.ToggleEvent = ""
-		return b.renderEditEvents(ctx, cq, payload.ID, payload.Events)
+		if payload.ToggleEvent != "" {
+			payload.Events = toggleEvent(payload.Events, payload.ToggleEvent)
+			payload.ToggleEvent = ""
+		}
+		return "", b.renderEditEvents(ctx, cq, payload.ID, payload.Events)
 	case "sub.edit.events.save":
 		var payload editEventsPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
 		if err := b.subs.SetEvents(ctx, cq.From.ID, payload.ID, payload.Events); err != nil {
-			return b.respond(ctx, cq, "Could not update events: "+esc(err.Error()), backHome())
+			return "", b.respond(ctx, cq, esc(b.userMessage(err, "update the events")), backHome())
 		}
-		return b.renderSubscription(ctx, cq, payload.ID)
+		return "Events updated.", b.renderSubscription(ctx, cq, payload.ID)
 	case "sub.edit.branch":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
-		return b.renderEditBranch(ctx, cq, payload.ID)
+		return "", b.renderEditBranch(ctx, cq, payload.ID)
 	case "sub.edit.branch.save":
 		var payload editBranchPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
 		if err := b.subs.SetBranch(ctx, cq.From.ID, payload.ID, payload.BranchMode, payload.BranchName); err != nil {
-			return b.respond(ctx, cq, "Could not update branch filter: "+esc(err.Error()), backHome())
+			return "", b.respond(ctx, cq, esc(b.userMessage(err, "update the branch filter")), backHome())
 		}
-		return b.renderSubscription(ctx, cq, payload.ID)
+		return "Branch filter updated.", b.renderSubscription(ctx, cq, payload.ID)
 	case "sub.edit.branch.selected":
 		var payload editBranchPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
-		return b.renderEditBranchList(ctx, cq, payload.ID)
+		return "", b.renderEditBranchList(ctx, cq, payload.ID, payload.Page)
 	case "sub.edit.dest":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
-		return b.renderDestinationPicker(ctx, cq, subDraft{EditSubscriptionID: payload.ID}, true, payload.ID)
+		return "", b.renderDestinationPicker(ctx, cq, subDraft{EditSubscriptionID: payload.ID}, true, payload.ID)
 	case "sub.edit.dest.save":
 		var payload editDestinationPayload
 		if err := decode(token.Payload, &payload); err != nil {
-			return err
+			return "", err
 		}
 		if payload.DestinationType == "group" {
 			if err := b.requireGroupAdmin(ctx, payload.DestinationChatID, cq.From.ID); err != nil {
-				return b.respond(ctx, cq, "Group delivery requires you to be a group administrator.", backHome())
+				return "You must be a group administrator.", nil
 			}
 		}
 		if err := b.subs.SetDestination(ctx, cq.From.ID, payload.ID, payload.DestinationType, payload.DestinationChatID); err != nil {
-			return b.respond(ctx, cq, "Could not update destination: "+esc(err.Error()), backHome())
+			return "", b.respond(ctx, cq, esc(b.userMessage(err, "update the destination")), backHome())
 		}
-		return b.renderSubscription(ctx, cq, payload.ID)
+		return "Destination updated.", b.renderSubscription(ctx, cq, payload.ID)
 	}
-	return nil
+	return "", nil
 }
 
 func (b *Bot) mainMenu(ctx context.Context, telegramUserID int64) (string, *InlineKeyboardMarkup, error) {
@@ -360,13 +402,34 @@ func (b *Bot) mainMenu(ctx context.Context, telegramUserID int64) (string, *Inli
 	if err != nil {
 		return "", nil, err
 	}
-	status := "GitHub: not connected"
+	connected := false
+	lines := []string{"<b>Branchy</b>"}
 	if conn, err := b.store.GetGitHubConnection(ctx, telegramUserID); err == nil {
-		status = "GitHub: connected as " + conn.GitHubLogin
+		connected = true
+		lines = append(lines, "Connected as "+esc(conn.GitHubLogin))
+	} else {
+		lines = append(lines, "Not connected to GitHub")
 	}
-	text := "<b>Branchy</b>\n" + esc(status)
-	return text, &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{
-		{{Text: "Connect GitHub", URL: connectURL}},
+	connectLabel := "Connect GitHub"
+	if connected {
+		connectLabel = "Reconnect GitHub"
+		subs, err := b.store.ListSubscriptionsByUser(ctx, telegramUserID)
+		if err != nil {
+			return "", nil, err
+		}
+		switch len(subs) {
+		case 0:
+			lines = append(lines, "No subscriptions yet — tap New subscription to begin.")
+		case 1:
+			lines = append(lines, "1 subscription.")
+		default:
+			lines = append(lines, fmt.Sprintf("%d subscriptions.", len(subs)))
+		}
+	} else {
+		lines = append(lines, "Connect GitHub to choose repositories and events.")
+	}
+	return strings.Join(lines, "\n"), &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{
+		{{Text: connectLabel, URL: connectURL}},
 		{{Text: "Repositories", CallbackData: "repo:list"}, {Text: "New subscription", CallbackData: "sub:new"}},
 		{{Text: "Subscriptions", CallbackData: "sub:list"}, {Text: "Test notification", CallbackData: "test:menu"}},
 	}}, nil
@@ -380,37 +443,56 @@ func (b *Bot) renderHome(ctx context.Context, cq CallbackQuery) error {
 	return b.respond(ctx, cq, text, markup)
 }
 
-func (b *Bot) renderRepoList(ctx context.Context, cq CallbackQuery, subscribeMode bool) error {
+func (b *Bot) renderRepoList(ctx context.Context, cq CallbackQuery, subscribeMode bool, page int) error {
 	token, err := b.accessToken(ctx, cq.From.ID)
 	if err != nil {
 		return b.respond(ctx, cq, "Connect GitHub first.", backHome())
 	}
 	repos, err := b.github.ListRepositories(ctx, token)
 	if err != nil {
-		return b.respond(ctx, cq, "Could not list repositories: "+esc(err.Error()), backHome())
+		return b.respond(ctx, cq, esc(b.userMessage(err, "list your repositories")), backHome())
+	}
+	if subscribeMode {
+		// Only repositories the user can add a webhook to are actionable here;
+		// hide the rest instead of presenting dead-end buttons.
+		filtered := repos[:0:0]
+		for _, repo := range repos {
+			if repo.HasAdminPermission {
+				filtered = append(filtered, repo)
+			}
+		}
+		repos = filtered
 	}
 	if len(repos) == 0 {
+		if subscribeMode {
+			return b.respond(ctx, cq, "No repositories where you can add a webhook. You need admin rights on a repository to subscribe.", backHome())
+		}
 		return b.respond(ctx, cq, "No repositories found for this GitHub account.", backHome())
 	}
 
+	prefix := "repo:list"
 	title := "Repositories"
 	if subscribeMode {
+		prefix = "sub:new"
 		title = "Choose a repository"
 	}
+
+	pages := (len(repos) + repoPageSize - 1) / repoPageSize
+	if page >= pages {
+		page = pages - 1
+	}
+	start := page * repoPageSize
+	end := min(start+repoPageSize, len(repos))
+
 	rows := [][]InlineKeyboardButton{}
-	limit := min(len(repos), 20)
-	for i := 0; i < limit; i++ {
-		repo := repos[i]
+	for _, repo := range repos[start:end] {
 		action := "repo.info"
 		if subscribeMode {
 			action = "sub.repo"
 		}
-		if subscribeMode && !repo.HasAdminPermission {
-			action = "repo.denied"
-		}
 		text := repo.FullName
-		if !repo.HasAdminPermission {
-			text = text + " (no hook access)"
+		if !subscribeMode && !repo.HasAdminPermission {
+			text = text + "  ·  no hook access"
 		}
 		callback, err := b.token(ctx, cq.From.ID, action, repoPayload{Repo: repo})
 		if err != nil {
@@ -418,8 +500,15 @@ func (b *Bot) renderRepoList(ctx context.Context, cq CallbackQuery, subscribeMod
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: text, CallbackData: callback}})
 	}
+	if nav := paginationRow(prefix, page, pages); len(nav) > 0 {
+		rows = append(rows, nav)
+	}
 	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: "home"}})
-	return b.respond(ctx, cq, "<b>"+esc(title)+"</b>\nShowing up to 20 repositories.", &InlineKeyboardMarkup{InlineKeyboard: rows})
+	header := "<b>" + esc(title) + "</b>"
+	if pages > 1 {
+		header += fmt.Sprintf("\nPage %d of %d", page+1, pages)
+	}
+	return b.respond(ctx, cq, header, &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 func (b *Bot) renderRepoInfo(ctx context.Context, cq CallbackQuery, repo github.Repository) error {
@@ -434,7 +523,7 @@ func (b *Bot) renderRepoInfo(ctx context.Context, cq CallbackQuery, repo github.
 	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: "repo:list"}})
 	text := "<b>" + esc(repo.FullName) + "</b>\nDefault branch: " + esc(repo.DefaultBranch)
 	if !repo.HasAdminPermission {
-		text += "\nWebhook permission: not available"
+		text += "\nYou need admin rights here to add a webhook, so you cannot subscribe to this repository."
 	}
 	return b.respond(ctx, cq, text, &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
@@ -446,7 +535,7 @@ func (b *Bot) renderDestinationPicker(ctx context.Context, cq CallbackQuery, dra
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: "DM", CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: "Direct message", CallbackData: callback}})
 	} else {
 		draft.DestinationType = "dm"
 		draft.DestinationChatID = cq.From.ID
@@ -454,7 +543,7 @@ func (b *Bot) renderDestinationPicker(ctx context.Context, cq CallbackQuery, dra
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: "DM", CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: "Direct message", CallbackData: callback}})
 	}
 
 	groups, err := b.store.ListKnownGroups(ctx, cq.From.ID)
@@ -483,7 +572,11 @@ func (b *Bot) renderDestinationPicker(ctx context.Context, cq CallbackQuery, dra
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: label, CallbackData: callback}})
 	}
-	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: "home"}})
+	backButton, err := b.stepBackButton(ctx, cq.From.ID, edit, editID, "sub:new")
+	if err != nil {
+		return err
+	}
+	rows = append(rows, []InlineKeyboardButton{backButton})
 	text := "<b>Choose destination</b>\nGroups appear here after Branchy is added to them."
 	return b.respond(ctx, cq, text, &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
@@ -493,66 +586,114 @@ func (b *Bot) renderEventPicker(ctx context.Context, cq CallbackQuery, draft sub
 	for _, event := range []string{"push", "pull_request", "release"} {
 		next := draft
 		next.ToggleEvent = event
-		label := event
-		if contains(next.Events, event) {
-			label = "[x] " + label
-		} else {
-			label = "[ ] " + label
-		}
 		callback, err := b.token(ctx, cq.From.ID, "sub.events.toggle", next)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: label, CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: checkbox(contains(draft.Events, event), eventLabel(event)), CallbackData: callback}})
 	}
+	text := "<b>Choose events</b>\nSelect at least one event, then choose a branch filter."
 	if len(draft.Events) > 0 {
 		for _, branchMode := range []string{"all", "default", "selected"} {
 			next := draft
 			next.BranchMode = branchMode
 			next.BranchName = ""
-			label := branchLabel(branchMode, "")
 			callback, err := b.token(ctx, cq.From.ID, "sub.branch", next)
 			if err != nil {
 				return err
 			}
-			rows = append(rows, []InlineKeyboardButton{{Text: label, CallbackData: callback}})
+			rows = append(rows, []InlineKeyboardButton{{Text: branchLabel(branchMode, ""), CallbackData: callback}})
 		}
 	}
-	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: "home"}})
-	return b.respond(ctx, cq, "<b>Choose events</b>\nSelect at least one event, then choose a branch filter.", &InlineKeyboardMarkup{InlineKeyboard: rows})
+	// Back returns to the destination step, preserving the draft.
+	backCB, err := b.token(ctx, cq.From.ID, "sub.repo", draft)
+	if err != nil {
+		return err
+	}
+	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
+	return b.respond(ctx, cq, text, &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderBranchList(ctx context.Context, cq CallbackQuery, draft subDraft, edit bool) error {
+func (b *Bot) renderBranchList(ctx context.Context, cq CallbackQuery, draft subDraft) error {
 	token, err := b.accessToken(ctx, cq.From.ID)
 	if err != nil {
 		return b.respond(ctx, cq, "Connect GitHub first.", backHome())
 	}
 	branches, err := b.github.ListBranches(ctx, token, draft.Repo.FullName)
 	if err != nil {
-		return b.respond(ctx, cq, "Could not list branches: "+esc(err.Error()), backHome())
+		return b.respond(ctx, cq, esc(b.userMessage(err, "list the branches")), backHome())
 	}
+	// Back returns to the event picker (ToggleEvent is empty, so it is a no-op
+	// that simply re-renders), preserving the draft.
+	backCB, err := b.token(ctx, cq.From.ID, "sub.events.toggle", draft)
+	if err != nil {
+		return err
+	}
+	backRow := []InlineKeyboardButton{{Text: "Back", CallbackData: backCB}}
+
+	if len(branches) == 0 {
+		allDraft := draft
+		allDraft.BranchMode = "all"
+		allDraft.BranchName = ""
+		allCB, err := b.token(ctx, cq.From.ID, "sub.branch", allDraft)
+		if err != nil {
+			return err
+		}
+		rows := [][]InlineKeyboardButton{
+			{{Text: "Use all branches", CallbackData: allCB}},
+			backRow,
+		}
+		return b.respond(ctx, cq, "<b>Choose branch</b>\nThis repository has no branches to choose from.", &InlineKeyboardMarkup{InlineKeyboard: rows})
+	}
+
+	pages := (len(branches) + branchPageSize - 1) / branchPageSize
+	page := clampPage(draft.BranchPage, pages)
+	start := page * branchPageSize
+	end := min(start+branchPageSize, len(branches))
+
 	rows := [][]InlineKeyboardButton{}
-	limit := min(len(branches), 30)
-	for i := 0; i < limit; i++ {
+	for _, branch := range branches[start:end] {
 		next := draft
 		next.BranchMode = "selected"
-		next.BranchName = branches[i].Name
+		next.BranchName = branch.Name
 		callback, err := b.token(ctx, cq.From.ID, "sub.branch.selected", next)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: branches[i].Name, CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: branch.Name, CallbackData: callback}})
 	}
-	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: "home"}})
-	return b.respond(ctx, cq, "<b>Choose branch</b>\nShowing up to 30 branches.", &InlineKeyboardMarkup{InlineKeyboard: rows})
+	var nav []InlineKeyboardButton
+	if page > 0 {
+		button, err := b.branchNavButton(ctx, cq.From.ID, draft, "‹ Prev", page-1)
+		if err != nil {
+			return err
+		}
+		nav = append(nav, button)
+	}
+	if page < pages-1 {
+		button, err := b.branchNavButton(ctx, cq.From.ID, draft, "Next ›", page+1)
+		if err != nil {
+			return err
+		}
+		nav = append(nav, button)
+	}
+	if len(nav) > 0 {
+		rows = append(rows, nav)
+	}
+	rows = append(rows, backRow)
+	header := "<b>Choose branch</b>"
+	if pages > 1 {
+		header += fmt.Sprintf("\nPage %d of %d", page+1, pages)
+	}
+	return b.respond(ctx, cq, header, &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) createSubscription(ctx context.Context, cq CallbackQuery, draft subDraft) error {
+func (b *Bot) createSubscription(ctx context.Context, cq CallbackQuery, draft subDraft) (string, error) {
 	id, err := b.subs.Create(ctx, cq.From.ID, draft.Repo, draft.DestinationType, draft.DestinationChatID, draft.Events, draft.BranchMode, draft.BranchName)
 	if err != nil {
-		return b.respond(ctx, cq, "Could not create subscription: "+esc(err.Error()), backHome())
+		return "", b.respond(ctx, cq, esc(b.userMessage(err, "create the subscription")), backHome())
 	}
-	return b.renderSubscription(ctx, cq, id)
+	return "Subscription created.", b.renderSubscription(ctx, cq, id)
 }
 
 func (b *Bot) renderSubscriptionList(ctx context.Context, cq CallbackQuery) error {
@@ -569,11 +710,14 @@ func (b *Bot) renderSubscriptionList(ctx context.Context, cq CallbackQuery) erro
 		if err != nil {
 			return err
 		}
-		label := sub.RepoFullName + " - " + strings.Join(sub.Events, ",") + " - " + sub.Status
+		label := sub.RepoFullName
+		if sub.Status == "paused" {
+			label += "  ·  paused"
+		}
 		rows = append(rows, []InlineKeyboardButton{{Text: label, CallbackData: callback}})
 	}
 	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: "home"}})
-	return b.respond(ctx, cq, "<b>Subscriptions</b>", &InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, "<b>Subscriptions</b>\nTap a subscription to view or edit it.", &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 func (b *Bot) renderTestList(ctx context.Context, cq CallbackQuery) error {
@@ -590,10 +734,11 @@ func (b *Bot) renderTestList(ctx context.Context, cq CallbackQuery) error {
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: sub.RepoFullName, CallbackData: callback}})
+		label := sub.RepoFullName + "  →  " + shortDestination(sub)
+		rows = append(rows, []InlineKeyboardButton{{Text: label, CallbackData: callback}})
 	}
 	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: "home"}})
-	return b.respond(ctx, cq, "<b>Send test notification</b>", &InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, "<b>Send test notification</b>\nTap a subscription to send a test to its destination.", &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 func (b *Bot) renderSubscription(ctx context.Context, cq CallbackQuery, id string) error {
@@ -639,13 +784,17 @@ func (b *Bot) renderSubscription(ctx context.Context, cq CallbackQuery, id strin
 		[]InlineKeyboardButton{{Text: "Delete", CallbackData: deleteCB}},
 		[]InlineKeyboardButton{{Text: "Back", CallbackData: "sub:list"}},
 	)
+	destLabel, destWarning := b.describeDestination(ctx, cq.From.ID, sub)
 	text := fmt.Sprintf("<b>%s</b>\nStatus: %s\nDestination: %s\nEvents: %s\nBranch: %s",
 		esc(sub.RepoFullName),
-		esc(sub.Status),
-		esc(destinationLabel(sub)),
-		esc(strings.Join(sub.Events, ", ")),
+		esc(statusText(sub.Status)),
+		esc(destLabel),
+		esc(strings.Join(humanEvents(sub.Events), ", ")),
 		esc(branchLabel(sub.BranchMode, sub.BranchName)),
 	)
+	if destWarning != "" {
+		text += "\n" + esc(destWarning)
+	}
 	return b.respond(ctx, cq, text, &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
@@ -653,15 +802,11 @@ func (b *Bot) renderEditEvents(ctx context.Context, cq CallbackQuery, id string,
 	rows := [][]InlineKeyboardButton{}
 	for _, event := range []string{"push", "pull_request", "release"} {
 		payload := editEventsPayload{ID: id, Events: events, ToggleEvent: event}
-		label := "[ ] " + event
-		if contains(events, event) {
-			label = "[x] " + event
-		}
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.events.toggle", payload)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: label, CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: checkbox(contains(events, event), eventLabel(event)), CallbackData: callback}})
 	}
 	if len(events) > 0 {
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.events.save", editEventsPayload{ID: id, Events: events})
@@ -670,8 +815,12 @@ func (b *Bot) renderEditEvents(ctx context.Context, cq CallbackQuery, id string,
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: "Save", CallbackData: callback}})
 	}
-	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: "sub:list"}})
-	return b.respond(ctx, cq, "<b>Edit events</b>", &InlineKeyboardMarkup{InlineKeyboard: rows})
+	backButton, err := b.viewButton(ctx, cq.From.ID, id)
+	if err != nil {
+		return err
+	}
+	rows = append(rows, []InlineKeyboardButton{backButton})
+	return b.respond(ctx, cq, "<b>Edit events</b>\nSelect at least one event, then tap Save.", &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 func (b *Bot) renderEditBranch(ctx context.Context, cq CallbackQuery, id string) error {
@@ -688,11 +837,15 @@ func (b *Bot) renderEditBranch(ctx context.Context, cq CallbackQuery, id string)
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: branchLabel(mode, ""), CallbackData: callback}})
 	}
-	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: "sub:list"}})
+	backButton, err := b.viewButton(ctx, cq.From.ID, id)
+	if err != nil {
+		return err
+	}
+	rows = append(rows, []InlineKeyboardButton{backButton})
 	return b.respond(ctx, cq, "<b>Edit branch filter</b>", &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEditBranchList(ctx context.Context, cq CallbackQuery, id string) error {
+func (b *Bot) renderEditBranchList(ctx context.Context, cq CallbackQuery, id string, page int) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
 		return b.respond(ctx, cq, "Subscription not found.", backHome())
@@ -703,25 +856,77 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq CallbackQuery, id str
 	}
 	branches, err := b.github.ListBranches(ctx, token, sub.RepoFullName)
 	if err != nil {
-		return b.respond(ctx, cq, "Could not list branches: "+esc(err.Error()), backHome())
+		return b.respond(ctx, cq, esc(b.userMessage(err, "list the branches")), backHome())
 	}
+	// Back returns to the branch-mode picker for this subscription.
+	backCB, err := b.token(ctx, cq.From.ID, "sub.edit.branch", subscriptionPayload{ID: id})
+	if err != nil {
+		return err
+	}
+	backRow := []InlineKeyboardButton{{Text: "Back", CallbackData: backCB}}
+
+	if len(branches) == 0 {
+		allCB, err := b.token(ctx, cq.From.ID, "sub.edit.branch.save", editBranchPayload{ID: id, BranchMode: "all"})
+		if err != nil {
+			return err
+		}
+		rows := [][]InlineKeyboardButton{
+			{{Text: "Use all branches", CallbackData: allCB}},
+			backRow,
+		}
+		return b.respond(ctx, cq, "<b>Choose branch</b>\nThis repository has no branches to choose from.", &InlineKeyboardMarkup{InlineKeyboard: rows})
+	}
+
+	pages := (len(branches) + branchPageSize - 1) / branchPageSize
+	page = clampPage(page, pages)
+	start := page * branchPageSize
+	end := min(start+branchPageSize, len(branches))
+
 	rows := [][]InlineKeyboardButton{}
-	limit := min(len(branches), 30)
-	for i := 0; i < limit; i++ {
-		payload := editBranchPayload{ID: id, BranchMode: "selected", BranchName: branches[i].Name}
+	for _, branch := range branches[start:end] {
+		payload := editBranchPayload{ID: id, BranchMode: "selected", BranchName: branch.Name}
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.branch.save", payload)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: branches[i].Name, CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: branch.Name, CallbackData: callback}})
 	}
-	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: "sub:list"}})
-	return b.respond(ctx, cq, "<b>Choose branch</b>\nShowing up to 30 branches.", &InlineKeyboardMarkup{InlineKeyboard: rows})
+	var nav []InlineKeyboardButton
+	for _, step := range []struct {
+		text string
+		page int
+		show bool
+	}{
+		{"‹ Prev", page - 1, page > 0},
+		{"Next ›", page + 1, page < pages-1},
+	} {
+		if !step.show {
+			continue
+		}
+		callback, err := b.token(ctx, cq.From.ID, "sub.edit.branch.selected", editBranchPayload{ID: id, BranchMode: "selected", Page: step.page})
+		if err != nil {
+			return err
+		}
+		nav = append(nav, InlineKeyboardButton{Text: step.text, CallbackData: callback})
+	}
+	if len(nav) > 0 {
+		rows = append(rows, nav)
+	}
+	rows = append(rows, backRow)
+	header := "<b>Choose branch</b>"
+	if pages > 1 {
+		header += fmt.Sprintf("\nPage %d of %d", page+1, pages)
+	}
+	return b.respond(ctx, cq, header, &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 func (b *Bot) respond(ctx context.Context, cq CallbackQuery, text string, markup *InlineKeyboardMarkup) error {
 	if cq.Message.MessageID != 0 {
-		if err := b.client.EditMessageText(ctx, cq.Message.Chat.ID, cq.Message.MessageID, text, markup); err == nil {
+		err := b.client.EditMessageText(ctx, cq.Message.Chat.ID, cq.Message.MessageID, text, markup)
+		// "message is not modified" means the view already shows this state
+		// (e.g. a toggle that produced identical text, or a double tap). Treat
+		// it as success instead of posting a duplicate message.
+		if err == nil || IsMessageNotModified(err) {
 			return nil
 		}
 	}
@@ -806,11 +1011,151 @@ func branchLabel(mode, branch string) string {
 	}
 }
 
-func destinationLabel(sub db.Subscription) string {
+// describeDestination returns a human label for a subscription's destination
+// and an optional warning when a group destination is no longer reachable
+// (the bot was removed or the group is unknown).
+func (b *Bot) describeDestination(ctx context.Context, telegramUserID int64, sub db.Subscription) (string, string) {
+	if sub.DestinationType == "dm" {
+		return "Direct message", ""
+	}
+	groups, err := b.store.ListKnownGroups(ctx, telegramUserID)
+	if err == nil {
+		for _, group := range groups {
+			if group.ID == sub.DestinationChatID {
+				if group.Title != "" {
+					return group.Title, ""
+				}
+				return fmt.Sprintf("Group %d", group.ID), ""
+			}
+		}
+	}
+	return "Group (unavailable)", "⚠ Branchy may no longer be in this group, so deliveries here can fail."
+}
+
+func shortDestination(sub db.Subscription) string {
 	if sub.DestinationType == "dm" {
 		return "DM"
 	}
-	return "Group " + fmt.Sprint(sub.DestinationChatID)
+	return "group"
+}
+
+func statusText(status string) string {
+	switch status {
+	case "active":
+		return "Active"
+	case "paused":
+		return "Paused"
+	default:
+		return status
+	}
+}
+
+func eventLabel(event string) string {
+	switch event {
+	case "push":
+		return "Push"
+	case "pull_request":
+		return "Pull requests"
+	case "release":
+		return "Releases"
+	default:
+		return event
+	}
+}
+
+func humanEvents(events []string) []string {
+	out := make([]string, len(events))
+	for i, event := range events {
+		out[i] = eventLabel(event)
+	}
+	return out
+}
+
+func checkbox(on bool, label string) string {
+	if on {
+		return "☑ " + label
+	}
+	return "☐ " + label
+}
+
+// botUsername returns the bot's @username, fetched lazily and cached, for
+// building t.me deep links. Returns "" if it cannot be resolved.
+func (b *Bot) botUsername(ctx context.Context) string {
+	if cached, ok := b.username.Load().(string); ok && cached != "" {
+		return cached
+	}
+	me, err := b.client.GetMe(ctx)
+	if err != nil {
+		slog.Warn("telegram getMe failed", "error", err)
+		return ""
+	}
+	b.username.Store(me.Username)
+	return me.Username
+}
+
+// userMessage maps an error to text safe to show the user: validation errors
+// pass through, everything else is logged and shown as a generic message.
+func (b *Bot) userMessage(err error, action string) string {
+	var v *subscriptions.ValidationError
+	if errors.As(err, &v) {
+		return v.Error()
+	}
+	slog.Error("bot action failed", "action", action, "error", err)
+	return "Something went wrong while trying to " + action + ". Please try again."
+}
+
+// viewButton builds a "Back" button that returns to a subscription's detail view.
+func (b *Bot) viewButton(ctx context.Context, telegramUserID int64, id string) (InlineKeyboardButton, error) {
+	callback, err := b.token(ctx, telegramUserID, "sub.view", subscriptionPayload{ID: id})
+	if err != nil {
+		return InlineKeyboardButton{}, err
+	}
+	return InlineKeyboardButton{Text: "Back", CallbackData: callback}, nil
+}
+
+// stepBackButton returns the destination-picker's Back button: to the
+// subscription detail when editing, or to the repository list when creating.
+func (b *Bot) stepBackButton(ctx context.Context, telegramUserID int64, edit bool, editID, createTarget string) (InlineKeyboardButton, error) {
+	if edit {
+		return b.viewButton(ctx, telegramUserID, editID)
+	}
+	return InlineKeyboardButton{Text: "Back", CallbackData: createTarget}, nil
+}
+
+func (b *Bot) branchNavButton(ctx context.Context, telegramUserID int64, draft subDraft, text string, page int) (InlineKeyboardButton, error) {
+	next := draft
+	next.BranchMode = "selected"
+	next.BranchName = ""
+	next.BranchPage = page
+	callback, err := b.token(ctx, telegramUserID, "sub.branch", next)
+	if err != nil {
+		return InlineKeyboardButton{}, err
+	}
+	return InlineKeyboardButton{Text: text, CallbackData: callback}, nil
+}
+
+func paginationRow(prefix string, page, pages int) []InlineKeyboardButton {
+	if pages <= 1 {
+		return nil
+	}
+	var row []InlineKeyboardButton
+	if page > 0 {
+		row = append(row, InlineKeyboardButton{Text: "‹ Prev", CallbackData: fmt.Sprintf("%s:%d", prefix, page-1)})
+	}
+	if page < pages-1 {
+		row = append(row, InlineKeyboardButton{Text: "Next ›", CallbackData: fmt.Sprintf("%s:%d", prefix, page+1)})
+	}
+	return row
+}
+
+func clampPage(page, pages int) int {
+	if pages <= 0 || page < 0 {
+		return 0
+	}
+	if page >= pages {
+		return pages - 1
+	}
+	return page
 }
 
 func contains(values []string, needle string) bool {
@@ -870,6 +1215,7 @@ type subDraft struct {
 	ToggleEvent        string            `json:"toggle_event,omitempty"`
 	BranchMode         string            `json:"branch_mode,omitempty"`
 	BranchName         string            `json:"branch_name,omitempty"`
+	BranchPage         int               `json:"branch_page,omitempty"`
 	EditSubscriptionID string            `json:"edit_subscription_id,omitempty"`
 }
 
@@ -892,6 +1238,7 @@ type editBranchPayload struct {
 	ID         string `json:"id"`
 	BranchMode string `json:"branch_mode"`
 	BranchName string `json:"branch_name,omitempty"`
+	Page       int    `json:"page,omitempty"`
 }
 
 type editDestinationPayload struct {

@@ -20,7 +20,7 @@ type Event struct {
 
 func GitHubEvent(event Event) string {
 	lines := []string{
-		fmt.Sprintf("<b>%s</b> %s", esc(event.RepoFullName), esc(event.Type)),
+		fmt.Sprintf("<b>%s</b> %s", esc(event.RepoFullName), esc(eventTitle(event.Type))),
 		fmt.Sprintf("Actor: %s", esc(event.Actor)),
 	}
 	if event.Branch != "" {
@@ -39,7 +39,20 @@ func GitHubEvent(event Event) string {
 }
 
 func TestMessage(repoFullName string) string {
-	return "<b>" + esc(repoFullName) + "</b> test\nBranchy can deliver notifications to this chat."
+	return "<b>" + esc(repoFullName) + "</b>\nTest notification. Branchy can deliver notifications to this chat."
+}
+
+func eventTitle(eventType string) string {
+	switch eventType {
+	case "push":
+		return "Push"
+	case "pull_request":
+		return "Pull request"
+	case "release":
+		return "Release"
+	default:
+		return eventType
+	}
 }
 
 func esc(value string) string {
