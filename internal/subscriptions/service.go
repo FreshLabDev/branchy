@@ -5,6 +5,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"sync"
 
 	"branchy/internal/db"
 	"branchy/internal/github"
@@ -36,7 +37,6 @@ type Store interface {
 	ListActiveEventsForRepo(ctx context.Context, repoFullName string) ([]string, error)
 	UpsertRepoHook(ctx context.Context, repoID int64, fullName string, hookID int64, events []string, payloadURL string) error
 	DeleteRepoHook(ctx context.Context, repoID int64) error
-	WithRepoLock(ctx context.Context, key string, fn func() error) error
 }
 
 type Sender interface {
@@ -49,14 +49,25 @@ type Config struct {
 }
 
 type Service struct {
-	cfg    Config
-	store  Store
-	github *github.Client
-	sealer *oauth.TokenSealer
+	cfg       Config
+	store     Store
+	github    *github.Client
+	sealer    *oauth.TokenSealer
+	repoLocks sync.Map // repoFullName -> *sync.Mutex
 }
 
 func NewService(cfg Config, store Store, githubClient *github.Client, sealer *oauth.TokenSealer) *Service {
 	return &Service{cfg: cfg, store: store, github: githubClient, sealer: sealer}
+}
+
+// repoMutex serializes webhook synchronization per repository within this
+// process. The MVP runs as a single service instance (see docs/architecture),
+// so an in-process lock is sufficient and avoids pinning a database connection
+// across the GitHub HTTP call. Running multiple instances would require a
+// cross-process lock instead.
+func (s *Service) repoMutex(repoFullName string) *sync.Mutex {
+	actual, _ := s.repoLocks.LoadOrStore(repoFullName, &sync.Mutex{})
+	return actual.(*sync.Mutex)
 }
 
 func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.Repository, destinationType string, destinationChatID int64, events []string, branchMode, branchName string) (string, error) {
@@ -161,33 +172,35 @@ func (s *Service) SendTest(ctx context.Context, sender Sender, telegramUserID in
 func (s *Service) EnsureWebhook(ctx context.Context, telegramUserID, repoID int64, repoFullName string) error {
 	// Serialize per repository so concurrent subscription edits cannot push a
 	// stale event union to GitHub and leave the hook diverged from the database.
-	return s.store.WithRepoLock(ctx, repoFullName, func() error {
-		events, err := s.store.ListActiveEventsForRepo(ctx, repoFullName)
-		if err != nil {
+	mu := s.repoMutex(repoFullName)
+	mu.Lock()
+	defer mu.Unlock()
+
+	events, err := s.store.ListActiveEventsForRepo(ctx, repoFullName)
+	if err != nil {
+		return err
+	}
+	conn, err := s.store.GetGitHubConnection(ctx, telegramUserID)
+	if err != nil {
+		return err
+	}
+	token, err := s.sealer.Decrypt(conn.EncryptedAccessToken)
+	if err != nil {
+		return err
+	}
+	payloadURL := strings.TrimRight(s.cfg.PublicBaseURL, "/") + "/webhooks/github"
+	if len(events) == 0 {
+		if err := s.github.DeleteWebhookByURL(ctx, token, repoFullName, payloadURL); err != nil {
 			return err
 		}
-		conn, err := s.store.GetGitHubConnection(ctx, telegramUserID)
-		if err != nil {
-			return err
-		}
-		token, err := s.sealer.Decrypt(conn.EncryptedAccessToken)
-		if err != nil {
-			return err
-		}
-		payloadURL := strings.TrimRight(s.cfg.PublicBaseURL, "/") + "/webhooks/github"
-		if len(events) == 0 {
-			if err := s.github.DeleteWebhookByURL(ctx, token, repoFullName, payloadURL); err != nil {
-				return err
-			}
-			return s.store.DeleteRepoHook(ctx, repoID)
-		}
-		sort.Strings(events)
-		hook, err := s.github.EnsureWebhook(ctx, token, repoFullName, payloadURL, s.cfg.GitHubWebhookSecret, events)
-		if err != nil {
-			return err
-		}
-		return s.store.UpsertRepoHook(ctx, repoID, repoFullName, hook.ID, events, payloadURL)
-	})
+		return s.store.DeleteRepoHook(ctx, repoID)
+	}
+	sort.Strings(events)
+	hook, err := s.github.EnsureWebhook(ctx, token, repoFullName, payloadURL, s.cfg.GitHubWebhookSecret, events)
+	if err != nil {
+		return err
+	}
+	return s.store.UpsertRepoHook(ctx, repoID, repoFullName, hook.ID, events, payloadURL)
 }
 
 func toDBRepo(repo github.Repository) db.Repository {

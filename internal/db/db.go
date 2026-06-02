@@ -641,27 +641,6 @@ func (s *Store) SetRuntimeValue(ctx context.Context, key, value string) error {
 	return err
 }
 
-// WithRepoLock runs fn while holding a PostgreSQL session-level advisory lock
-// keyed by repo full name. It serializes the read-modify-write of a
-// repository's webhook configuration (event union -> GitHub hook -> repo_hooks
-// row) across concurrent edits and across processes, so the GitHub hook cannot
-// durably diverge from the database when two edits for the same repo race.
-func (s *Store) WithRepoLock(ctx context.Context, key string, fn func() error) error {
-	conn, err := s.pool.Acquire(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Release()
-	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1))`, key); err != nil {
-		return err
-	}
-	defer func() {
-		// Use a fresh context so the unlock still runs if ctx was cancelled.
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtext($1))`, key)
-	}()
-	return fn()
-}
-
 // CleanupExpired removes state that is safe to discard so long-running
 // deployments do not accumulate unbounded rows: expired OAuth states, expired
 // or consumed callback tokens, old webhook delivery dedupe records, and
@@ -676,10 +655,21 @@ func (s *Store) CleanupExpired(ctx context.Context, retention time.Duration) err
 	if _, err := s.pool.Exec(ctx, `DELETE FROM callback_tokens WHERE expires_at < now() OR consumed_at IS NOT NULL`); err != nil {
 		return err
 	}
-	if _, err := s.pool.Exec(ctx, `DELETE FROM webhook_deliveries WHERE received_at < now() - $1::interval`, interval(retention)); err != nil {
+	if _, err := s.pool.Exec(ctx, `DELETE FROM notification_jobs WHERE status IN ('sent', 'failed') AND updated_at < now() - $1::interval`, interval(retention)); err != nil {
 		return err
 	}
-	if _, err := s.pool.Exec(ctx, `DELETE FROM notification_jobs WHERE status IN ('sent', 'failed') AND updated_at < now() - $1::interval`, interval(retention)); err != nil {
+	// Delete old delivery records, but never one that still has a non-terminal
+	// job: notification_jobs cascades on delete, so purging such a delivery
+	// would silently drop a job that has not been sent yet.
+	if _, err := s.pool.Exec(ctx, `
+		DELETE FROM webhook_deliveries d
+		WHERE d.received_at < now() - $1::interval
+		  AND NOT EXISTS (
+			SELECT 1 FROM notification_jobs j
+			WHERE j.delivery_id = d.delivery_id
+			  AND j.status IN ('pending', 'processing')
+		)
+	`, interval(retention)); err != nil {
 		return err
 	}
 	return nil

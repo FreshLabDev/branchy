@@ -241,13 +241,6 @@ func (b *Bot) handleToken(ctx context.Context, cq CallbackQuery, token db.Callba
 			return "", err
 		}
 		return "", b.renderRepoInfo(ctx, cq, payload.Repo)
-	case "repo.denied":
-		var payload repoPayload
-		if err := decode(token.Payload, &payload); err != nil {
-			return "", err
-		}
-		text := "<b>" + esc(payload.Repo.FullName) + "</b>\nYou need admin rights on this repository to add a webhook. Ask an owner to grant access, or choose another repository."
-		return "", b.respond(ctx, cq, text, backHome())
 	case "sub.repo":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
@@ -261,7 +254,9 @@ func (b *Bot) handleToken(ctx context.Context, cq CallbackQuery, token db.Callba
 		}
 		if draft.DestinationType == "group" {
 			if err := b.requireGroupAdmin(ctx, draft.DestinationChatID, cq.From.ID); err != nil {
-				return "You must be a group administrator.", nil
+				return b.groupAdminFailure(ctx, cq, err, func() error {
+					return b.renderDestinationPicker(ctx, cq, draft, false, "")
+				})
 			}
 		}
 		return "", b.renderEventPicker(ctx, cq, draft)
@@ -386,7 +381,9 @@ func (b *Bot) handleToken(ctx context.Context, cq CallbackQuery, token db.Callba
 		}
 		if payload.DestinationType == "group" {
 			if err := b.requireGroupAdmin(ctx, payload.DestinationChatID, cq.From.ID); err != nil {
-				return "You must be a group administrator.", nil
+				return b.groupAdminFailure(ctx, cq, err, func() error {
+					return b.renderDestinationPicker(ctx, cq, subDraft{EditSubscriptionID: payload.ID}, true, payload.ID)
+				})
 			}
 		}
 		if err := b.subs.SetDestination(ctx, cq.From.ID, payload.ID, payload.DestinationType, payload.DestinationChatID); err != nil {
@@ -951,6 +948,8 @@ func (b *Bot) accessToken(ctx context.Context, telegramUserID int64) (string, er
 	return b.sealer.Decrypt(conn.EncryptedAccessToken)
 }
 
+var errNotGroupAdmin = errors.New("not a group admin")
+
 func (b *Bot) requireGroupAdmin(ctx context.Context, chatID, userID int64) error {
 	member, err := b.client.GetChatMember(ctx, chatID, userID)
 	if err != nil {
@@ -959,7 +958,20 @@ func (b *Bot) requireGroupAdmin(ctx context.Context, chatID, userID int64) error
 	if member.Status == "creator" || member.Status == "administrator" {
 		return nil
 	}
-	return errors.New("not a group admin")
+	return errNotGroupAdmin
+}
+
+// groupAdminFailure reports a failed group-admin check honestly: a genuine
+// non-admin is told so, a transient lookup failure is not. It re-renders the
+// destination picker so fresh callback tokens are issued (the tapped token may
+// already be consumed), letting the user retry.
+func (b *Bot) groupAdminFailure(ctx context.Context, cq CallbackQuery, err error, rerender func() error) (string, error) {
+	toast := "You must be a group administrator."
+	if !errors.Is(err, errNotGroupAdmin) {
+		slog.Error("group admin check failed", "error", err)
+		toast = "Couldn't verify group access — please try again."
+	}
+	return toast, rerender()
 }
 
 func (b *Bot) token(ctx context.Context, telegramUserID int64, action string, payload any) (string, error) {
