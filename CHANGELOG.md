@@ -28,8 +28,33 @@ Use this section for changes that are merged but not released yet.
 - Apache-2.0 license under FreshLab.
 - Project documentation for architecture, GitHub integration, Telegram behavior,
   versioning, and release process.
+- Pagination for the repository and branch pickers (Prev/Next) instead of
+  silent truncation.
+- Post-OAuth message with an "Open Branchy" button into the connected main menu.
+- Periodic cleanup of expired OAuth states and callback tokens, old webhook
+  deliveries, and terminal notification jobs.
+- App container healthcheck and `restart: unless-stopped` in Docker Compose;
+  `ca-certificates` in the runtime image.
 
 ### Fixed
+
+- Inline menus no longer post duplicate messages on identical re-renders
+  (Telegram "message is not modified" is treated as success).
+- Outbox jobs left in `processing` after a worker crash now count the attempt
+  on lease expiry and are marked `failed` at `max_attempts` instead of looping
+  forever.
+- Subscription creation no longer deletes a reactivated pre-existing
+  subscription when webhook setup fails.
+- Per-repository webhook synchronization is serialized with a PostgreSQL
+  advisory lock so the GitHub hook cannot diverge from the database.
+- Graceful shutdown waits for the worker and poller goroutines before the
+  database pool closes.
+- User-facing errors no longer leak raw Go/GitHub/Telegram error strings;
+  confirmations are shown as callback toasts.
+- Back navigation in create and edit flows returns to the correct previous
+  screen.
+- Humanized event labels, group titles, and status text in the UI and
+  notifications.
 
 - Callback tokens for final subscription creation actions are consumed after use.
 - Subscription event arrays are normalized so equivalent event sets are stored in
@@ -43,6 +68,11 @@ Use this section for changes that are merged but not released yet.
 - GitHub webhook signatures are checked before JSON parsing.
 - Telegram notification content is HTML-escaped before sending.
 - Telegram API errors avoid exposing bot-token URLs.
+- Notification links are restricted to `http(s)` schemes before being placed in
+  Telegram messages.
+- `/healthz` no longer returns raw database error strings on its public port.
+- The `.env.example` `APP_SECRET` placeholder is intentionally too short so an
+  unedited copy fails startup validation instead of booting with a known key.
 
 ### Migrations
 
@@ -52,6 +82,8 @@ Use this section for changes that are merged but not released yet.
   and subscription uniqueness.
 - `004_normalize_subscription_events.sql` normalizes existing subscription event
   arrays.
+- `005_outbox_indexes_and_retention.sql` adds indexes for the outbox
+  `processing` claim arm and for retention cleanup.
 
 ### Known Limitations
 

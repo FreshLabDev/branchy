@@ -124,6 +124,13 @@ Validate Compose configuration:
 - OAuth state records are single-use and expire.
 - Logs avoid Telegram bot tokens, GitHub tokens, webhook secrets, and OAuth secrets.
 - GitHub OAuth uses the `repo read:user` scopes for the MVP. This is broad, but it allows private repository visibility and repository hook management through an OAuth App. A GitHub App flow is intentionally out of scope for this version.
+- Notification links are restricted to `http(s)` URLs before they are placed in Telegram messages.
+
+## Deployment Exposure
+
+- Only `/webhooks/github` and `/oauth/github/callback` need to be reachable from the internet. Put `HTTP_ADDR` behind a TLS-terminating reverse proxy or tunnel and set `PUBLIC_BASE_URL` to that HTTPS URL. GitHub requires HTTPS for OAuth callbacks and signs webhook deliveries that should not transit plain HTTP.
+- `/healthz` reports outbox counts and liveness. It does not expose secrets or error detail, but if you do not want operational counts to be public, restrict it to internal monitoring at the proxy.
+- Set `restart: unless-stopped` (already configured in `docker-compose.yml`) so the service recovers from transient failures.
 
 ## Product Behavior
 

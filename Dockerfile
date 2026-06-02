@@ -8,7 +8,10 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /out/branchy ./cmd/branchy
 
 FROM alpine:3.22
-RUN adduser -D -H -u 10001 branchy
+# ca-certificates is required for outbound TLS to api.github.com and
+# api.telegram.org from the static (CGO-disabled) binary.
+RUN apk add --no-cache ca-certificates \
+    && adduser -D -H -u 10001 branchy
 WORKDIR /app
 COPY --from=build /out/branchy /app/branchy
 COPY migrations /app/migrations
