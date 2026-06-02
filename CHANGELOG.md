@@ -38,6 +38,22 @@ Use this section for changes that are merged but not released yet.
 
 ### Fixed
 
+- GitHub notifications were redesigned for a clean, GitHub-like Telegram layout:
+  one neutral leading icon per type, the repository shown once, branch metadata
+  folded inline, the author shown once, and redundant fields removed.
+- `push` notifications render as a compact commit list (linked short SHAs) with
+  the branch inline, a single "Compare changes" link, and the pusher; tag refs,
+  branch deletes, and zero-commit pushes are ignored.
+- `pull_request` notifications show the PR number once as a link, the target
+  branch, and the author, distinguish merged from closed, and — for
+  opened/reopened/ready-for-review — render the PR description from Markdown in
+  an expandable quote.
+- `release` notifications lead with the linked version instead of tag/target
+  plumbing, send only on the `published` action (no `created`/`prereleased`/
+  `deleted` noise), and render release notes from common GitHub Markdown
+  (headings, lists, task lists, links, autolinks, bold, italic, strikethrough,
+  underline, inline code, code blocks, blockquotes, images as links). Long
+  bodies collapse into an expandable quote.
 - Inline menus no longer post duplicate messages on identical re-renders
   (Telegram "message is not modified" is treated as success).
 - Outbox jobs left in `processing` after a worker crash now count the attempt

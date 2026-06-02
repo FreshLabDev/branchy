@@ -115,7 +115,7 @@ func TestHandlerEnqueuesMatchingSubscription(t *testing.T) {
 	if job.SubscriptionID != "sub-1" || job.DestinationChatID != 123 {
 		t.Fatalf("unexpected job: %+v", job)
 	}
-	if !strings.Contains(job.Text, "acme/repo") || !strings.Contains(job.Text, "Push") {
+	if !strings.Contains(job.Text, "acme/repo") || !strings.Contains(job.Text, "new commit") {
 		t.Fatalf("job text did not include formatted notification: %q", job.Text)
 	}
 }
@@ -169,6 +169,6 @@ func pushFixture() []byte {
 		"pusher":{"name":"octocat"},
 		"sender":{"login":"octocat"},
 		"head_commit":{"message":"ship it","url":"https://github.com/acme/repo/commit/1"},
-		"commits":[{}]
+		"commits":[{"id":"1111111222222233333334444444555555566666","message":"ship it","url":"https://github.com/acme/repo/commit/1","author":{"username":"octocat"}}]
 	}`)
 }

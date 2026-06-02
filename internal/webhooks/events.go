@@ -48,7 +48,10 @@ func MatchesBranch(filter SubscriptionFilter, event notify.Event) bool {
 func parsePush(body []byte) (notify.Event, bool, error) {
 	var payload struct {
 		Ref        string `json:"ref"`
+		Before     string `json:"before"`
+		After      string `json:"after"`
 		Compare    string `json:"compare"`
+		Deleted    bool   `json:"deleted"`
 		Repository struct {
 			FullName      string `json:"full_name"`
 			DefaultBranch string `json:"default_branch"`
@@ -64,18 +67,36 @@ func parsePush(body []byte) (notify.Event, bool, error) {
 			Message string `json:"message"`
 			URL     string `json:"url"`
 		} `json:"head_commit"`
-		Commits []struct{} `json:"commits"`
+		Commits []struct {
+			ID      string `json:"id"`
+			Message string `json:"message"`
+			URL     string `json:"url"`
+			Author  struct {
+				Name     string `json:"name"`
+				Username string `json:"username"`
+			} `json:"author"`
+			Committer struct {
+				Name     string `json:"name"`
+				Username string `json:"username"`
+			} `json:"committer"`
+		} `json:"commits"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return notify.Event{}, true, err
 	}
+	if payload.Deleted || !strings.HasPrefix(payload.Ref, "refs/heads/") || len(payload.Commits) == 0 {
+		return notify.Event{}, false, nil
+	}
 	branch := strings.TrimPrefix(payload.Ref, "refs/heads/")
 	actor := firstNonEmpty(payload.Sender.Login, payload.Pusher.Name)
-	title := fmt.Sprintf("%d commit(s) pushed", len(payload.Commits))
-	url := firstNonEmpty(payload.Compare, payload.Repository.HTMLURL)
-	if payload.HeadCommit != nil {
-		title = firstLine(payload.HeadCommit.Message)
-		url = firstNonEmpty(payload.HeadCommit.URL, url)
+	commits := make([]notify.Commit, 0, len(payload.Commits))
+	for _, commit := range payload.Commits {
+		commits = append(commits, notify.Commit{
+			SHA:     commit.ID,
+			Message: firstLine(commit.Message),
+			URL:     commit.URL,
+			Author:  firstNonEmpty(commit.Author.Username, commit.Author.Name, commit.Committer.Username, commit.Committer.Name, actor),
+		})
 	}
 	return notify.Event{
 		Type:          "push",
@@ -83,9 +104,12 @@ func parsePush(body []byte) (notify.Event, bool, error) {
 		DefaultBranch: payload.Repository.DefaultBranch,
 		Actor:         actor,
 		Branch:        branch,
-		Title:         title,
-		Summary:       fmt.Sprintf("Push to %s", branch),
-		URL:           url,
+		Title:         fmt.Sprintf("%d new commit(s)", len(payload.Commits)),
+		Summary:       fmt.Sprintf("Commits to %s", branch),
+		URL:           firstNonEmpty(payload.Compare, payload.Repository.HTMLURL),
+		CompareURL:    payload.Compare,
+		Commits:       commits,
+		CommitCount:   len(payload.Commits),
 	}, true, nil
 }
 
@@ -97,6 +121,8 @@ func parsePullRequest(body []byte) (notify.Event, bool, error) {
 		PullRequest struct {
 			Title   string `json:"title"`
 			HTMLURL string `json:"html_url"`
+			Body    string `json:"body"`
+			Merged  bool   `json:"merged"`
 			Base    struct {
 				Ref string `json:"ref"`
 			} `json:"base"`
@@ -112,9 +138,13 @@ func parsePullRequest(body []byte) (notify.Event, bool, error) {
 		DefaultBranch: payload.Repository.DefaultBranch,
 		Actor:         payload.Sender.Login,
 		Branch:        payload.PullRequest.Base.Ref,
-		Title:         fmt.Sprintf("#%d %s", payload.Number, payload.PullRequest.Title),
+		Title:         payload.PullRequest.Title,
 		Summary:       payload.Action + " pull request",
 		URL:           firstNonEmpty(payload.PullRequest.HTMLURL, payload.Repository.HTMLURL),
+		Body:          payload.PullRequest.Body,
+		Action:        payload.Action,
+		Number:        payload.Number,
+		Merged:        payload.PullRequest.Merged,
 	}, true, nil
 }
 
@@ -127,11 +157,16 @@ func parseRelease(body []byte) (notify.Event, bool, error) {
 			TagName         string `json:"tag_name"`
 			TargetCommitish string `json:"target_commitish"`
 			HTMLURL         string `json:"html_url"`
+			Body            string `json:"body"`
+			Prerelease      bool   `json:"prerelease"`
 		} `json:"release"`
 		Sender sender `json:"sender"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return notify.Event{}, true, err
+	}
+	if payload.Action != "published" {
+		return notify.Event{}, false, nil
 	}
 	title := firstNonEmpty(payload.Release.Name, payload.Release.TagName)
 	return notify.Event{
@@ -143,6 +178,10 @@ func parseRelease(body []byte) (notify.Event, bool, error) {
 		Title:         title,
 		Summary:       payload.Action + " release",
 		URL:           firstNonEmpty(payload.Release.HTMLURL, payload.Repository.HTMLURL),
+		Body:          payload.Release.Body,
+		Action:        payload.Action,
+		TagName:       payload.Release.TagName,
+		Prerelease:    payload.Release.Prerelease,
 	}, true, nil
 }
 
