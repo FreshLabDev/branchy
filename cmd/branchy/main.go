@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -90,40 +91,78 @@ func run() error {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	errCh := make(chan error, 3)
+	var wg sync.WaitGroup
+	errCh := make(chan error, 4)
+
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		slog.Info("http server starting", "addr", cfg.HTTPAddr)
 		err := server.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
-			return
 		}
-		errCh <- nil
 	}()
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		slog.Info("telegram polling starting")
-		errCh <- bot.Run(ctx)
+		if err := bot.Run(ctx); err != nil {
+			errCh <- err
+		}
 	}()
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		slog.Info("notification outbox worker starting")
-		errCh <- notificationWorker.Run(ctx)
+		if err := notificationWorker.Run(ctx); err != nil {
+			errCh <- err
+		}
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		slog.Info("maintenance cleaner starting")
+		runCleaner(ctx, store)
 	}()
 
+	var runErr error
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = server.Shutdown(shutdownCtx)
-		return nil
-	case err := <-errCh:
-		if err != nil {
-			stop()
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			_ = server.Shutdown(shutdownCtx)
-			return err
+	case runErr = <-errCh:
+	}
+
+	// Cancel the signal context so the polling and worker loops observe it,
+	// shut the HTTP server, then wait for every goroutine to return before the
+	// deferred pool.Close() runs. This avoids closing the pool while a
+	// subsystem is still mid-query.
+	stop()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	_ = server.Shutdown(shutdownCtx)
+	cancel()
+	wg.Wait()
+	return runErr
+}
+
+// runCleaner periodically removes expired and terminal state so a long-running
+// deployment does not accumulate unbounded rows.
+func runCleaner(ctx context.Context, store *db.Store) {
+	const retention = 7 * 24 * time.Hour
+	clean := func() {
+		if err := store.CleanupExpired(ctx, retention); err != nil && ctx.Err() == nil {
+			slog.Warn("state cleanup failed", "error", err)
 		}
-		return nil
+	}
+	clean()
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			clean()
+		}
 	}
 }
 
@@ -137,7 +176,6 @@ type healthResponse struct {
 	TelegramLastPollAt   *time.Time `json:"telegram_last_poll_at,omitempty"`
 	OutboxWorkerFresh    bool       `json:"outbox_worker_fresh"`
 	OutboxWorkerLastPoll *time.Time `json:"outbox_worker_last_poll_at,omitempty"`
-	Error                string     `json:"error,omitempty"`
 }
 
 type healthStore interface {
@@ -151,7 +189,9 @@ func serveHealth(w http.ResponseWriter, r *http.Request, store healthStore, tele
 	resp := healthResponse{}
 	status, err := store.HealthStatus(ctx)
 	if err != nil {
-		resp.Error = err.Error()
+		// Log the detail server-side; do not leak DB error strings to the
+		// public endpoint that shares a port with the webhook/OAuth routes.
+		slog.Error("health db check failed", "error", err)
 	} else {
 		resp.DB = true
 		resp.OutboxPending = status.OutboxPending

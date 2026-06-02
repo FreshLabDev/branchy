@@ -20,7 +20,18 @@ type Store struct {
 }
 
 func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	poolCfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse database url: %w", err)
+	}
+	// Several subsystems (webhook handler, outbox worker, telegram poller,
+	// health checks, per-repo advisory locks) share this pool concurrently.
+	// pgx defaults to a small pool; size it explicitly so a webhook burst does
+	// not starve the worker or the lock connection.
+	if poolCfg.MaxConns < 10 {
+		poolCfg.MaxConns = 10
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect postgres: %w", err)
 	}
@@ -187,8 +198,13 @@ func (s *Store) UpsertRepository(ctx context.Context, repo Repository) error {
 	return err
 }
 
-func (s *Store) CreateSubscription(ctx context.Context, sub Subscription) (string, error) {
+// CreateSubscription inserts a subscription or, when an identical one already
+// exists, reactivates it. The boolean return reports whether a new row was
+// inserted (xmax = 0) versus an existing row reused, so callers can roll back
+// safely without destroying a subscription the user already had.
+func (s *Store) CreateSubscription(ctx context.Context, sub Subscription) (string, bool, error) {
 	var id string
+	var inserted bool
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO subscriptions (
 			telegram_user_id, destination_type, destination_chat_id, github_repo_id,
@@ -201,9 +217,9 @@ func (s *Store) CreateSubscription(ctx context.Context, sub Subscription) (strin
 		) DO UPDATE SET
 			status = 'active',
 			updated_at = now()
-		RETURNING id::text
-	`, sub.TelegramUserID, sub.DestinationType, sub.DestinationChatID, sub.GitHubRepoID, sub.RepoFullName, sub.Events, sub.BranchMode, sub.BranchName).Scan(&id)
-	return id, err
+		RETURNING id::text, (xmax = 0)
+	`, sub.TelegramUserID, sub.DestinationType, sub.DestinationChatID, sub.GitHubRepoID, sub.RepoFullName, sub.Events, sub.BranchMode, sub.BranchName).Scan(&id, &inserted)
+	return id, inserted, err
 }
 
 func (s *Store) ListSubscriptionsByUser(ctx context.Context, telegramUserID int64) ([]Subscription, error) {
@@ -426,7 +442,7 @@ func (s *Store) ClaimPendingNotificationJobs(ctx context.Context, limit int, lea
 	}()
 
 	rows, err := tx.Query(ctx, `
-		SELECT id::text, delivery_id, COALESCE(subscription_id::text, ''), destination_chat_id, text, attempts, max_attempts
+		SELECT id::text, delivery_id, COALESCE(subscription_id::text, ''), destination_chat_id, text, attempts, max_attempts, status
 		FROM notification_jobs
 		WHERE (
 			status = 'pending'
@@ -442,14 +458,18 @@ func (s *Store) ClaimPendingNotificationJobs(ctx context.Context, limit int, lea
 	if err != nil {
 		return nil, err
 	}
-	var jobs []NotificationJob
+	type claimRow struct {
+		job    NotificationJob
+		status string
+	}
+	var candidates []claimRow
 	for rows.Next() {
-		var job NotificationJob
-		if err := rows.Scan(&job.ID, &job.DeliveryID, &job.SubscriptionID, &job.DestinationChatID, &job.Text, &job.Attempts, &job.MaxAttempts); err != nil {
+		var row claimRow
+		if err := rows.Scan(&row.job.ID, &row.job.DeliveryID, &row.job.SubscriptionID, &row.job.DestinationChatID, &row.job.Text, &row.job.Attempts, &row.job.MaxAttempts, &row.status); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		jobs = append(jobs, job)
+		candidates = append(candidates, row)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -457,16 +477,54 @@ func (s *Store) ClaimPendingNotificationJobs(ctx context.Context, limit int, lea
 	}
 	rows.Close()
 
-	for _, job := range jobs {
+	var jobs []NotificationJob
+	for _, row := range candidates {
+		// A row already in 'processing' whose lease expired means a previous
+		// worker claimed it but never reported a result (it crashed or the
+		// status update was lost). Count that attempt so a poison message
+		// cannot be re-leased forever; mark it failed once it exhausts
+		// max_attempts instead of looping.
+		if row.status == "processing" {
+			nextAttempts := row.job.Attempts + 1
+			if nextAttempts >= row.job.MaxAttempts {
+				if _, err := tx.Exec(ctx, `
+					UPDATE notification_jobs
+					SET status = 'failed',
+					    attempts = $2,
+					    locked_until = NULL,
+					    last_error = 'worker lease expired before the job reported a result',
+					    updated_at = now(),
+					    failed_at = now()
+					WHERE id = $1
+				`, row.job.ID, nextAttempts); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			if _, err := tx.Exec(ctx, `
+				UPDATE notification_jobs
+				SET status = 'processing',
+				    attempts = $2,
+				    locked_until = now() + $3::interval,
+				    updated_at = now()
+				WHERE id = $1
+			`, row.job.ID, nextAttempts, interval(lease)); err != nil {
+				return nil, err
+			}
+			row.job.Attempts = nextAttempts
+			jobs = append(jobs, row.job)
+			continue
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE notification_jobs
 			SET status = 'processing',
 			    locked_until = now() + $2::interval,
 			    updated_at = now()
 			WHERE id = $1
-		`, job.ID, interval(lease)); err != nil {
+		`, row.job.ID, interval(lease)); err != nil {
 			return nil, err
 		}
+		jobs = append(jobs, row.job)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -581,6 +639,50 @@ func (s *Store) SetRuntimeValue(ctx context.Context, key, value string) error {
 			updated_at = now()
 	`, key, value)
 	return err
+}
+
+// WithRepoLock runs fn while holding a PostgreSQL session-level advisory lock
+// keyed by repo full name. It serializes the read-modify-write of a
+// repository's webhook configuration (event union -> GitHub hook -> repo_hooks
+// row) across concurrent edits and across processes, so the GitHub hook cannot
+// durably diverge from the database when two edits for the same repo race.
+func (s *Store) WithRepoLock(ctx context.Context, key string, fn func() error) error {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1))`, key); err != nil {
+		return err
+	}
+	defer func() {
+		// Use a fresh context so the unlock still runs if ctx was cancelled.
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtext($1))`, key)
+	}()
+	return fn()
+}
+
+// CleanupExpired removes state that is safe to discard so long-running
+// deployments do not accumulate unbounded rows: expired OAuth states, expired
+// or consumed callback tokens, old webhook delivery dedupe records, and
+// terminal (sent/failed) notification jobs older than the retention window.
+func (s *Store) CleanupExpired(ctx context.Context, retention time.Duration) error {
+	if retention <= 0 {
+		retention = 7 * 24 * time.Hour
+	}
+	if _, err := s.pool.Exec(ctx, `DELETE FROM oauth_states WHERE expires_at < now()`); err != nil {
+		return err
+	}
+	if _, err := s.pool.Exec(ctx, `DELETE FROM callback_tokens WHERE expires_at < now() OR consumed_at IS NOT NULL`); err != nil {
+		return err
+	}
+	if _, err := s.pool.Exec(ctx, `DELETE FROM webhook_deliveries WHERE received_at < now() - $1::interval`, interval(retention)); err != nil {
+		return err
+	}
+	if _, err := s.pool.Exec(ctx, `DELETE FROM notification_jobs WHERE status IN ('sent', 'failed') AND updated_at < now() - $1::interval`, interval(retention)); err != nil {
+		return err
+	}
+	return nil
 }
 
 func scanSubscriptions(rows pgx.Rows) ([]Subscription, error) {

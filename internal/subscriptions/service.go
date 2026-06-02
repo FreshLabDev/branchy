@@ -3,7 +3,6 @@ package subscriptions
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 
@@ -13,10 +12,21 @@ import (
 	"branchy/internal/oauth"
 )
 
+// ValidationError marks a failure caused by user input rather than a system
+// fault. Callers may surface its message to the user directly; other errors
+// should be logged and shown as a generic message.
+type ValidationError struct {
+	Message string
+}
+
+func (e *ValidationError) Error() string { return e.Message }
+
+func invalid(message string) error { return &ValidationError{Message: message} }
+
 type Store interface {
 	GetGitHubConnection(ctx context.Context, telegramUserID int64) (db.GitHubConnection, error)
 	UpsertRepository(ctx context.Context, repo db.Repository) error
-	CreateSubscription(ctx context.Context, sub db.Subscription) (string, error)
+	CreateSubscription(ctx context.Context, sub db.Subscription) (string, bool, error)
 	GetSubscriptionForUser(ctx context.Context, telegramUserID int64, id string) (db.Subscription, error)
 	UpdateSubscriptionStatus(ctx context.Context, telegramUserID int64, id, status string) error
 	UpdateSubscriptionEvents(ctx context.Context, telegramUserID int64, id string, events []string) error
@@ -26,6 +36,7 @@ type Store interface {
 	ListActiveEventsForRepo(ctx context.Context, repoFullName string) ([]string, error)
 	UpsertRepoHook(ctx context.Context, repoID int64, fullName string, hookID int64, events []string, payloadURL string) error
 	DeleteRepoHook(ctx context.Context, repoID int64) error
+	WithRepoLock(ctx context.Context, key string, fn func() error) error
 }
 
 type Sender interface {
@@ -51,7 +62,7 @@ func NewService(cfg Config, store Store, githubClient *github.Client, sealer *oa
 func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.Repository, destinationType string, destinationChatID int64, events []string, branchMode, branchName string) (string, error) {
 	events = db.NormalizeEvents(events)
 	if len(events) == 0 {
-		return "", fmt.Errorf("choose at least one event")
+		return "", invalid("Choose at least one event.")
 	}
 	if err := validateBranch(branchMode, branchName); err != nil {
 		return "", err
@@ -60,7 +71,7 @@ func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.
 	if err := s.store.UpsertRepository(ctx, storedRepo); err != nil {
 		return "", err
 	}
-	id, err := s.store.CreateSubscription(ctx, db.Subscription{
+	id, created, err := s.store.CreateSubscription(ctx, db.Subscription{
 		TelegramUserID:    telegramUserID,
 		DestinationType:   destinationType,
 		DestinationChatID: destinationChatID,
@@ -74,7 +85,12 @@ func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.
 		return "", err
 	}
 	if err := s.EnsureWebhook(ctx, telegramUserID, storedRepo.GitHubRepoID, storedRepo.FullName); err != nil {
-		_ = s.store.DeleteSubscription(ctx, telegramUserID, id)
+		// Only roll back a subscription we actually inserted. If an identical
+		// subscription already existed and was reactivated, deleting it here
+		// would destroy configuration the user already had.
+		if created {
+			_ = s.store.DeleteSubscription(ctx, telegramUserID, id)
+		}
 		return "", err
 	}
 	return id, nil
@@ -82,7 +98,7 @@ func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.
 
 func (s *Service) SetStatus(ctx context.Context, telegramUserID int64, id, status string) error {
 	if status != "active" && status != "paused" {
-		return fmt.Errorf("invalid status")
+		return invalid("Invalid status.")
 	}
 	sub, err := s.store.GetSubscriptionForUser(ctx, telegramUserID, id)
 	if err != nil {
@@ -97,7 +113,7 @@ func (s *Service) SetStatus(ctx context.Context, telegramUserID int64, id, statu
 func (s *Service) SetEvents(ctx context.Context, telegramUserID int64, id string, events []string) error {
 	events = db.NormalizeEvents(events)
 	if len(events) == 0 {
-		return fmt.Errorf("choose at least one event")
+		return invalid("Choose at least one event.")
 	}
 	sub, err := s.store.GetSubscriptionForUser(ctx, telegramUserID, id)
 	if err != nil {
@@ -118,7 +134,7 @@ func (s *Service) SetBranch(ctx context.Context, telegramUserID int64, id, mode,
 
 func (s *Service) SetDestination(ctx context.Context, telegramUserID int64, id, destinationType string, chatID int64) error {
 	if destinationType != "dm" && destinationType != "group" {
-		return fmt.Errorf("invalid destination")
+		return invalid("Invalid destination.")
 	}
 	return s.store.UpdateSubscriptionDestination(ctx, telegramUserID, id, destinationType, chatID)
 }
@@ -143,31 +159,35 @@ func (s *Service) SendTest(ctx context.Context, sender Sender, telegramUserID in
 }
 
 func (s *Service) EnsureWebhook(ctx context.Context, telegramUserID, repoID int64, repoFullName string) error {
-	events, err := s.store.ListActiveEventsForRepo(ctx, repoFullName)
-	if err != nil {
-		return err
-	}
-	conn, err := s.store.GetGitHubConnection(ctx, telegramUserID)
-	if err != nil {
-		return err
-	}
-	token, err := s.sealer.Decrypt(conn.EncryptedAccessToken)
-	if err != nil {
-		return err
-	}
-	payloadURL := strings.TrimRight(s.cfg.PublicBaseURL, "/") + "/webhooks/github"
-	if len(events) == 0 {
-		if err := s.github.DeleteWebhookByURL(ctx, token, repoFullName, payloadURL); err != nil {
+	// Serialize per repository so concurrent subscription edits cannot push a
+	// stale event union to GitHub and leave the hook diverged from the database.
+	return s.store.WithRepoLock(ctx, repoFullName, func() error {
+		events, err := s.store.ListActiveEventsForRepo(ctx, repoFullName)
+		if err != nil {
 			return err
 		}
-		return s.store.DeleteRepoHook(ctx, repoID)
-	}
-	sort.Strings(events)
-	hook, err := s.github.EnsureWebhook(ctx, token, repoFullName, payloadURL, s.cfg.GitHubWebhookSecret, events)
-	if err != nil {
-		return err
-	}
-	return s.store.UpsertRepoHook(ctx, repoID, repoFullName, hook.ID, events, payloadURL)
+		conn, err := s.store.GetGitHubConnection(ctx, telegramUserID)
+		if err != nil {
+			return err
+		}
+		token, err := s.sealer.Decrypt(conn.EncryptedAccessToken)
+		if err != nil {
+			return err
+		}
+		payloadURL := strings.TrimRight(s.cfg.PublicBaseURL, "/") + "/webhooks/github"
+		if len(events) == 0 {
+			if err := s.github.DeleteWebhookByURL(ctx, token, repoFullName, payloadURL); err != nil {
+				return err
+			}
+			return s.store.DeleteRepoHook(ctx, repoID)
+		}
+		sort.Strings(events)
+		hook, err := s.github.EnsureWebhook(ctx, token, repoFullName, payloadURL, s.cfg.GitHubWebhookSecret, events)
+		if err != nil {
+			return err
+		}
+		return s.store.UpsertRepoHook(ctx, repoID, repoFullName, hook.ID, events, payloadURL)
+	})
 }
 
 func toDBRepo(repo github.Repository) db.Repository {
@@ -189,10 +209,10 @@ func validateBranch(mode, branchName string) error {
 		return nil
 	case "selected":
 		if strings.TrimSpace(branchName) == "" {
-			return fmt.Errorf("choose a branch")
+			return invalid("Choose a branch.")
 		}
 		return nil
 	default:
-		return fmt.Errorf("invalid branch filter")
+		return invalid("Invalid branch filter.")
 	}
 }
