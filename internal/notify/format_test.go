@@ -25,3 +25,17 @@ func TestGitHubEventEscapesHTML(t *testing.T) {
 		t.Fatalf("expected URL attribute to be escaped: %s", text)
 	}
 }
+
+func TestGitHubEventDropsUnsafeURL(t *testing.T) {
+	for _, raw := range []string{
+		"javascript:alert(1)",
+		"tg://resolve?domain=evil",
+		"data:text/html,<script>",
+		"//github.com/x",
+	} {
+		text := GitHubEvent(Event{Type: "push", RepoFullName: "acme/repo", URL: raw})
+		if strings.Contains(text, "Open on GitHub") || strings.Contains(text, "<a href") {
+			t.Fatalf("expected unsafe URL %q to be dropped: %s", raw, text)
+		}
+	}
+}

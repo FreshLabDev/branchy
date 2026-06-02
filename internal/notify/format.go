@@ -4,6 +4,7 @@ package notify
 import (
 	"fmt"
 	"html"
+	"net/url"
 	"strings"
 )
 
@@ -32,8 +33,8 @@ func GitHubEvent(event Event) string {
 	if event.Summary != "" {
 		lines = append(lines, esc(event.Summary))
 	}
-	if event.URL != "" {
-		lines = append(lines, fmt.Sprintf(`<a href="%s">Open on GitHub</a>`, escAttr(event.URL)))
+	if link := safeURL(event.URL); link != "" {
+		lines = append(lines, fmt.Sprintf(`<a href="%s">Open on GitHub</a>`, escAttr(link)))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -64,4 +65,20 @@ func esc(value string) string {
 
 func escAttr(value string) string {
 	return html.EscapeString(value)
+}
+
+// safeURL returns the URL only if it uses an http(s) scheme with a host.
+// GitHub-generated event URLs are always https://github.com/..., so this drops
+// any unexpected scheme (javascript:, tg:, data:, ...) before it reaches a
+// Telegram <a href> link, which would otherwise be deliverable to a group.
+func safeURL(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if (scheme != "http" && scheme != "https") || parsed.Host == "" {
+		return ""
+	}
+	return raw
 }
