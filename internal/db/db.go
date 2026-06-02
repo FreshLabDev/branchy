@@ -1,0 +1,664 @@
+// SPDX-License-Identifier: Apache-2.0
+package db
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type Store struct {
+	pool *pgxpool.Pool
+}
+
+func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("connect postgres: %w", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+	return pool, nil
+}
+
+func NewStore(pool *pgxpool.Pool) *Store {
+	return &Store{pool: pool}
+}
+
+func (s *Store) HealthStatus(ctx context.Context) (HealthStatus, error) {
+	if err := s.pool.Ping(ctx); err != nil {
+		return HealthStatus{}, err
+	}
+	var status HealthStatus
+	rows, err := s.pool.Query(ctx, `
+		SELECT status, count(*)
+		FROM notification_jobs
+		WHERE status IN ('pending', 'processing', 'failed')
+		GROUP BY status
+	`)
+	if err != nil {
+		return HealthStatus{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		var count int64
+		if err := rows.Scan(&name, &count); err != nil {
+			return HealthStatus{}, err
+		}
+		switch name {
+		case "pending":
+			status.OutboxPending = count
+		case "processing":
+			status.OutboxProcessing = count
+		case "failed":
+			status.OutboxFailed = count
+		}
+	}
+	return status, rows.Err()
+}
+
+func (s *Store) UpsertTelegramUser(ctx context.Context, user TelegramUser) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO telegram_users (telegram_user_id, username, first_name, last_name)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (telegram_user_id) DO UPDATE SET
+			username = EXCLUDED.username,
+			first_name = EXCLUDED.first_name,
+			last_name = EXCLUDED.last_name,
+			updated_at = now()
+	`, user.ID, user.Username, user.FirstName, user.LastName)
+	return err
+}
+
+func (s *Store) UpsertTelegramChat(ctx context.Context, chat TelegramChat) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO telegram_chats (chat_id, type, title, username, added_by_telegram_user_id, bot_status, active)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (chat_id) DO UPDATE SET
+			type = EXCLUDED.type,
+			title = EXCLUDED.title,
+			username = EXCLUDED.username,
+			added_by_telegram_user_id = COALESCE(EXCLUDED.added_by_telegram_user_id, telegram_chats.added_by_telegram_user_id),
+			bot_status = EXCLUDED.bot_status,
+			active = EXCLUDED.active,
+			updated_at = now()
+	`, chat.ID, chat.Type, chat.Title, chat.Username, nullableInt64(chat.AddedByUser), chat.BotStatus, chat.Active)
+	return err
+}
+
+func (s *Store) ListKnownGroups(ctx context.Context, telegramUserID int64) ([]TelegramChat, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT chat_id, type, title, username, bot_status, active, COALESCE(added_by_telegram_user_id, 0)
+		FROM telegram_chats
+		WHERE added_by_telegram_user_id = $1
+		  AND active = true
+		  AND type IN ('group', 'supergroup')
+		ORDER BY title, chat_id
+	`, telegramUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var chats []TelegramChat
+	for rows.Next() {
+		var chat TelegramChat
+		if err := rows.Scan(&chat.ID, &chat.Type, &chat.Title, &chat.Username, &chat.BotStatus, &chat.Active, &chat.AddedByUser); err != nil {
+			return nil, err
+		}
+		chats = append(chats, chat)
+	}
+	return chats, rows.Err()
+}
+
+func (s *Store) CreateOAuthState(ctx context.Context, state OAuthState, ttl time.Duration) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO oauth_states (state, telegram_user_id, code_verifier, redirect_uri, expires_at)
+		VALUES ($1, $2, $3, $4, now() + $5::interval)
+	`, state.State, state.TelegramUserID, state.CodeVerifier, state.RedirectURI, interval(ttl))
+	return err
+}
+
+func (s *Store) ConsumeOAuthState(ctx context.Context, state string) (OAuthState, error) {
+	var out OAuthState
+	err := s.pool.QueryRow(ctx, `
+		DELETE FROM oauth_states
+		WHERE state = $1 AND expires_at > now()
+		RETURNING state, telegram_user_id, code_verifier, redirect_uri
+	`, state).Scan(&out.State, &out.TelegramUserID, &out.CodeVerifier, &out.RedirectURI)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return OAuthState{}, ErrNotFound
+	}
+	return out, err
+}
+
+func (s *Store) UpsertGitHubConnection(ctx context.Context, conn GitHubConnection) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO github_connections (telegram_user_id, github_user_id, github_login, encrypted_access_token, token_scope)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (telegram_user_id) DO UPDATE SET
+			github_user_id = EXCLUDED.github_user_id,
+			github_login = EXCLUDED.github_login,
+			encrypted_access_token = EXCLUDED.encrypted_access_token,
+			token_scope = EXCLUDED.token_scope,
+			updated_at = now()
+	`, conn.TelegramUserID, conn.GitHubUserID, conn.GitHubLogin, conn.EncryptedAccessToken, conn.TokenScope)
+	return err
+}
+
+func (s *Store) GetGitHubConnection(ctx context.Context, telegramUserID int64) (GitHubConnection, error) {
+	var conn GitHubConnection
+	err := s.pool.QueryRow(ctx, `
+		SELECT telegram_user_id, github_user_id, github_login, encrypted_access_token, token_scope
+		FROM github_connections
+		WHERE telegram_user_id = $1
+	`, telegramUserID).Scan(&conn.TelegramUserID, &conn.GitHubUserID, &conn.GitHubLogin, &conn.EncryptedAccessToken, &conn.TokenScope)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return GitHubConnection{}, ErrNotFound
+	}
+	return conn, err
+}
+
+func (s *Store) UpsertRepository(ctx context.Context, repo Repository) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO repositories (github_repo_id, full_name, owner, name, private, default_branch, html_url, has_admin_permission)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (github_repo_id) DO UPDATE SET
+			full_name = EXCLUDED.full_name,
+			owner = EXCLUDED.owner,
+			name = EXCLUDED.name,
+			private = EXCLUDED.private,
+			default_branch = EXCLUDED.default_branch,
+			html_url = EXCLUDED.html_url,
+			has_admin_permission = EXCLUDED.has_admin_permission,
+			updated_at = now()
+	`, repo.GitHubRepoID, repo.FullName, repo.Owner, repo.Name, repo.Private, repo.DefaultBranch, repo.HTMLURL, repo.HasAdminPermission)
+	return err
+}
+
+func (s *Store) CreateSubscription(ctx context.Context, sub Subscription) (string, error) {
+	var id string
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO subscriptions (
+			telegram_user_id, destination_type, destination_chat_id, github_repo_id,
+			repo_full_name, events, branch_mode, branch_name, status
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active')
+		ON CONFLICT (
+			telegram_user_id, destination_type, destination_chat_id, github_repo_id,
+			events, branch_mode, branch_name
+		) DO UPDATE SET
+			status = 'active',
+			updated_at = now()
+		RETURNING id::text
+	`, sub.TelegramUserID, sub.DestinationType, sub.DestinationChatID, sub.GitHubRepoID, sub.RepoFullName, sub.Events, sub.BranchMode, sub.BranchName).Scan(&id)
+	return id, err
+}
+
+func (s *Store) ListSubscriptionsByUser(ctx context.Context, telegramUserID int64) ([]Subscription, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT s.id::text, s.telegram_user_id, s.destination_type, s.destination_chat_id,
+		       s.github_repo_id, s.repo_full_name, s.events, s.branch_mode, s.branch_name,
+		       s.status, r.default_branch, r.html_url
+		FROM subscriptions s
+		JOIN repositories r ON r.github_repo_id = s.github_repo_id
+		WHERE s.telegram_user_id = $1
+		ORDER BY s.created_at DESC
+	`, telegramUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSubscriptions(rows)
+}
+
+func (s *Store) GetSubscriptionForUser(ctx context.Context, telegramUserID int64, id string) (Subscription, error) {
+	var sub Subscription
+	err := s.pool.QueryRow(ctx, `
+		SELECT s.id::text, s.telegram_user_id, s.destination_type, s.destination_chat_id,
+		       s.github_repo_id, s.repo_full_name, s.events, s.branch_mode, s.branch_name,
+		       s.status, r.default_branch, r.html_url
+		FROM subscriptions s
+		JOIN repositories r ON r.github_repo_id = s.github_repo_id
+		WHERE s.telegram_user_id = $1 AND s.id = $2
+	`, telegramUserID, id).Scan(
+		&sub.ID, &sub.TelegramUserID, &sub.DestinationType, &sub.DestinationChatID,
+		&sub.GitHubRepoID, &sub.RepoFullName, &sub.Events, &sub.BranchMode,
+		&sub.BranchName, &sub.Status, &sub.DefaultBranch, &sub.HTMLURL,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Subscription{}, ErrNotFound
+	}
+	return sub, err
+}
+
+func (s *Store) ListActiveSubscriptionsForRepoEvent(ctx context.Context, repoFullName, event string) ([]Subscription, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT s.id::text, s.telegram_user_id, s.destination_type, s.destination_chat_id,
+		       s.github_repo_id, s.repo_full_name, s.events, s.branch_mode, s.branch_name,
+		       s.status, r.default_branch, r.html_url
+		FROM subscriptions s
+		JOIN repositories r ON r.github_repo_id = s.github_repo_id
+		WHERE s.repo_full_name = $1
+		  AND s.status = 'active'
+		  AND $2 = ANY(s.events)
+	`, repoFullName, event)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSubscriptions(rows)
+}
+
+func (s *Store) ListActiveEventsForRepo(ctx context.Context, repoFullName string) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT unnest(events)
+		FROM subscriptions
+		WHERE repo_full_name = $1 AND status = 'active'
+		ORDER BY 1
+	`, repoFullName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []string
+	for rows.Next() {
+		var event string
+		if err := rows.Scan(&event); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
+func (s *Store) UpdateSubscriptionStatus(ctx context.Context, telegramUserID int64, id, status string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE subscriptions
+		SET status = $3, updated_at = now()
+		WHERE telegram_user_id = $1 AND id = $2
+	`, telegramUserID, id, status)
+	return requireAffected(tag, err)
+}
+
+func (s *Store) UpdateSubscriptionEvents(ctx context.Context, telegramUserID int64, id string, events []string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE subscriptions
+		SET events = $3, updated_at = now()
+		WHERE telegram_user_id = $1 AND id = $2
+	`, telegramUserID, id, events)
+	return requireAffected(tag, err)
+}
+
+func (s *Store) UpdateSubscriptionBranch(ctx context.Context, telegramUserID int64, id, mode, branchName string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE subscriptions
+		SET branch_mode = $3, branch_name = $4, updated_at = now()
+		WHERE telegram_user_id = $1 AND id = $2
+	`, telegramUserID, id, mode, branchName)
+	return requireAffected(tag, err)
+}
+
+func (s *Store) UpdateSubscriptionDestination(ctx context.Context, telegramUserID int64, id, destinationType string, chatID int64) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE subscriptions
+		SET destination_type = $3, destination_chat_id = $4, updated_at = now()
+		WHERE telegram_user_id = $1 AND id = $2
+	`, telegramUserID, id, destinationType, chatID)
+	return requireAffected(tag, err)
+}
+
+func (s *Store) DeleteSubscription(ctx context.Context, telegramUserID int64, id string) error {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM subscriptions
+		WHERE telegram_user_id = $1 AND id = $2
+	`, telegramUserID, id)
+	return requireAffected(tag, err)
+}
+
+func (s *Store) UpsertRepoHook(ctx context.Context, repoID int64, fullName string, hookID int64, events []string, payloadURL string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO repo_hooks (github_repo_id, full_name, hook_id, events, payload_url)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (github_repo_id) DO UPDATE SET
+			full_name = EXCLUDED.full_name,
+			hook_id = EXCLUDED.hook_id,
+			events = EXCLUDED.events,
+			payload_url = EXCLUDED.payload_url,
+			updated_at = now()
+	`, repoID, fullName, hookID, events, payloadURL)
+	return err
+}
+
+func (s *Store) DeleteRepoHook(ctx context.Context, repoID int64) error {
+	_, err := s.pool.Exec(ctx, `
+		DELETE FROM repo_hooks
+		WHERE github_repo_id = $1
+	`, repoID)
+	return err
+}
+
+func (s *Store) RecordDelivery(ctx context.Context, deliveryID, event string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		INSERT INTO webhook_deliveries (delivery_id, event, repo_full_name)
+		VALUES ($1, $2, '')
+		ON CONFLICT (delivery_id) DO NOTHING
+	`, deliveryID, event)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+func (s *Store) ForgetDelivery(ctx context.Context, deliveryID string) error {
+	_, err := s.pool.Exec(ctx, `
+		DELETE FROM webhook_deliveries
+		WHERE delivery_id = $1
+	`, deliveryID)
+	return err
+}
+
+func (s *Store) EnqueueNotificationJobs(ctx context.Context, deliveryID, repoFullName string, jobs []NotificationJobInsert) (int, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE webhook_deliveries
+		SET repo_full_name = $2
+		WHERE delivery_id = $1
+	`, deliveryID, repoFullName)
+	if err != nil {
+		return 0, err
+	}
+	if tag.RowsAffected() == 0 {
+		return 0, ErrNotFound
+	}
+
+	insertedJobs := 0
+	for _, job := range jobs {
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO notification_jobs (delivery_id, subscription_id, destination_chat_id, text)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (delivery_id, subscription_id) DO NOTHING
+		`, deliveryID, job.SubscriptionID, job.DestinationChatID, job.Text)
+		if err != nil {
+			return 0, err
+		}
+		insertedJobs += int(tag.RowsAffected())
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return insertedJobs, nil
+}
+
+func (s *Store) ClaimPendingNotificationJobs(ctx context.Context, limit int, lease time.Duration) ([]NotificationJob, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if lease <= 0 {
+		lease = 2 * time.Minute
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	rows, err := tx.Query(ctx, `
+		SELECT id::text, delivery_id, COALESCE(subscription_id::text, ''), destination_chat_id, text, attempts, max_attempts
+		FROM notification_jobs
+		WHERE (
+			status = 'pending'
+			AND retry_at <= now()
+		) OR (
+			status = 'processing'
+			AND locked_until <= now()
+		)
+		ORDER BY retry_at, created_at
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	var jobs []NotificationJob
+	for rows.Next() {
+		var job NotificationJob
+		if err := rows.Scan(&job.ID, &job.DeliveryID, &job.SubscriptionID, &job.DestinationChatID, &job.Text, &job.Attempts, &job.MaxAttempts); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	for _, job := range jobs {
+		if _, err := tx.Exec(ctx, `
+			UPDATE notification_jobs
+			SET status = 'processing',
+			    locked_until = now() + $2::interval,
+			    updated_at = now()
+			WHERE id = $1
+		`, job.ID, interval(lease)); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return jobs, nil
+}
+
+func (s *Store) FinishNotificationJob(ctx context.Context, job NotificationJob, result NotificationJobResult) error {
+	if result.Success {
+		return requireAffected(s.pool.Exec(ctx, `
+			UPDATE notification_jobs
+			SET status = 'sent',
+			    updated_at = now(),
+			    sent_at = now(),
+			    locked_until = NULL,
+			    last_error = ''
+			WHERE id = $1
+		`, job.ID))
+	}
+
+	nextAttempts := job.Attempts + 1
+	lastError := truncate(result.Error, 1000)
+	if result.Temporary && nextAttempts < job.MaxAttempts {
+		retryAt := result.RetryAt
+		if retryAt.IsZero() {
+			retryAt = time.Now().Add(defaultRetryDelay(nextAttempts))
+		}
+		return requireAffected(s.pool.Exec(ctx, `
+			UPDATE notification_jobs
+			SET status = 'pending',
+			    attempts = $2,
+			    retry_at = $3,
+			    locked_until = NULL,
+			    last_error = $4,
+			    updated_at = now()
+			WHERE id = $1
+		`, job.ID, nextAttempts, retryAt, lastError))
+	}
+
+	return requireAffected(s.pool.Exec(ctx, `
+		UPDATE notification_jobs
+		SET status = 'failed',
+		    attempts = $2,
+		    locked_until = NULL,
+		    last_error = $3,
+		    updated_at = now(),
+		    failed_at = now()
+		WHERE id = $1
+	`, job.ID, nextAttempts, lastError))
+}
+
+func (s *Store) CreateCallbackToken(ctx context.Context, telegramUserID int64, token, action string, payload any, ttl time.Duration) error {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO callback_tokens (token, telegram_user_id, action, payload, expires_at)
+		VALUES ($1, $2, $3, $4, now() + $5::interval)
+	`, token, telegramUserID, action, raw, interval(ttl))
+	return err
+}
+
+func (s *Store) GetCallbackToken(ctx context.Context, telegramUserID int64, token string) (CallbackToken, error) {
+	var out CallbackToken
+	err := s.pool.QueryRow(ctx, `
+		SELECT token, telegram_user_id, action, payload
+		FROM callback_tokens
+		WHERE token = $1 AND telegram_user_id = $2 AND expires_at > now() AND consumed_at IS NULL
+	`, token, telegramUserID).Scan(&out.Token, &out.TelegramUserID, &out.Action, &out.Payload)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CallbackToken{}, ErrNotFound
+	}
+	return out, err
+}
+
+func (s *Store) ConsumeCallbackToken(ctx context.Context, telegramUserID int64, token string) (CallbackToken, error) {
+	var out CallbackToken
+	err := s.pool.QueryRow(ctx, `
+		UPDATE callback_tokens
+		SET consumed_at = now()
+		WHERE token = $1
+		  AND telegram_user_id = $2
+		  AND expires_at > now()
+		  AND consumed_at IS NULL
+		RETURNING token, telegram_user_id, action, payload
+	`, token, telegramUserID).Scan(&out.Token, &out.TelegramUserID, &out.Action, &out.Payload)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CallbackToken{}, ErrNotFound
+	}
+	return out, err
+}
+
+func (s *Store) GetRuntimeValue(ctx context.Context, key string) (string, error) {
+	var value string
+	err := s.pool.QueryRow(ctx, `
+		SELECT value FROM runtime_state WHERE key = $1
+	`, key).Scan(&value)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return value, err
+}
+
+func (s *Store) SetRuntimeValue(ctx context.Context, key, value string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO runtime_state (key, value)
+		VALUES ($1, $2)
+		ON CONFLICT (key) DO UPDATE SET
+			value = EXCLUDED.value,
+			updated_at = now()
+	`, key, value)
+	return err
+}
+
+func scanSubscriptions(rows pgx.Rows) ([]Subscription, error) {
+	var subs []Subscription
+	for rows.Next() {
+		var sub Subscription
+		if err := rows.Scan(
+			&sub.ID, &sub.TelegramUserID, &sub.DestinationType, &sub.DestinationChatID,
+			&sub.GitHubRepoID, &sub.RepoFullName, &sub.Events, &sub.BranchMode,
+			&sub.BranchName, &sub.Status, &sub.DefaultBranch, &sub.HTMLURL,
+		); err != nil {
+			return nil, err
+		}
+		subs = append(subs, sub)
+	}
+	return subs, rows.Err()
+}
+
+func requireAffected(tag pgconn.CommandTag, err error) error {
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func nullableInt64(v int64) any {
+	if v == 0 {
+		return nil
+	}
+	return v
+}
+
+func interval(d time.Duration) string {
+	seconds := int64(d.Seconds())
+	if seconds < 1 {
+		seconds = 1
+	}
+	return fmt.Sprintf("%d seconds", seconds)
+}
+
+func defaultRetryDelay(attempts int) time.Duration {
+	if attempts < 1 {
+		attempts = 1
+	}
+	delay := time.Duration(30*(1<<(attempts-1))) * time.Second
+	if delay > 15*time.Minute {
+		return 15 * time.Minute
+	}
+	return delay
+}
+
+func truncate(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	return value[:limit]
+}
+
+var ErrNotFound = errors.New("not found")
+
+func NormalizeEvents(events []string) []string {
+	allowed := map[string]bool{
+		"push":         true,
+		"pull_request": true,
+		"release":      true,
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, event := range events {
+		event = strings.TrimSpace(event)
+		if allowed[event] && !seen[event] {
+			out = append(out, event)
+			seen[event] = true
+		}
+	}
+	sort.Strings(out)
+	return out
+}

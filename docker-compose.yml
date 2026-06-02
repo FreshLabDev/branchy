@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: branchy
+      POSTGRES_PASSWORD: branchy
+      POSTGRES_DB: branchy
+    ports:
+      - "5432:5432"
+    volumes:
+      - branchy-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U branchy -d branchy"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://branchy:branchy@postgres:5432/branchy?sslmode=disable
+      HTTP_ADDR: :8080
+      MIGRATIONS_DIR: /app/migrations
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  branchy-postgres:
