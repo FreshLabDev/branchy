@@ -12,3 +12,8 @@ push event.
 
 Release notifications should send only the published action and keep the tag,
 target branch, release title, and GitHub link readable.
+
+## Escaping Case
+
+The smoke payload intentionally includes text like `<format> & "escape"` so the
+Telegram HTML renderer proves that Branchy escapes user-controlled GitHub text.
