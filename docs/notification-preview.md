@@ -9,3 +9,7 @@ notifications: commits, pull requests, and releases.
 - Repository and author shown once, branch folded inline.
 - Pull request descriptions and release notes rendered from Markdown.
 - Long bodies collapse into an expandable quote.
+
+## Escaping
+
+User-controlled text such as `<format>` & "quotes" stays safe.
