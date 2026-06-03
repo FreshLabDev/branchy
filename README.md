@@ -46,8 +46,8 @@ Branchy keeps the MVP deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v0.1.0` | Public MVP release |
-| Stable | `v0.1.0` | First non-prerelease tag |
+| Latest | `v0.2.0-alpha.1` | Pre-release with event-specific subscription settings |
+| Stable | `v0.1.0` | Latest non-prerelease tag |
 
 The MVP has been live-tested with Telegram and GitHub. `v0.1.0` is the public
 MVP release; `v1.0.0` is still reserved for a mature production contract.

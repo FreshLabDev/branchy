@@ -10,6 +10,8 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v0.2.0-alpha.1 - 2026-06-03
+
 ### Added
 
 - Subscription setup now includes event-specific settings before creation:
