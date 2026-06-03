@@ -10,6 +10,8 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v0.2.0-alpha.2 - 2026-06-03
+
 ### Added
 
 - Accent colors on key inline buttons (Bot API 9.4 `style`): green for the final
