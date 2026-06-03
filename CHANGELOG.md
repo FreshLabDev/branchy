@@ -10,6 +10,8 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v0.1.0-alpha.1 - 2026-06-03
+
 ### Added
 
 - Initial Branchy MVP implementation:
@@ -109,11 +111,5 @@ Use this section for changes that are merged but not released yet.
 
 ### Known Limitations
 
-- A real Telegram and GitHub end-to-end smoke test is still required before the
-  public MVP announcement.
+- This is an alpha release intended for early live usage and feedback.
 - GitHub App installation flow is intentionally out of scope for this MVP.
-
-## v0.1.0-alpha.1 - TBD
-
-Planned first open-source MVP code release. Move the relevant `Unreleased`
-entries here when the tag is created.

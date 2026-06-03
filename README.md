@@ -6,6 +6,11 @@ It connects a Telegram user to GitHub through OAuth, lets them choose repositori
 
 Branchy is intentionally small: one Go service, PostgreSQL for state, Telegram long polling for bot interactions, and HTTP routes for GitHub OAuth callbacks and repository webhooks.
 
+## Status
+
+Branchy is currently in `v0.1.0-alpha.1`: the MVP is live-tested, but the project
+is still intended for early usage and feedback before a public stable release.
+
 ## What It Does
 
 - Opens the setup UI with `/start`.
@@ -61,7 +66,7 @@ More detail is documented in [docs/architecture.md](docs/architecture.md).
 - PostgreSQL, provided locally by Docker Compose
 - A public URL for local development, usually through a tunnel
 
-The local machine used for this project does not currently have `go` in `PATH`, so the documented test commands run through Docker.
+If `go` is not installed locally, use the Docker-based test commands below.
 
 ## Local Development
 
