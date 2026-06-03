@@ -10,6 +10,17 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+### Added
+
+- Accent colors on key inline buttons (Bot API 9.4 `style`): green for the final
+  "Create subscription", blue for proceed/save actions, red for "Delete". One
+  accented action per screen; older Telegram clients render plain buttons.
+
+### Changed
+
+- Branch-mode buttons now read as actions ("Specific branches", with a selected
+  count) instead of the status-like "No branches selected".
+
 ## v0.2.0-alpha.1 - 2026-06-03
 
 ### Added

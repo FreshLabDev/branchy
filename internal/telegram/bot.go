@@ -560,15 +560,19 @@ func (b *Bot) mainMenu(ctx context.Context, telegramUserID int64) (string, *Inli
 	} else {
 		lines = append(lines, "Connect GitHub to choose repositories and events.")
 	}
-	rows := [][]InlineKeyboardButton{
-		{{Text: connectLabel, URL: connectURL}},
+	// When disconnected, connecting is the one call to action; once connected it
+	// becomes a secondary "Reconnect" and "New subscription" is the accent.
+	connectButton := InlineKeyboardButton{Text: connectLabel, URL: connectURL}
+	if !connected {
+		connectButton.Style = stylePrimary
 	}
+	rows := [][]InlineKeyboardButton{{connectButton}}
 	// The other actions all require a GitHub connection, so only offer them
 	// once connected; until then the menu is just the connect button.
 	if connected {
 		rows = append(rows,
 			[]InlineKeyboardButton{{Text: "Repositories", CallbackData: "repo:list"}, {Text: "Subscriptions", CallbackData: "sub:list"}},
-			[]InlineKeyboardButton{{Text: "New subscription", CallbackData: "sub:new"}},
+			[]InlineKeyboardButton{{Text: "New subscription", CallbackData: "sub:new", Style: stylePrimary}},
 		)
 	}
 	return strings.Join(lines, "\n"), &InlineKeyboardMarkup{InlineKeyboard: rows}, nil
@@ -647,7 +651,7 @@ func (b *Bot) renderRepoInfo(ctx context.Context, cq CallbackQuery, repo github.
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: "Create subscription", CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: "Create subscription", CallbackData: callback, Style: stylePrimary}})
 	}
 	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: "repo:list"}})
 	text := "<b>" + esc(repo.FullName) + "</b>\nDefault branch: " + esc(repo.DefaultBranch)
@@ -743,7 +747,7 @@ func (b *Bot) renderEventPicker(ctx context.Context, cq CallbackQuery, draft sub
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: "Continue", CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: "Continue", CallbackData: callback, Style: stylePrimary}})
 	}
 	// Back returns to the destination step, preserving the draft.
 	backCB, err := b.token(ctx, cq.From.ID, "sub.repo", draft)
@@ -787,7 +791,7 @@ func (b *Bot) renderEventSettings(ctx context.Context, cq CallbackQuery, draft s
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: "Create subscription", CallbackData: createCB}})
+		rows = append(rows, []InlineKeyboardButton{{Text: "Create subscription", CallbackData: createCB, Style: styleSuccess}})
 	}
 	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
 	text := "<b>Event settings</b>\n" + settingsSummary(draft.Events, draft.BranchMode, draft.BranchNames, draft.PullRequestActions, draft.ReleaseMode)
@@ -826,7 +830,7 @@ func (b *Bot) renderBranchSettings(ctx context.Context, cq CallbackQuery, draft 
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: checkbox(draft.BranchMode == mode, branchLabel(mode, draft.BranchNames)), CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: checkbox(draft.BranchMode == mode, branchModeLabel(mode, draft.BranchNames)), CallbackData: callback}})
 	}
 	backCB, err := b.token(ctx, cq.From.ID, "sub.settings", draft)
 	if err != nil {
@@ -863,7 +867,7 @@ func (b *Bot) renderBranchList(ctx context.Context, cq CallbackQuery, draft subD
 			return err
 		}
 		rows := [][]InlineKeyboardButton{
-			{{Text: "Use all branches", CallbackData: allCB}},
+			{{Text: "Use all branches", CallbackData: allCB, Style: stylePrimary}},
 			backRow,
 		}
 		return b.respond(ctx, cq, "<b>Choose branch</b>\nThis repository has no branches to choose from.", &InlineKeyboardMarkup{InlineKeyboard: rows})
@@ -890,7 +894,7 @@ func (b *Bot) renderBranchList(ctx context.Context, cq CallbackQuery, draft subD
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: "Done", CallbackData: doneCB}})
+		rows = append(rows, []InlineKeyboardButton{{Text: "Done", CallbackData: doneCB, Style: stylePrimary}})
 	}
 	var nav []InlineKeyboardButton
 	if page > 0 {
@@ -938,10 +942,12 @@ func (b *Bot) renderPullRequestSettings(ctx context.Context, cq CallbackQuery, d
 		return err
 	}
 	doneLabel := "Back"
+	doneStyle := ""
 	if len(draft.PullRequestActions) > 0 {
 		doneLabel = "Done"
+		doneStyle = stylePrimary
 	}
-	rows = append(rows, []InlineKeyboardButton{{Text: doneLabel, CallbackData: doneCB}})
+	rows = append(rows, []InlineKeyboardButton{{Text: doneLabel, CallbackData: doneCB, Style: doneStyle}})
 	return b.respond(ctx, cq, "<b>Pull request actions</b>\nSelect at least one action. “Opened” also covers reopened pull requests.", &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
@@ -1039,7 +1045,7 @@ func (b *Bot) renderSubscription(ctx context.Context, cq CallbackQuery, id strin
 		[]InlineKeyboardButton{{Text: "Edit events", CallbackData: editEventsCB}},
 		[]InlineKeyboardButton{{Text: "Advanced settings", CallbackData: advancedCB}},
 		[]InlineKeyboardButton{{Text: "Edit destination", CallbackData: editDestCB}},
-		[]InlineKeyboardButton{{Text: "Delete", CallbackData: deleteCB}},
+		[]InlineKeyboardButton{{Text: "Delete", CallbackData: deleteCB, Style: styleDanger}},
 		[]InlineKeyboardButton{{Text: "Back", CallbackData: "sub:list"}},
 	)
 	destLabel, destWarning := b.describeDestination(ctx, cq.From.ID, sub)
@@ -1070,7 +1076,7 @@ func (b *Bot) renderEditEvents(ctx context.Context, cq CallbackQuery, id string,
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: "Save", CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: "Save", CallbackData: callback, Style: stylePrimary}})
 	}
 	backButton, err := b.viewButton(ctx, cq.From.ID, id)
 	if err != nil {
@@ -1136,7 +1142,7 @@ func (b *Bot) renderEditBranch(ctx context.Context, cq CallbackQuery, id string)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: checkbox(sub.BranchMode == mode, branchLabel(mode, currentBranches)), CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: checkbox(sub.BranchMode == mode, branchModeLabel(mode, currentBranches)), CallbackData: callback}})
 	}
 	backButton, err := b.advancedButton(ctx, cq.From.ID, id)
 	if err != nil {
@@ -1180,7 +1186,7 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq CallbackQuery, payloa
 			return err
 		}
 		rows := [][]InlineKeyboardButton{
-			{{Text: "Use all branches", CallbackData: allCB}},
+			{{Text: "Use all branches", CallbackData: allCB, Style: stylePrimary}},
 			backRow,
 		}
 		return b.respond(ctx, cq, "<b>Choose branch</b>\nThis repository has no branches to choose from.", &InlineKeyboardMarkup{InlineKeyboard: rows})
@@ -1205,7 +1211,7 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq CallbackQuery, payloa
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: "Save branches", CallbackData: saveCB}})
+		rows = append(rows, []InlineKeyboardButton{{Text: "Save branches", CallbackData: saveCB, Style: stylePrimary}})
 	}
 	var nav []InlineKeyboardButton
 	for _, step := range []struct {
@@ -1261,7 +1267,7 @@ func (b *Bot) renderEditPullRequestSettings(ctx context.Context, cq CallbackQuer
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: "Save", CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: "Save", CallbackData: callback, Style: stylePrimary}})
 	}
 	backButton, err := b.advancedButton(ctx, cq.From.ID, id)
 	if err != nil {
@@ -1386,6 +1392,9 @@ func esc(value string) string {
 	return html.EscapeString(value)
 }
 
+// branchLabel describes the current branch filter in summary text (e.g.
+// "Branches: main, dev"). For tappable mode buttons use branchModeLabel, which
+// reads as an action rather than a status.
 func branchLabel(mode string, branches []string) string {
 	switch mode {
 	case "all":
@@ -1396,7 +1405,27 @@ func branchLabel(mode string, branches []string) string {
 		if len(branches) > 0 {
 			return branchNamesLabel(branches)
 		}
-		return "No branches selected"
+		return "Specific branches (none yet)"
+	default:
+		return mode
+	}
+}
+
+// branchModeLabel is the action-oriented label for the branch-mode radio
+// buttons. "Specific branches" invites the tap into the picker; a count keeps
+// the button short and stable regardless of branch name lengths.
+func branchModeLabel(mode string, branches []string) string {
+	switch mode {
+	case "all":
+		return "All branches"
+	case "default":
+		return "Default branch"
+	case "selected":
+		branches = db.NormalizeBranchNames(branches)
+		if len(branches) == 0 {
+			return "Specific branches"
+		}
+		return fmt.Sprintf("Specific branches · %d", len(branches))
 	default:
 		return mode
 	}
