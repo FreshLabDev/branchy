@@ -5,14 +5,18 @@ before `v1.0.0`.
 
 ## Version Line
 
-The first release line should move through these tags:
+The first release line moved through these tags:
 
 ```text
 v0.1.0-alpha.1  initial open-source MVP code
+v0.1.0-alpha.2  archived repository picker guard
 v0.1.0-beta.1   first real Telegram/GitHub beta
 v0.1.0-rc.1     release candidate after beta fixes
-v0.1.0          public MVP announcement
+v0.1.0          public MVP release
 ```
+
+Branchy skipped `beta` and `rc` for this first line because the core Telegram
+and GitHub flows were already live-tested during the alpha cycle.
 
 After the public MVP release:
 

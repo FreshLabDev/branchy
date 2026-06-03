@@ -10,6 +10,13 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v0.1.0 - 2026-06-03
+
+### Changed
+
+- Promoted the live-tested MVP from alpha to the first public `v0.1.0` release.
+  There are no runtime behavior changes from `v0.1.0-alpha.2`.
+
 ## v0.1.0-alpha.2 - 2026-06-03
 
 ### Fixed

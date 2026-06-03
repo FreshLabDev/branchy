@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/FreshLabDev/branchy/releases"><img src="https://img.shields.io/github/v/release/FreshLabDev/branchy?include_prereleases&sort=semver&style=for-the-badge&label=latest&labelColor=0f172a&color=4c8c4a" alt="latest version"></a>
-  <a href="docs/versioning.md"><img src="https://img.shields.io/badge/stable-not%20released-64748b?style=for-the-badge&labelColor=0f172a" alt="stable version"></a>
+  <a href="docs/versioning.md"><img src="https://img.shields.io/badge/stable-v0.1.0-4c8c4a?style=for-the-badge&labelColor=0f172a" alt="stable version"></a>
   <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/FreshLabDev/branchy?style=for-the-badge&logo=go&logoColor=white&label=go&labelColor=0f172a&color=00ADD8" alt="go version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-334155?style=for-the-badge&labelColor=0f172a" alt="license"></a>
   <a href="https://t.me/branchy_bot"><img src="https://img.shields.io/badge/telegram-%40branchy__bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0f172a" alt="telegram bot"></a>
@@ -46,11 +46,11 @@ Branchy keeps the MVP deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v0.1.0-alpha.2` | Published pre-release for live MVP feedback |
-| Stable | not released | First non-prerelease tag is planned as `v0.1.0` |
+| Latest | `v0.1.0` | Public MVP release |
+| Stable | `v0.1.0` | First non-prerelease tag |
 
-The MVP has been live-tested with Telegram and GitHub. It is still an early
-release, not a stable production contract.
+The MVP has been live-tested with Telegram and GitHub. `v0.1.0` is the public
+MVP release; `v1.0.0` is still reserved for a mature production contract.
 
 ---
 
@@ -82,7 +82,7 @@ Branchy messages keep one event, one repository, and the useful links up front.
     </td>
     <td>
       <strong>FreshLabDev/branchy</strong><br/>
-      <strong>Pre-release</strong> · v0.1.0-alpha.1<br/><br/>
+      <strong>Release</strong> · v0.1.0<br/><br/>
       by <strong>amtiYo</strong><br/><br/>
       Release notes render from GitHub Markdown.
     </td>
