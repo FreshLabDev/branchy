@@ -10,6 +10,8 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v0.1.0-alpha.2 - 2026-06-03
+
 ### Fixed
 
 - Archived GitHub repositories are hidden from repository pickers and rejected
