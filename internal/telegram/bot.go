@@ -838,7 +838,7 @@ func (b *Bot) renderBranchSettings(ctx context.Context, cq CallbackQuery, draft 
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: checkbox(draft.BranchMode == mode, branchModeLabel(mode, draft.BranchNames)), CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: radio(draft.BranchMode == mode, branchModeLabel(mode, draft.BranchNames)), CallbackData: callback}})
 	}
 	backCB, err := b.token(ctx, cq.From.ID, "sub.settings", draft)
 	if err != nil {
@@ -969,7 +969,7 @@ func (b *Bot) renderReleaseSettings(ctx context.Context, cq CallbackQuery, draft
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: checkbox(draft.ReleaseMode == mode, releaseModeLabel(mode)), CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: radio(draft.ReleaseMode == mode, releaseModeLabel(mode)), CallbackData: callback}})
 	}
 	backCB, err := b.token(ctx, cq.From.ID, "sub.settings", draft)
 	if err != nil {
@@ -1150,7 +1150,7 @@ func (b *Bot) renderEditBranch(ctx context.Context, cq CallbackQuery, id string)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: checkbox(sub.BranchMode == mode, branchModeLabel(mode, currentBranches)), CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: radio(sub.BranchMode == mode, branchModeLabel(mode, currentBranches)), CallbackData: callback}})
 	}
 	backButton, err := b.advancedButton(ctx, cq.From.ID, id)
 	if err != nil {
@@ -1300,7 +1300,7 @@ func (b *Bot) renderEditReleaseSettings(ctx context.Context, cq CallbackQuery, i
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: checkbox(mode == candidate, releaseModeLabel(candidate)), CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: radio(mode == candidate, releaseModeLabel(candidate)), CallbackData: callback}})
 	}
 	backButton, err := b.advancedButton(ctx, cq.From.ID, id)
 	if err != nil {
@@ -1504,11 +1504,21 @@ func humanEvents(events []string) []string {
 	return out
 }
 
+// checkbox marks a multi-select option. Square glyph signals "pick any number".
 func checkbox(on bool, label string) string {
 	if on {
-		return "☑ " + label
+		return "■ " + label
 	}
-	return "☐ " + label
+	return "□ " + label
+}
+
+// radio marks a single-select option. Round glyph signals "pick exactly one",
+// distinguishing it from the square multi-select checkboxes.
+func radio(on bool, label string) string {
+	if on {
+		return "● " + label
+	}
+	return "○ " + label
 }
 
 func settingsSummary(events []string, branchMode string, branchNames []string, pullRequestActions []string, releaseMode string) string {
@@ -1553,6 +1563,13 @@ func normalizeDraftForEvents(draft subDraft) subDraft {
 		draft.BranchNames = nil
 	} else {
 		draft.BranchNames = db.NormalizeBranchNames(draft.BranchNames)
+		if len(draft.BranchNames) == 0 {
+			// Opening "Specific branches" but choosing none must not stick as an
+			// empty, unusable selection. Fall back to the default branch. (The
+			// branch picker re-forces "selected" itself, so this only takes effect
+			// once the user navigates away with nothing chosen.)
+			draft.BranchMode = "default"
+		}
 	}
 	return draft
 }

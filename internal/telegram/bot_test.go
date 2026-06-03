@@ -30,6 +30,33 @@ func TestBranchModeLabelReadsAsAction(t *testing.T) {
 	}
 }
 
+func TestNormalizeDraftForEventsFallsBackWhenNoBranchesSelected(t *testing.T) {
+	got := normalizeDraftForEvents(subDraft{Events: []string{"push"}, BranchMode: "selected"})
+	if got.BranchMode != "default" {
+		t.Fatalf("empty selection should fall back to default branch, got %q", got.BranchMode)
+	}
+	if len(got.BranchNames) != 0 {
+		t.Fatalf("fallback should leave no branch names, got %v", got.BranchNames)
+	}
+
+	kept := normalizeDraftForEvents(subDraft{Events: []string{"push"}, BranchMode: "selected", BranchNames: []string{"main"}})
+	if kept.BranchMode != "selected" || len(kept.BranchNames) != 1 {
+		t.Fatalf("non-empty selection must stay selected, got %q/%v", kept.BranchMode, kept.BranchNames)
+	}
+}
+
+func TestCheckboxAndRadioUseDistinctGlyphs(t *testing.T) {
+	if checkbox(true, "x") != "■ x" || checkbox(false, "x") != "□ x" {
+		t.Fatalf("checkbox glyphs = %q/%q", checkbox(true, "x"), checkbox(false, "x"))
+	}
+	if radio(true, "x") != "● x" || radio(false, "x") != "○ x" {
+		t.Fatalf("radio glyphs = %q/%q", radio(true, "x"), radio(false, "x"))
+	}
+	if checkbox(true, "x") == radio(true, "x") {
+		t.Fatal("single-select and multi-select markers must differ")
+	}
+}
+
 func TestInlineKeyboardButtonStyleOmitsWhenEmpty(t *testing.T) {
 	plain, _ := json.Marshal(InlineKeyboardButton{Text: "Back", CallbackData: "home"})
 	if strings.Contains(string(plain), "style") {

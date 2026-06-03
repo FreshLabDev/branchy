@@ -46,7 +46,7 @@ Branchy keeps the MVP deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v0.2.0-alpha.2` | Pre-release with event-specific subscription settings |
+| Latest | `v0.2.0-alpha.3` | Pre-release with event-specific subscription settings |
 | Stable | `v0.1.0` | Latest non-prerelease tag |
 
 The MVP has been live-tested with Telegram and GitHub. `v0.1.0` is the public

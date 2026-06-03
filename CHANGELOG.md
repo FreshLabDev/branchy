@@ -10,6 +10,20 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v0.2.0-alpha.3 - 2026-06-03
+
+### Fixed
+
+- Opening "Specific branches" during subscription creation and choosing none no
+  longer leaves the filter stuck on an empty selection; it falls back to the
+  default branch.
+
+### Changed
+
+- Single-select options (branch mode, release type) now use round markers
+  (`●`/`○`) and multi-select options (events, pull request actions, branches)
+  use square markers (`■`/`□`), replacing the previous checkbox glyphs.
+
 ## v0.2.0-alpha.2 - 2026-06-03
 
 ### Added
