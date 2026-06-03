@@ -1,161 +1,263 @@
-# Branchy
+<h1 align="center">Branchy</h1>
 
-Branchy is a minimal Telegram bot for GitHub repository notifications.
+<p align="center"><strong>Clean GitHub notifications in Telegram.</strong><br/>Small Go service for repository events, subscriptions, and durable delivery.</p>
 
-It connects a Telegram user to GitHub through OAuth, lets them choose repositories they can access, and delivers selected GitHub events to a direct message or to Telegram groups where the bot is installed.
+<p align="center">
+  <a href="https://github.com/FreshLabDev/branchy/releases"><img src="https://img.shields.io/github/v/release/FreshLabDev/branchy?include_prereleases&sort=semver&style=for-the-badge&label=latest&labelColor=0f172a&color=4c8c4a" alt="latest version"></a>
+  <a href="docs/versioning.md"><img src="https://img.shields.io/badge/stable-not%20released-64748b?style=for-the-badge&labelColor=0f172a" alt="stable version"></a>
+  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/FreshLabDev/branchy?style=for-the-badge&logo=go&logoColor=white&label=go&labelColor=0f172a&color=00ADD8" alt="go version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-334155?style=for-the-badge&labelColor=0f172a" alt="license"></a>
+  <a href="https://t.me/branchy_bot"><img src="https://img.shields.io/badge/telegram-%40branchy__bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0f172a" alt="telegram bot"></a>
+</p>
 
-Branchy is intentionally small: one Go service, PostgreSQL for state, Telegram long polling for bot interactions, and HTTP routes for GitHub OAuth callbacks and repository webhooks.
+<p align="center">
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#using-branchy">Using Branchy</a> ·
+  <a href="#how-it-works">How It Works</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="#security">Security</a> ·
+  <a href="#docs">Docs</a>
+</p>
+
+---
+
+## The Problem
+
+GitHub notifications are useful, but raw webhook delivery becomes noisy fast:
+too many event types, duplicated formatting, fragile direct sends, and unclear
+group permissions.
+
+Branchy keeps the MVP deliberately narrow:
+
+| Need | Branchy approach |
+|:--|:--|
+| Focused event stream | Supports only `push`, `pull_request`, and `release` |
+| Telegram-first setup | Uses `/start` plus inline buttons, with settings in DM |
+| Safe group delivery | Enables groups only after admin or creator verification |
+| Reliable sending | Stores notification jobs in PostgreSQL before delivery |
+| Clean messages | Sends compact Telegram HTML with escaped user content |
+
+> **Result:** one small service that turns GitHub activity into readable
+> Telegram updates without expanding beyond the MVP.
+
+---
 
 ## Status
 
-Branchy is currently in `v0.1.0-alpha.1`: the MVP is live-tested, but the project
-is still intended for early usage and feedback before a public stable release.
+| Channel | Version | Meaning |
+|:--|:--|:--|
+| Latest | `v0.1.0-alpha.1` | Published pre-release for live MVP feedback |
+| Stable | not released | First non-prerelease tag is planned as `v0.1.0` |
 
-## What It Does
+The MVP has been live-tested with Telegram and GitHub. It is still an early
+release, not a stable production contract.
 
-- Opens the setup UI with `/start`.
-- Connects GitHub through OAuth.
-- Lists GitHub repositories visible to the connected account.
-- Creates subscriptions for repository events:
-  - `push`
-  - `pull_request`
-  - `release`
-- Delivers notifications to:
-  - Telegram DM
-  - Telegram groups where Branchy was added
-- Supports branch filters:
-  - all branches
-  - default branch
-  - selected branch
-- Creates or reuses GitHub repository webhooks.
-- Verifies GitHub webhook signatures before parsing payloads.
-- Sends concise Telegram messages using HTML parse mode.
-- Uses a durable PostgreSQL notification outbox for stable delivery and retries.
+---
 
-## Not In This MVP
+## Preview
 
-Branchy does not implement issues, workflow runs, deployments, comments, billing, GitHub App installation flow, or non-Telegram delivery.
+Branchy messages keep one event, one repository, and the useful links up front.
 
-## Architecture
+<table>
+  <tr>
+    <th align="left">Push</th>
+    <th align="left">Pull request</th>
+    <th align="left">Release</th>
+  </tr>
+  <tr>
+    <td>
+      <strong>FreshLabDev/branchy</strong><br/>
+      2 new commits · <code>main</code><br/><br/>
+      <code>f2a07de</code> fix Telegram layout<br/>
+      <code>a4e7f27</code> clarify release flow<br/><br/>
+      Pushed by <strong>amtiYo</strong><br/>
+      Compare changes
+    </td>
+    <td>
+      <strong>FreshLabDev/branchy</strong><br/>
+      Pull request opened<br/><br/>
+      <strong>#42 Add branch filters</strong><br/>
+      into <code>main</code> · by <strong>amtiYo</strong><br/><br/>
+      Description is rendered as a compact quote.
+    </td>
+    <td>
+      <strong>FreshLabDev/branchy</strong><br/>
+      <strong>Pre-release</strong> · v0.1.0-alpha.1<br/><br/>
+      by <strong>amtiYo</strong><br/><br/>
+      Release notes render from GitHub Markdown.
+    </td>
+  </tr>
+</table>
 
-Branchy runs as a single Go service with three main loops:
+---
 
-- Telegram long polling for user interaction.
-- An HTTP server for GitHub OAuth and repository webhooks.
-- A notification worker that sends queued Telegram messages.
+## Quick Start
 
-Webhook handling is intentionally fast:
-
-```text
-verify signature -> dedupe delivery -> enqueue notification jobs -> return 200
-```
-
-Telegram delivery happens through the durable outbox:
-
-```text
-poll pending jobs -> send Telegram -> mark sent, retry, or failed
-```
-
-More detail is documented in [docs/architecture.md](docs/architecture.md).
-
-## Requirements
-
-- Docker Desktop
-- A Telegram bot token from BotFather
-- A GitHub OAuth App
-- PostgreSQL, provided locally by Docker Compose
-- A public URL for local development, usually through a tunnel
-
-If `go` is not installed locally, use the Docker-based test commands below.
-
-## Local Development
-
-Copy the example environment file:
+You need Docker, PostgreSQL, a Telegram bot token from
+[BotFather](https://t.me/BotFather), a GitHub OAuth App, and a public HTTPS URL
+for OAuth callbacks and webhooks.
 
 ```sh
+# 1. Copy local configuration
 cp .env.example .env
+
+# 2. Fill the required secrets and public URL
+$EDITOR .env
+
+# 3. Start Branchy and PostgreSQL
+docker compose up --build
 ```
 
-Fill in the required values:
-
-```text
-TELEGRAM_BOT_TOKEN=
-GITHUB_CLIENT_ID=
-GITHUB_CLIENT_SECRET=
-GITHUB_WEBHOOK_SECRET=
-APP_SECRET=
-PUBLIC_BASE_URL=
-```
-
-Create a GitHub OAuth App with this callback URL:
+Create the GitHub OAuth App callback URL with the same public base URL:
 
 ```text
 ${PUBLIC_BASE_URL}/oauth/github/callback
 ```
 
-Start Branchy and PostgreSQL:
+Branchy runs startup migrations from `migrations/` and records completed
+versions in `schema_migrations`. Keep `AUTO_MIGRATE=true` for local
+development.
 
-```sh
-/Applications/Docker.app/Contents/Resources/bin/docker compose up --build
+---
+
+## Using Branchy
+
+All user setup is button-driven inside Telegram.
+
+1. Open the bot in DM and send `/start`.
+2. Connect GitHub through OAuth.
+3. Pick repositories and subscribe to `push`, `pull_request`, or `release`.
+4. Choose DM delivery or an eligible Telegram group.
+5. View, pause, edit, delete, or test subscriptions from the inline menus.
+
+Groups become available only after Branchy has seen the group. Before group
+delivery is enabled, Branchy verifies that the Telegram user is a group
+`creator` or `administrator`.
+
+---
+
+## How It Works
+
+Branchy is one Go service with PostgreSQL as the only durable store.
+
+```text
+telegram poller  -> inline-button UI
+http server      -> OAuth callback and GitHub webhooks
+outbox worker    -> Telegram delivery and retries
 ```
 
-Branchy applies SQL migrations from `migrations/` on startup and records completed versions in `schema_migrations`. Set `AUTO_MIGRATE=false` only when migrations are handled by release automation.
+Webhook handling is intentionally fast:
+
+```text
+verify signature -> dedupe delivery -> enqueue jobs -> return 200
+```
+
+Delivery happens outside the webhook request:
+
+```text
+poll pending jobs with FOR UPDATE SKIP LOCKED
+  -> send Telegram
+  -> mark sent, retry, or failed
+```
+
+Temporary Telegram or GitHub failures retry with `retry_at` and `attempts`.
+Permanent delivery failures are marked `failed`.
+
+---
+
+## MVP Scope
+
+| Included | Excluded |
+|:--|:--|
+| GitHub OAuth through an OAuth App | GitHub App installation flow |
+| Telegram DM and verified groups | Non-Telegram delivery channels |
+| `push`, `pull_request`, `release` | Issues, comments, deployments, workflow runs |
+| PostgreSQL outbox delivery | Direct sends inside webhook handlers |
+| `/healthz` operational health | Billing or paid plans |
+
+---
+
+## Configuration
+
+| Variable | Required | Default | Description |
+|:--|:--:|:--|:--|
+| `DATABASE_URL` | yes | - | PostgreSQL connection string |
+| `PUBLIC_BASE_URL` | yes | - | Public HTTPS base URL |
+| `TELEGRAM_BOT_TOKEN` | yes | - | Bot token from BotFather |
+| `GITHUB_CLIENT_ID` | yes | - | GitHub OAuth App client ID |
+| `GITHUB_CLIENT_SECRET` | yes | - | GitHub OAuth App client secret |
+| `GITHUB_WEBHOOK_SECRET` | yes | - | Secret for GitHub webhook signatures |
+| `APP_SECRET` | yes | - | Token encryption secret, 32+ characters |
+| `GITHUB_OAUTH_SCOPE` | no | `repo read:user` | OAuth scopes |
+| `HTTP_ADDR` | no | `:8080` | HTTP listen address |
+| `MIGRATIONS_DIR` | no | `migrations` | Migration directory |
+| `AUTO_MIGRATE` | no | `true` | Run migrations on startup |
+
+The default `repo read:user` scope is broad, but it supports private repository
+visibility and repository webhook management through the OAuth App flow.
+
+---
+
+## Security
+
+- GitHub OAuth tokens are encrypted at rest with AES-GCM using `APP_SECRET`.
+- GitHub webhook signatures are verified over the raw body before JSON parsing.
+- GitHub delivery IDs are treated as idempotency keys.
+- OAuth state is single-use and expires.
+- Telegram messages use HTML parse mode with escaped user-controlled content.
+- Notification links are restricted to `http(s)` URLs.
+- Logs avoid Telegram bot tokens, GitHub tokens, webhook secrets, OAuth client
+  secrets, raw authorization headers, and full Telegram Bot API URLs.
+
+---
+
+## Deployment
+
+Only two public routes are required:
+
+```text
+/oauth/github/callback
+/webhooks/github
+```
+
+Put `HTTP_ADDR` behind a TLS-terminating reverse proxy or tunnel and set
+`PUBLIC_BASE_URL` to the matching HTTPS URL.
+
+`/healthz` reports database status, Telegram polling freshness, worker
+freshness, and outbox counts without exposing secrets.
+
+---
 
 ## Testing
 
-Run the Go test suite through Docker:
-
 ```sh
-/Applications/Docker.app/Contents/Resources/bin/docker run --rm -v "$PWD":/src -w /src golang:1.26-alpine go test ./...
+docker run --rm -v "$PWD":/src -w /src golang:1.26-alpine go test ./...
+docker run --rm -v "$PWD":/src -w /src golang:1.26-alpine go vet ./...
+docker compose config
 ```
 
-Run static checks:
+---
 
-```sh
-/Applications/Docker.app/Contents/Resources/bin/docker run --rm -v "$PWD":/src -w /src golang:1.26-alpine go vet ./...
-```
+## Docs
 
-Validate Compose configuration:
+| Document | Purpose |
+|:--|:--|
+| [Architecture](docs/architecture.md) | Service structure and core decisions |
+| [GitHub integration](docs/github.md) | OAuth, scopes, and repository webhooks |
+| [Telegram behavior](docs/telegram.md) | Bot interaction rules and group delivery |
+| [Versioning](docs/versioning.md) | Pre-release and stable version line |
+| [Release process](docs/releases.md) | Changelog and GitHub Release rules |
 
-```sh
-/Applications/Docker.app/Contents/Resources/bin/docker compose config
-```
+---
 
-## Security Notes
+<p align="center">
+  <a href="https://github.com/FreshLabDev/branchy/releases">Releases</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="LICENSE">Apache-2.0</a> ·
+  <a href="NOTICE">NOTICE</a>
+</p>
 
-- GitHub OAuth tokens are encrypted with AES-GCM using a key derived from `APP_SECRET`.
-- GitHub webhook signatures are verified with HMAC-SHA256 before JSON parsing.
-- Telegram notification text is HTML-escaped before sending.
-- OAuth state records are single-use and expire.
-- Logs avoid Telegram bot tokens, GitHub tokens, webhook secrets, and OAuth secrets.
-- GitHub OAuth uses the `repo read:user` scopes for the MVP. This is broad, but it allows private repository visibility and repository hook management through an OAuth App. A GitHub App flow is intentionally out of scope for this version.
-- Notification links are restricted to `http(s)` URLs before they are placed in Telegram messages.
-
-## Deployment Exposure
-
-- Only `/webhooks/github` and `/oauth/github/callback` need to be reachable from the internet. Put `HTTP_ADDR` behind a TLS-terminating reverse proxy or tunnel and set `PUBLIC_BASE_URL` to that HTTPS URL. GitHub requires HTTPS for OAuth callbacks and signs webhook deliveries that should not transit plain HTTP.
-- `/healthz` reports outbox counts and liveness. It does not expose secrets or error detail, but if you do not want operational counts to be public, restrict it to internal monitoring at the proxy.
-- Set `restart: unless-stopped` (already configured in `docker-compose.yml`) so the service recovers from transient failures.
-
-## Product Behavior
-
-- `/start` is the only command.
-- Setup happens through inline buttons.
-- Settings are configured in DM.
-- Groups become selectable after Branchy sees that it was added to the group.
-- Before enabling group delivery, Branchy verifies that the Telegram user is a group creator or administrator when Telegram provides enough information.
-- Users can view, pause, edit, delete, and test subscriptions.
-
-## Documentation
-
-- [docs/architecture.md](docs/architecture.md) explains the service structure and main decisions.
-- [docs/github.md](docs/github.md) documents OAuth, scopes, and repository webhooks.
-- [docs/telegram.md](docs/telegram.md) documents Telegram interaction rules and group delivery.
-- [docs/versioning.md](docs/versioning.md) documents the release version scheme.
-- [docs/releases.md](docs/releases.md) documents changelog and GitHub Release rules.
-
-## License
-
-Branchy is open source under the [Apache License 2.0](LICENSE).
-
-Copyright 2026 FreshLab.
+<p align="center">
+  Branchy is open source software by FreshLab.<br/>
+  Copyright 2026 FreshLab.
+</p>
