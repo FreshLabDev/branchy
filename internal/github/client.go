@@ -58,6 +58,7 @@ type Repository struct {
 	Owner              string
 	Name               string
 	Private            bool
+	Archived           bool
 	DefaultBranch      string
 	HTMLURL            string
 	HasAdminPermission bool
@@ -132,6 +133,7 @@ func (c *Client) ListRepositories(ctx context.Context, accessToken string) ([]Re
 			FullName      string `json:"full_name"`
 			Name          string `json:"name"`
 			Private       bool   `json:"private"`
+			Archived      bool   `json:"archived"`
 			DefaultBranch string `json:"default_branch"`
 			HTMLURL       string `json:"html_url"`
 			Owner         struct {
@@ -145,12 +147,16 @@ func (c *Client) ListRepositories(ctx context.Context, accessToken string) ([]Re
 			return nil, err
 		}
 		for _, item := range batch {
+			if item.Archived {
+				continue
+			}
 			repos = append(repos, Repository{
 				ID:                 item.ID,
 				FullName:           item.FullName,
 				Owner:              item.Owner.Login,
 				Name:               item.Name,
 				Private:            item.Private,
+				Archived:           item.Archived,
 				DefaultBranch:      item.DefaultBranch,
 				HTMLURL:            item.HTMLURL,
 				HasAdminPermission: item.Permissions.Admin,

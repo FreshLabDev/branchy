@@ -71,6 +71,9 @@ func (s *Service) repoMutex(repoFullName string) *sync.Mutex {
 }
 
 func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.Repository, destinationType string, destinationChatID int64, events []string, branchMode, branchName string) (string, error) {
+	if repo.Archived {
+		return "", invalid("This repository is archived, so GitHub webhooks cannot be configured.")
+	}
 	events = db.NormalizeEvents(events)
 	if len(events) == 0 {
 		return "", invalid("Choose at least one event.")

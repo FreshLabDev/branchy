@@ -10,6 +10,11 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+### Fixed
+
+- Archived GitHub repositories are hidden from repository pickers and rejected
+  defensively if an old inline callback tries to create a subscription for one.
+
 ## v0.1.0-alpha.1 - 2026-06-03
 
 ### Added

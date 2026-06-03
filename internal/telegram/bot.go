@@ -456,17 +456,7 @@ func (b *Bot) renderRepoList(ctx context.Context, cq CallbackQuery, subscribeMod
 	if err != nil {
 		return b.respond(ctx, cq, esc(b.userMessage(err, "list your repositories")), backHome())
 	}
-	if subscribeMode {
-		// Only repositories the user can add a webhook to are actionable here;
-		// hide the rest instead of presenting dead-end buttons.
-		filtered := repos[:0:0]
-		for _, repo := range repos {
-			if repo.HasAdminPermission {
-				filtered = append(filtered, repo)
-			}
-		}
-		repos = filtered
-	}
+	repos = visibleRepositories(repos, subscribeMode)
 	if len(repos) == 0 {
 		if subscribeMode {
 			return b.respond(ctx, cq, "No repositories where you can add a webhook. You need admin rights on a repository to subscribe.", backHome())
@@ -517,7 +507,7 @@ func (b *Bot) renderRepoList(ctx context.Context, cq CallbackQuery, subscribeMod
 
 func (b *Bot) renderRepoInfo(ctx context.Context, cq CallbackQuery, repo github.Repository) error {
 	rows := [][]InlineKeyboardButton{}
-	if repo.HasAdminPermission {
+	if repo.HasAdminPermission && !repo.Archived {
 		callback, err := b.token(ctx, cq.From.ID, "sub.repo", subDraft{Repo: repo})
 		if err != nil {
 			return err
@@ -526,10 +516,26 @@ func (b *Bot) renderRepoInfo(ctx context.Context, cq CallbackQuery, repo github.
 	}
 	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: "repo:list"}})
 	text := "<b>" + esc(repo.FullName) + "</b>\nDefault branch: " + esc(repo.DefaultBranch)
-	if !repo.HasAdminPermission {
+	if repo.Archived {
+		text += "\nThis repository is archived, so GitHub webhooks cannot be configured."
+	} else if !repo.HasAdminPermission {
 		text += "\nYou need admin rights here to add a webhook, so you cannot subscribe to this repository."
 	}
 	return b.respond(ctx, cq, text, &InlineKeyboardMarkup{InlineKeyboard: rows})
+}
+
+func visibleRepositories(repos []github.Repository, subscribeMode bool) []github.Repository {
+	filtered := repos[:0:0]
+	for _, repo := range repos {
+		if repo.Archived {
+			continue
+		}
+		if subscribeMode && !repo.HasAdminPermission {
+			continue
+		}
+		filtered = append(filtered, repo)
+	}
+	return filtered
 }
 
 func (b *Bot) renderDestinationPicker(ctx context.Context, cq CallbackQuery, draft subDraft, edit bool, editID string) error {
