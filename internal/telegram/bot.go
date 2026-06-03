@@ -416,7 +416,7 @@ func (b *Bot) mainMenu(ctx context.Context, telegramUserID int64) (string, *Inli
 		}
 		switch len(subs) {
 		case 0:
-			lines = append(lines, "No subscriptions yet — tap New subscription to begin.")
+			lines = append(lines, "No subscriptions yet. Tap New subscription to begin.")
 		case 1:
 			lines = append(lines, "1 subscription.")
 		default:
@@ -425,11 +425,18 @@ func (b *Bot) mainMenu(ctx context.Context, telegramUserID int64) (string, *Inli
 	} else {
 		lines = append(lines, "Connect GitHub to choose repositories and events.")
 	}
-	return strings.Join(lines, "\n"), &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{
+	rows := [][]InlineKeyboardButton{
 		{{Text: connectLabel, URL: connectURL}},
-		{{Text: "Repositories", CallbackData: "repo:list"}, {Text: "New subscription", CallbackData: "sub:new"}},
-		{{Text: "Subscriptions", CallbackData: "sub:list"}, {Text: "Test notification", CallbackData: "test:menu"}},
-	}}, nil
+	}
+	// The other actions all require a GitHub connection, so only offer them
+	// once connected; until then the menu is just the connect button.
+	if connected {
+		rows = append(rows,
+			[]InlineKeyboardButton{{Text: "Repositories", CallbackData: "repo:list"}, {Text: "New subscription", CallbackData: "sub:new"}},
+			[]InlineKeyboardButton{{Text: "Subscriptions", CallbackData: "sub:list"}, {Text: "Test notification", CallbackData: "test:menu"}},
+		)
+	}
+	return strings.Join(lines, "\n"), &InlineKeyboardMarkup{InlineKeyboard: rows}, nil
 }
 
 func (b *Bot) renderHome(ctx context.Context, cq CallbackQuery) error {
@@ -969,7 +976,7 @@ func (b *Bot) groupAdminFailure(ctx context.Context, cq CallbackQuery, err error
 	toast := "You must be a group administrator."
 	if !errors.Is(err, errNotGroupAdmin) {
 		slog.Error("group admin check failed", "error", err)
-		toast = "Couldn't verify group access — please try again."
+		toast = "Couldn't verify group access. Please try again."
 	}
 	return toast, rerender()
 }

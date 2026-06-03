@@ -76,6 +76,8 @@ Use this section for changes that are merged but not released yet.
   screen.
 - Humanized event labels, group titles, and status text in the UI and
   notifications.
+- The main menu shows only the Connect GitHub button until a GitHub account is
+  connected, instead of offering actions that require a connection.
 - Callback tokens for final subscription creation actions are consumed after use.
 - Subscription event arrays are normalized so equivalent event sets are stored in
   one stable order.
