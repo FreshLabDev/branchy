@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -625,7 +626,7 @@ func (b *Bot) renderRepoList(ctx context.Context, cq CallbackQuery, subscribeMod
 		}
 		text := repo.FullName
 		if !subscribeMode && !repo.HasAdminPermission {
-			text = text + "  ·  no hook access"
+			text = text + "  ·  no access"
 		}
 		callback, err := b.token(ctx, cq.From.ID, action, repoPayload{Repo: repo})
 		if err != nil {
@@ -674,6 +675,13 @@ func visibleRepositories(repos []github.Repository, subscribeMode bool) []github
 		}
 		filtered = append(filtered, repo)
 	}
+	// Keep subscribable (admin) repositories first so the read-only ones the user
+	// cannot act on sink to the bottom of the list. Stable to preserve GitHub's
+	// ordering within each group. (In subscribe mode every repo is admin, so this
+	// is a no-op there.)
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return filtered[i].HasAdminPermission && !filtered[j].HasAdminPermission
+	})
 	return filtered
 }
 

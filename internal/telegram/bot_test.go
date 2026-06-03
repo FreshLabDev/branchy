@@ -75,6 +75,20 @@ func TestVisibleRepositoriesHidesArchivedRepositories(t *testing.T) {
 	}
 }
 
+func TestVisibleRepositoriesSinksReadOnlyToBottom(t *testing.T) {
+	repos := []github.Repository{
+		{FullName: "acme/readonly-1"},
+		{FullName: "acme/admin-1", HasAdminPermission: true},
+		{FullName: "acme/readonly-2"},
+		{FullName: "acme/admin-2", HasAdminPermission: true},
+	}
+	got := repoNames(visibleRepositories(repos, false))
+	want := []string{"acme/admin-1", "acme/admin-2", "acme/readonly-1", "acme/readonly-2"}
+	if !sameStrings(got, want) {
+		t.Fatalf("ordering = %v, want admin repos first, read-only last (%v)", got, want)
+	}
+}
+
 func repoNames(repos []github.Repository) []string {
 	names := make([]string, 0, len(repos))
 	for _, repo := range repos {

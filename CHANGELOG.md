@@ -20,6 +20,9 @@ Use this section for changes that are merged but not released yet.
 
 - Branch-mode buttons now read as actions ("Specific branches", with a selected
   count) instead of the status-like "No branches selected".
+- The repository list sorts repositories you can subscribe to first and sinks
+  read-only ones to the bottom; their marker now reads "no access" instead of
+  "no hook access".
 
 ## v0.2.0-alpha.1 - 2026-06-03
 
