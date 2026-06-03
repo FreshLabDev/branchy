@@ -3,6 +3,7 @@ package subscriptions
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
@@ -24,14 +25,25 @@ func (e *ValidationError) Error() string { return e.Message }
 
 func invalid(message string) error { return &ValidationError{Message: message} }
 
+// translateWriteErr converts a duplicate-configuration database error into a
+// user-facing validation message; other errors pass through unchanged.
+func translateWriteErr(err error) error {
+	if errors.Is(err, db.ErrDuplicateConfig) {
+		return invalid("You already have a subscription with these exact settings.")
+	}
+	return err
+}
+
 type Store interface {
 	GetGitHubConnection(ctx context.Context, telegramUserID int64) (db.GitHubConnection, error)
 	UpsertRepository(ctx context.Context, repo db.Repository) error
 	CreateSubscription(ctx context.Context, sub db.Subscription) (string, bool, error)
 	GetSubscriptionForUser(ctx context.Context, telegramUserID int64, id string) (db.Subscription, error)
 	UpdateSubscriptionStatus(ctx context.Context, telegramUserID int64, id, status string) error
-	UpdateSubscriptionEvents(ctx context.Context, telegramUserID int64, id string, events []string) error
-	UpdateSubscriptionBranch(ctx context.Context, telegramUserID int64, id, mode, branchName string) error
+	UpdateSubscriptionEventsAndSettings(ctx context.Context, telegramUserID int64, id string, events []string, branchMode string, branchNames []string, pullRequestActions []string, releaseMode string) error
+	UpdateSubscriptionBranch(ctx context.Context, telegramUserID int64, id, mode string, branchNames []string) error
+	UpdateSubscriptionPullRequestActions(ctx context.Context, telegramUserID int64, id string, actions []string) error
+	UpdateSubscriptionReleaseMode(ctx context.Context, telegramUserID int64, id, releaseMode string) error
 	UpdateSubscriptionDestination(ctx context.Context, telegramUserID int64, id, destinationType string, chatID int64) error
 	DeleteSubscription(ctx context.Context, telegramUserID int64, id string) error
 	ListActiveEventsForRepo(ctx context.Context, repoFullName string) ([]string, error)
@@ -70,15 +82,12 @@ func (s *Service) repoMutex(repoFullName string) *sync.Mutex {
 	return actual.(*sync.Mutex)
 }
 
-func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.Repository, destinationType string, destinationChatID int64, events []string, branchMode, branchName string) (string, error) {
+func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.Repository, destinationType string, destinationChatID int64, events []string, branchMode string, branchNames []string, pullRequestActions []string, releaseMode string) (string, error) {
 	if repo.Archived {
 		return "", invalid("This repository is archived, so GitHub webhooks cannot be configured.")
 	}
-	events = db.NormalizeEvents(events)
-	if len(events) == 0 {
-		return "", invalid("Choose at least one event.")
-	}
-	if err := validateBranch(branchMode, branchName); err != nil {
+	settings, err := normalizeSettings(events, branchMode, branchNames, pullRequestActions, releaseMode)
+	if err != nil {
 		return "", err
 	}
 	storedRepo := toDBRepo(repo)
@@ -86,14 +95,16 @@ func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.
 		return "", err
 	}
 	id, created, err := s.store.CreateSubscription(ctx, db.Subscription{
-		TelegramUserID:    telegramUserID,
-		DestinationType:   destinationType,
-		DestinationChatID: destinationChatID,
-		GitHubRepoID:      storedRepo.GitHubRepoID,
-		RepoFullName:      storedRepo.FullName,
-		Events:            events,
-		BranchMode:        branchMode,
-		BranchName:        branchName,
+		TelegramUserID:     telegramUserID,
+		DestinationType:    destinationType,
+		DestinationChatID:  destinationChatID,
+		GitHubRepoID:       storedRepo.GitHubRepoID,
+		RepoFullName:       storedRepo.FullName,
+		Events:             settings.Events,
+		BranchMode:         settings.BranchMode,
+		BranchNames:        settings.BranchNames,
+		PullRequestActions: settings.PullRequestActions,
+		ReleaseMode:        settings.ReleaseMode,
 	})
 	if err != nil {
 		return "", err
@@ -125,32 +136,47 @@ func (s *Service) SetStatus(ctx context.Context, telegramUserID int64, id, statu
 }
 
 func (s *Service) SetEvents(ctx context.Context, telegramUserID int64, id string, events []string) error {
-	events = db.NormalizeEvents(events)
-	if len(events) == 0 {
-		return invalid("Choose at least one event.")
-	}
 	sub, err := s.store.GetSubscriptionForUser(ctx, telegramUserID, id)
 	if err != nil {
 		return err
 	}
-	if err := s.store.UpdateSubscriptionEvents(ctx, telegramUserID, id, events); err != nil {
+	settings, err := normalizeSettings(events, sub.BranchMode, sub.BranchNames, sub.PullRequestActions, sub.ReleaseMode)
+	if err != nil {
 		return err
+	}
+	if err := s.store.UpdateSubscriptionEventsAndSettings(ctx, telegramUserID, id, settings.Events, settings.BranchMode, settings.BranchNames, settings.PullRequestActions, settings.ReleaseMode); err != nil {
+		return translateWriteErr(err)
 	}
 	return s.EnsureWebhook(ctx, telegramUserID, sub.GitHubRepoID, sub.RepoFullName)
 }
 
-func (s *Service) SetBranch(ctx context.Context, telegramUserID int64, id, mode, branchName string) error {
-	if err := validateBranch(mode, branchName); err != nil {
+func (s *Service) SetBranch(ctx context.Context, telegramUserID int64, id, mode string, branchNames []string) error {
+	if err := validateBranch(mode, branchNames); err != nil {
 		return err
 	}
-	return s.store.UpdateSubscriptionBranch(ctx, telegramUserID, id, mode, branchName)
+	return translateWriteErr(s.store.UpdateSubscriptionBranch(ctx, telegramUserID, id, mode, normalizeBranchNamesForMode(mode, branchNames)))
+}
+
+func (s *Service) SetPullRequestActions(ctx context.Context, telegramUserID int64, id string, actions []string) error {
+	actions = db.NormalizePullRequestActions(actions)
+	if len(actions) == 0 {
+		return invalid("Choose at least one pull request action.")
+	}
+	return translateWriteErr(s.store.UpdateSubscriptionPullRequestActions(ctx, telegramUserID, id, actions))
+}
+
+func (s *Service) SetReleaseMode(ctx context.Context, telegramUserID int64, id, releaseMode string) error {
+	if !validReleaseMode(releaseMode) {
+		return invalid("Invalid release setting.")
+	}
+	return translateWriteErr(s.store.UpdateSubscriptionReleaseMode(ctx, telegramUserID, id, releaseMode))
 }
 
 func (s *Service) SetDestination(ctx context.Context, telegramUserID int64, id, destinationType string, chatID int64) error {
 	if destinationType != "dm" && destinationType != "group" {
 		return invalid("Invalid destination.")
 	}
-	return s.store.UpdateSubscriptionDestination(ctx, telegramUserID, id, destinationType, chatID)
+	return translateWriteErr(s.store.UpdateSubscriptionDestination(ctx, telegramUserID, id, destinationType, chatID))
 }
 
 func (s *Service) Delete(ctx context.Context, telegramUserID int64, id string) error {
@@ -219,16 +245,90 @@ func toDBRepo(repo github.Repository) db.Repository {
 	}
 }
 
-func validateBranch(mode, branchName string) error {
+type settings struct {
+	Events             []string
+	BranchMode         string
+	BranchNames        []string
+	PullRequestActions []string
+	ReleaseMode        string
+}
+
+func normalizeSettings(events []string, branchMode string, branchNames []string, pullRequestActions []string, releaseMode string) (settings, error) {
+	events = db.NormalizeEvents(events)
+	if len(events) == 0 {
+		return settings{}, invalid("Choose at least one event.")
+	}
+	if releaseMode == "" {
+		releaseMode = "all"
+	}
+	if !validReleaseMode(releaseMode) {
+		return settings{}, invalid("Invalid release setting.")
+	}
+
+	if pullRequestActions == nil {
+		pullRequestActions = db.DefaultPullRequestActions()
+	} else {
+		pullRequestActions = db.NormalizePullRequestActions(pullRequestActions)
+	}
+	if contains(events, "pull_request") && len(pullRequestActions) == 0 {
+		return settings{}, invalid("Choose at least one pull request action.")
+	}
+
+	if !usesBranchFilter(events) {
+		branchMode = "all"
+		branchNames = nil
+	} else {
+		if branchMode == "" {
+			branchMode = "all"
+		}
+		if err := validateBranch(branchMode, branchNames); err != nil {
+			return settings{}, err
+		}
+	}
+
+	return settings{
+		Events:             events,
+		BranchMode:         branchMode,
+		BranchNames:        normalizeBranchNamesForMode(branchMode, branchNames),
+		PullRequestActions: pullRequestActions,
+		ReleaseMode:        releaseMode,
+	}, nil
+}
+
+func validateBranch(mode string, branchNames []string) error {
 	switch mode {
 	case "all", "default":
 		return nil
 	case "selected":
-		if strings.TrimSpace(branchName) == "" {
-			return invalid("Choose a branch.")
+		if len(db.NormalizeBranchNames(branchNames)) == 0 {
+			return invalid("Choose at least one branch.")
 		}
 		return nil
 	default:
 		return invalid("Invalid branch filter.")
 	}
+}
+
+func normalizeBranchNamesForMode(mode string, branchNames []string) []string {
+	if mode != "selected" {
+		return []string{}
+	}
+	return db.NormalizeBranchNames(branchNames)
+}
+
+func usesBranchFilter(events []string) bool {
+	return contains(events, "push") || contains(events, "pull_request")
+}
+
+func validReleaseMode(mode string) bool {
+	return mode == "all" || mode == "releases" || mode == "prereleases"
+}
+
+func contains(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
 }

@@ -34,3 +34,17 @@ Message content stays concise and includes:
 - title or summary
 - GitHub link
 
+## Subscription Settings
+
+Subscription creation collects event-specific settings before saving:
+
+- `push` and `pull_request` can use all branches, the default branch, or a
+  selected set of branches.
+- `pull_request` can deliver opened, merged, closed, or any combination of
+  those actions.
+- `release` can deliver stable releases, pre-releases, or both.
+
+Release-only subscriptions do not ask for branch settings. Existing
+subscriptions expose branch, pull request, and release controls under
+`Advanced settings`; test notifications stay on the individual subscription
+screen.

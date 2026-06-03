@@ -208,17 +208,18 @@ func (s *Store) CreateSubscription(ctx context.Context, sub Subscription) (strin
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO subscriptions (
 			telegram_user_id, destination_type, destination_chat_id, github_repo_id,
-			repo_full_name, events, branch_mode, branch_name, status
+			repo_full_name, events, branch_mode, branch_name, branch_names,
+			pull_request_actions, release_mode, status
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active')
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active')
 		ON CONFLICT (
 			telegram_user_id, destination_type, destination_chat_id, github_repo_id,
-			events, branch_mode, branch_name
+			events, branch_mode, branch_names, pull_request_actions, release_mode
 		) DO UPDATE SET
 			status = 'active',
 			updated_at = now()
 		RETURNING id::text, (xmax = 0)
-	`, sub.TelegramUserID, sub.DestinationType, sub.DestinationChatID, sub.GitHubRepoID, sub.RepoFullName, sub.Events, sub.BranchMode, sub.BranchName).Scan(&id, &inserted)
+	`, sub.TelegramUserID, sub.DestinationType, sub.DestinationChatID, sub.GitHubRepoID, sub.RepoFullName, sub.Events, sub.BranchMode, legacyBranchName(sub.BranchMode, sub.BranchNames), sub.BranchNames, sub.PullRequestActions, sub.ReleaseMode).Scan(&id, &inserted)
 	return id, inserted, err
 }
 
@@ -226,6 +227,7 @@ func (s *Store) ListSubscriptionsByUser(ctx context.Context, telegramUserID int6
 	rows, err := s.pool.Query(ctx, `
 		SELECT s.id::text, s.telegram_user_id, s.destination_type, s.destination_chat_id,
 		       s.github_repo_id, s.repo_full_name, s.events, s.branch_mode, s.branch_name,
+		       s.branch_names, s.pull_request_actions, s.release_mode,
 		       s.status, r.default_branch, r.html_url
 		FROM subscriptions s
 		JOIN repositories r ON r.github_repo_id = s.github_repo_id
@@ -244,6 +246,7 @@ func (s *Store) GetSubscriptionForUser(ctx context.Context, telegramUserID int64
 	err := s.pool.QueryRow(ctx, `
 		SELECT s.id::text, s.telegram_user_id, s.destination_type, s.destination_chat_id,
 		       s.github_repo_id, s.repo_full_name, s.events, s.branch_mode, s.branch_name,
+		       s.branch_names, s.pull_request_actions, s.release_mode,
 		       s.status, r.default_branch, r.html_url
 		FROM subscriptions s
 		JOIN repositories r ON r.github_repo_id = s.github_repo_id
@@ -251,7 +254,8 @@ func (s *Store) GetSubscriptionForUser(ctx context.Context, telegramUserID int64
 	`, telegramUserID, id).Scan(
 		&sub.ID, &sub.TelegramUserID, &sub.DestinationType, &sub.DestinationChatID,
 		&sub.GitHubRepoID, &sub.RepoFullName, &sub.Events, &sub.BranchMode,
-		&sub.BranchName, &sub.Status, &sub.DefaultBranch, &sub.HTMLURL,
+		&sub.BranchName, &sub.BranchNames, &sub.PullRequestActions,
+		&sub.ReleaseMode, &sub.Status, &sub.DefaultBranch, &sub.HTMLURL,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Subscription{}, ErrNotFound
@@ -263,6 +267,7 @@ func (s *Store) ListActiveSubscriptionsForRepoEvent(ctx context.Context, repoFul
 	rows, err := s.pool.Query(ctx, `
 		SELECT s.id::text, s.telegram_user_id, s.destination_type, s.destination_chat_id,
 		       s.github_repo_id, s.repo_full_name, s.events, s.branch_mode, s.branch_name,
+		       s.branch_names, s.pull_request_actions, s.release_mode,
 		       s.status, r.default_branch, r.html_url
 		FROM subscriptions s
 		JOIN repositories r ON r.github_repo_id = s.github_repo_id
@@ -309,21 +314,45 @@ func (s *Store) UpdateSubscriptionStatus(ctx context.Context, telegramUserID int
 	return requireAffected(tag, err)
 }
 
-func (s *Store) UpdateSubscriptionEvents(ctx context.Context, telegramUserID int64, id string, events []string) error {
+func (s *Store) UpdateSubscriptionEventsAndSettings(ctx context.Context, telegramUserID int64, id string, events []string, branchMode string, branchNames []string, pullRequestActions []string, releaseMode string) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE subscriptions
-		SET events = $3, updated_at = now()
+		SET events = $3,
+		    branch_mode = $4,
+		    branch_name = $5,
+		    branch_names = $6,
+		    pull_request_actions = $7,
+		    release_mode = $8,
+		    updated_at = now()
 		WHERE telegram_user_id = $1 AND id = $2
-	`, telegramUserID, id, events)
+	`, telegramUserID, id, events, branchMode, legacyBranchName(branchMode, branchNames), branchNames, pullRequestActions, releaseMode)
 	return requireAffected(tag, err)
 }
 
-func (s *Store) UpdateSubscriptionBranch(ctx context.Context, telegramUserID int64, id, mode, branchName string) error {
+func (s *Store) UpdateSubscriptionBranch(ctx context.Context, telegramUserID int64, id, mode string, branchNames []string) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE subscriptions
-		SET branch_mode = $3, branch_name = $4, updated_at = now()
+		SET branch_mode = $3, branch_name = $4, branch_names = $5, updated_at = now()
 		WHERE telegram_user_id = $1 AND id = $2
-	`, telegramUserID, id, mode, branchName)
+	`, telegramUserID, id, mode, legacyBranchName(mode, branchNames), branchNames)
+	return requireAffected(tag, err)
+}
+
+func (s *Store) UpdateSubscriptionPullRequestActions(ctx context.Context, telegramUserID int64, id string, actions []string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE subscriptions
+		SET pull_request_actions = $3, updated_at = now()
+		WHERE telegram_user_id = $1 AND id = $2
+	`, telegramUserID, id, actions)
+	return requireAffected(tag, err)
+}
+
+func (s *Store) UpdateSubscriptionReleaseMode(ctx context.Context, telegramUserID int64, id, releaseMode string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE subscriptions
+		SET release_mode = $3, updated_at = now()
+		WHERE telegram_user_id = $1 AND id = $2
+	`, telegramUserID, id, releaseMode)
 	return requireAffected(tag, err)
 }
 
@@ -682,7 +711,8 @@ func scanSubscriptions(rows pgx.Rows) ([]Subscription, error) {
 		if err := rows.Scan(
 			&sub.ID, &sub.TelegramUserID, &sub.DestinationType, &sub.DestinationChatID,
 			&sub.GitHubRepoID, &sub.RepoFullName, &sub.Events, &sub.BranchMode,
-			&sub.BranchName, &sub.Status, &sub.DefaultBranch, &sub.HTMLURL,
+			&sub.BranchName, &sub.BranchNames, &sub.PullRequestActions,
+			&sub.ReleaseMode, &sub.Status, &sub.DefaultBranch, &sub.HTMLURL,
 		); err != nil {
 			return nil, err
 		}
@@ -693,6 +723,10 @@ func scanSubscriptions(rows pgx.Rows) ([]Subscription, error) {
 
 func requireAffected(tag pgconn.CommandTag, err error) error {
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcodeUniqueViolation {
+			return ErrDuplicateConfig
+		}
 		return err
 	}
 	if tag.RowsAffected() == 0 {
@@ -736,6 +770,15 @@ func truncate(value string, limit int) string {
 
 var ErrNotFound = errors.New("not found")
 
+// ErrDuplicateConfig is returned when a write would collide with an existing
+// subscription that has the exact same configuration (the unique index).
+var ErrDuplicateConfig = errors.New("duplicate subscription configuration")
+
+// pgerrcodeUniqueViolation is the PostgreSQL SQLSTATE for a unique_violation.
+const pgerrcodeUniqueViolation = "23505"
+
+var defaultPullRequestActions = []string{"opened", "merged", "closed"}
+
 func NormalizeEvents(events []string) []string {
 	allowed := map[string]bool{
 		"push":         true,
@@ -753,4 +796,44 @@ func NormalizeEvents(events []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func DefaultPullRequestActions() []string {
+	return append([]string(nil), defaultPullRequestActions...)
+}
+
+func NormalizePullRequestActions(actions []string) []string {
+	seen := make(map[string]bool)
+	for _, action := range actions {
+		seen[strings.TrimSpace(action)] = true
+	}
+	out := make([]string, 0, len(defaultPullRequestActions))
+	for _, action := range defaultPullRequestActions {
+		if seen[action] {
+			out = append(out, action)
+		}
+	}
+	return out
+}
+
+func NormalizeBranchNames(branches []string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, branch := range branches {
+		branch = strings.TrimSpace(branch)
+		if branch == "" || seen[branch] {
+			continue
+		}
+		out = append(out, branch)
+		seen[branch] = true
+	}
+	sort.Strings(out)
+	return out
+}
+
+func legacyBranchName(mode string, branches []string) string {
+	if mode != "selected" || len(branches) == 0 {
+		return ""
+	}
+	return branches[0]
 }

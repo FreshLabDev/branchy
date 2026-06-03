@@ -40,9 +40,12 @@ parsing the payload.
 
 ## Supported Events
 
-- `push`: branch is parsed from `ref`.
-- `pull_request`: branch filter uses the PR base branch.
-- `release`: branch filter uses `release.target_commitish`.
+- `push`: branch is parsed from `ref` and matched against the subscription's
+  branch filter.
+- `pull_request`: branch filtering uses the PR base branch. Subscription
+  settings can include opened, merged, closed, or any combination of those
+  actions.
+- `release`: delivery is filtered by release type (`release`, `pre-release`, or
+  both). Branch filters do not apply to release events.
 
 Unsupported events return success without notification.
-

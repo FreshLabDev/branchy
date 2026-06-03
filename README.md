@@ -127,8 +127,10 @@ All user setup is button-driven inside Telegram.
 1. Open the bot in DM and send `/start`.
 2. Connect GitHub through OAuth.
 3. Pick repositories and subscribe to `push`, `pull_request`, or `release`.
-4. Choose DM delivery or an eligible Telegram group.
-5. View, pause, edit, delete, or test subscriptions from the inline menus.
+4. Configure the selected events: branches for branch-based events, pull request
+   actions, and release type.
+5. Choose DM delivery or an eligible Telegram group.
+6. View, pause, edit, delete, or test subscriptions from the inline menus.
 
 Groups become available only after Branchy has seen the group. Before group
 delivery is enabled, Branchy verifies that the Telegram user is a group

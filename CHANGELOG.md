@@ -10,6 +10,33 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+### Added
+
+- Subscription setup now includes event-specific settings before creation:
+  multi-branch filters for branch-based events, pull request action filters
+  (`opened`, `merged`, `closed`), and release filters for stable releases,
+  pre-releases, or both. The `opened` pull request filter also covers reopened
+  pull requests.
+
+### Changed
+
+- The main Telegram menu no longer shows a separate test notification entry;
+  test notifications remain available from each subscription.
+- Editing a subscription into a configuration that already exists now shows a
+  clear "you already have this subscription" message instead of a generic error.
+- `New subscription` is now a full-width bottom action in the connected main
+  menu.
+- Release-only subscriptions no longer require a branch filter, and release
+  webhook delivery is filtered by release type instead of `target_commitish`.
+- Subscription detail screens now group branch, pull request, and release
+  controls under `Advanced settings`.
+
+### Migrations
+
+- `006_subscription_event_settings.sql` adds multi-branch, pull request action,
+  and release-mode columns to subscriptions and rebuilds subscription uniqueness
+  around the expanded settings.
+
 ## v0.1.0 - 2026-06-03
 
 ### Changed

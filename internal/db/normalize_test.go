@@ -13,3 +13,19 @@ func TestNormalizeEventsSortsAndDedupes(t *testing.T) {
 		t.Fatalf("NormalizeEvents() = %#v, want %#v", got, want)
 	}
 }
+
+func TestNormalizePullRequestActionsKeepsProductOrder(t *testing.T) {
+	got := NormalizePullRequestActions([]string{"closed", "ignored", "opened", "closed", "merged"})
+	want := []string{"opened", "merged", "closed"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("NormalizePullRequestActions() = %#v, want %#v", got, want)
+	}
+}
+
+func TestNormalizeBranchNamesSortsAndDedupes(t *testing.T) {
+	got := NormalizeBranchNames([]string{"release", " main ", "", "release", "develop"})
+	want := []string{"develop", "main", "release"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("NormalizeBranchNames() = %#v, want %#v", got, want)
+	}
+}

@@ -8,9 +8,17 @@ import (
 )
 
 func TestCreationActionsConsumeCallbackTokens(t *testing.T) {
-	for _, action := range []string{"sub.branch", "sub.branch.selected"} {
+	for _, action := range []string{"sub.branch", "sub.branch.selected", "sub.create", "sub.edit.pr.save", "sub.edit.release.save"} {
 		if !isConsumedAction(action) {
 			t.Fatalf("%s should consume callback token", action)
+		}
+	}
+}
+
+func TestSettingTogglesDoNotConsumeCallbackTokens(t *testing.T) {
+	for _, action := range []string{"sub.settings.branch.toggle", "sub.settings.pr.toggle", "sub.edit.branch.toggle", "sub.edit.pr.toggle"} {
+		if isConsumedAction(action) {
+			t.Fatalf("%s should not consume callback token", action)
 		}
 	}
 }

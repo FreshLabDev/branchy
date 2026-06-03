@@ -37,8 +37,8 @@ LOCKED`, sends Telegram messages, and updates job status.
 6. Branchy creates or reuses one repository webhook for the selected repository.
 7. GitHub posts events to `/webhooks/github`.
 8. Branchy validates the signature, dedupes the GitHub delivery, parses the
-   event, applies event and branch filters, formats HTML-safe text, creates
-   `notification_jobs`, and returns `200`.
+   event, applies event-specific subscription filters, formats HTML-safe text,
+   creates `notification_jobs`, and returns `200`.
 9. The outbox worker locks pending jobs with `FOR UPDATE SKIP LOCKED`, sends
    Telegram messages, marks successes as `sent`, retries temporary failures,
    and marks permanent failures as `failed`.

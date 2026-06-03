@@ -10,9 +10,11 @@ import (
 )
 
 type SubscriptionFilter struct {
-	BranchMode    string
-	BranchName    string
-	DefaultBranch string
+	BranchMode         string
+	BranchNames        []string
+	DefaultBranch      string
+	PullRequestActions []string
+	ReleaseMode        string
 }
 
 func ParseEvent(eventName string, body []byte) (notify.Event, bool, error) {
@@ -39,7 +41,59 @@ func MatchesBranch(filter SubscriptionFilter, event notify.Event) bool {
 		}
 		return event.Branch == defaultBranch
 	case "selected":
-		return event.Branch == filter.BranchName
+		for _, branch := range filter.BranchNames {
+			if event.Branch == branch {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func MatchesSubscription(filter SubscriptionFilter, event notify.Event) bool {
+	switch event.Type {
+	case "push":
+		return MatchesBranch(filter, event)
+	case "pull_request":
+		return MatchesBranch(filter, event) && MatchesPullRequestAction(filter.PullRequestActions, event)
+	case "release":
+		return MatchesReleaseMode(filter.ReleaseMode, event)
+	default:
+		return false
+	}
+}
+
+func MatchesPullRequestAction(actions []string, event notify.Event) bool {
+	allowed := normalizePullRequestActions(actions)
+	for _, action := range allowed {
+		switch action {
+		case "opened":
+			if event.Action == "opened" || event.Action == "reopened" {
+				return true
+			}
+		case "merged":
+			if event.Merged {
+				return true
+			}
+		case "closed":
+			if event.Action == "closed" && !event.Merged {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func MatchesReleaseMode(mode string, event notify.Event) bool {
+	switch mode {
+	case "", "all":
+		return true
+	case "releases":
+		return !event.Prerelease
+	case "prereleases":
+		return event.Prerelease
 	default:
 		return false
 	}
@@ -213,4 +267,21 @@ func firstLine(value string) string {
 		return value[:idx]
 	}
 	return value
+}
+
+func normalizePullRequestActions(actions []string) []string {
+	if len(actions) == 0 {
+		return []string{"opened", "merged", "closed"}
+	}
+	seen := make(map[string]bool)
+	for _, action := range actions {
+		seen[strings.TrimSpace(action)] = true
+	}
+	var out []string
+	for _, action := range []string{"opened", "merged", "closed"} {
+		if seen[action] {
+			out = append(out, action)
+		}
+	}
+	return out
 }

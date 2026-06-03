@@ -50,18 +50,21 @@ type Repository struct {
 }
 
 type Subscription struct {
-	ID                string
-	TelegramUserID    int64
-	DestinationType   string
-	DestinationChatID int64
-	GitHubRepoID      int64
-	RepoFullName      string
-	Events            []string
-	BranchMode        string
-	BranchName        string
-	Status            string
-	DefaultBranch     string
-	HTMLURL           string
+	ID                 string
+	TelegramUserID     int64
+	DestinationType    string
+	DestinationChatID  int64
+	GitHubRepoID       int64
+	RepoFullName       string
+	Events             []string
+	BranchMode         string
+	BranchName         string
+	BranchNames        []string
+	PullRequestActions []string
+	ReleaseMode        string
+	Status             string
+	DefaultBranch      string
+	HTMLURL            string
 }
 
 type CallbackToken struct {

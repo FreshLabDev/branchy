@@ -17,7 +17,7 @@ func TestCreateRejectsArchivedRepositoryBeforeStoreWrite(t *testing.T) {
 		FullName:           "acme/archived",
 		Archived:           true,
 		HasAdminPermission: true,
-	}, "dm", 123, []string{"push"}, "all", "")
+	}, "dm", 123, []string{"push"}, "all", nil, nil, "")
 	if err == nil {
 		t.Fatal("expected archived repository validation error")
 	}
@@ -25,6 +25,70 @@ func TestCreateRejectsArchivedRepositoryBeforeStoreWrite(t *testing.T) {
 	if !errors.As(err, &validationErr) {
 		t.Fatalf("error = %T, want ValidationError", err)
 	}
+}
+
+func TestNormalizeSettingsAllowsReleaseOnlyWithoutBranch(t *testing.T) {
+	settings, err := normalizeSettings([]string{"release"}, "selected", []string{}, nil, "prereleases")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.BranchMode != "all" || len(settings.BranchNames) != 0 {
+		t.Fatalf("release-only branch settings = %q/%v, want all/no branches", settings.BranchMode, settings.BranchNames)
+	}
+	if settings.ReleaseMode != "prereleases" {
+		t.Fatalf("release mode = %q, want prereleases", settings.ReleaseMode)
+	}
+}
+
+func TestNormalizeSettingsKeepsSelectedBranches(t *testing.T) {
+	settings, err := normalizeSettings([]string{"push", "pull_request"}, "selected", []string{"main", "develop", "main"}, []string{"closed", "opened"}, "all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.BranchMode != "selected" || !sameStrings(settings.BranchNames, []string{"develop", "main"}) {
+		t.Fatalf("branch settings = %q/%v, want selected develop+main", settings.BranchMode, settings.BranchNames)
+	}
+	if !sameStrings(settings.PullRequestActions, []string{"opened", "closed"}) {
+		t.Fatalf("pull request actions = %v, want opened+closed", settings.PullRequestActions)
+	}
+}
+
+func TestTranslateWriteErrMapsDuplicateConfig(t *testing.T) {
+	err := translateWriteErr(db.ErrDuplicateConfig)
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("error = %T, want ValidationError", err)
+	}
+	if translateWriteErr(nil) != nil {
+		t.Fatal("translateWriteErr(nil) should stay nil")
+	}
+	other := errors.New("boom")
+	if !errors.Is(translateWriteErr(other), other) {
+		t.Fatal("non-duplicate errors should pass through unchanged")
+	}
+}
+
+func TestNormalizeSettingsRejectsEmptyPullRequestActions(t *testing.T) {
+	_, err := normalizeSettings([]string{"pull_request"}, "all", nil, []string{}, "all")
+	if err == nil {
+		t.Fatal("expected empty pull request actions to be rejected")
+	}
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("error = %T, want ValidationError", err)
+	}
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 type failingStore struct{}
@@ -49,11 +113,19 @@ func (failingStore) UpdateSubscriptionStatus(context.Context, int64, string, str
 	return errors.New("store should not be called")
 }
 
-func (failingStore) UpdateSubscriptionEvents(context.Context, int64, string, []string) error {
+func (failingStore) UpdateSubscriptionEventsAndSettings(context.Context, int64, string, []string, string, []string, []string, string) error {
 	return errors.New("store should not be called")
 }
 
-func (failingStore) UpdateSubscriptionBranch(context.Context, int64, string, string, string) error {
+func (failingStore) UpdateSubscriptionBranch(context.Context, int64, string, string, []string) error {
+	return errors.New("store should not be called")
+}
+
+func (failingStore) UpdateSubscriptionPullRequestActions(context.Context, int64, string, []string) error {
+	return errors.New("store should not be called")
+}
+
+func (failingStore) UpdateSubscriptionReleaseMode(context.Context, int64, string, string) error {
 	return errors.New("store should not be called")
 }
 

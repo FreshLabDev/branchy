@@ -84,11 +84,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var jobs []db.NotificationJobInsert
 	for _, sub := range subs {
 		filter := SubscriptionFilter{
-			BranchMode:    sub.BranchMode,
-			BranchName:    sub.BranchName,
-			DefaultBranch: sub.DefaultBranch,
+			BranchMode:         sub.BranchMode,
+			BranchNames:        sub.BranchNames,
+			DefaultBranch:      sub.DefaultBranch,
+			PullRequestActions: sub.PullRequestActions,
+			ReleaseMode:        sub.ReleaseMode,
 		}
-		if !MatchesBranch(filter, event) {
+		if !MatchesSubscription(filter, event) {
 			continue
 		}
 		jobs = append(jobs, db.NotificationJobInsert{

@@ -124,8 +124,8 @@ func TestMatchesBranch(t *testing.T) {
 		{name: "all", filter: SubscriptionFilter{BranchMode: "all"}, want: true},
 		{name: "default match", filter: SubscriptionFilter{BranchMode: "default", DefaultBranch: "main"}, want: true},
 		{name: "default mismatch", filter: SubscriptionFilter{BranchMode: "default", DefaultBranch: "develop"}, want: false},
-		{name: "selected match", filter: SubscriptionFilter{BranchMode: "selected", BranchName: "main"}, want: true},
-		{name: "selected mismatch", filter: SubscriptionFilter{BranchMode: "selected", BranchName: "release"}, want: false},
+		{name: "selected match", filter: SubscriptionFilter{BranchMode: "selected", BranchNames: []string{"develop", "main"}}, want: true},
+		{name: "selected mismatch", filter: SubscriptionFilter{BranchMode: "selected", BranchNames: []string{"release"}}, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -134,5 +134,57 @@ func TestMatchesBranch(t *testing.T) {
 				t.Fatalf("MatchesBranch() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestMatchesSubscriptionIgnoresBranchForReleases(t *testing.T) {
+	event := notify.Event{Type: "release", Branch: "release/1", Prerelease: true}
+	filter := SubscriptionFilter{
+		BranchMode:  "selected",
+		BranchNames: []string{"main"},
+		ReleaseMode: "prereleases",
+	}
+	if !MatchesSubscription(filter, event) {
+		t.Fatal("release filter should not depend on branch names")
+	}
+}
+
+func TestMatchesSubscriptionFiltersReleaseMode(t *testing.T) {
+	stable := notify.Event{Type: "release", Prerelease: false}
+	pre := notify.Event{Type: "release", Prerelease: true}
+	if !MatchesSubscription(SubscriptionFilter{ReleaseMode: "releases"}, stable) {
+		t.Fatal("stable release should match releases-only mode")
+	}
+	if MatchesSubscription(SubscriptionFilter{ReleaseMode: "releases"}, pre) {
+		t.Fatal("pre-release should not match releases-only mode")
+	}
+	if !MatchesSubscription(SubscriptionFilter{ReleaseMode: "prereleases"}, pre) {
+		t.Fatal("pre-release should match prereleases-only mode")
+	}
+	if MatchesSubscription(SubscriptionFilter{ReleaseMode: "prereleases"}, stable) {
+		t.Fatal("stable release should not match prereleases-only mode")
+	}
+}
+
+func TestMatchesSubscriptionFiltersPullRequestActions(t *testing.T) {
+	filter := SubscriptionFilter{
+		BranchMode:         "selected",
+		BranchNames:        []string{"main", "develop"},
+		PullRequestActions: []string{"opened", "closed"},
+	}
+	if !MatchesSubscription(filter, notify.Event{Type: "pull_request", Branch: "main", Action: "opened"}) {
+		t.Fatal("opened pull request should match opened action")
+	}
+	if !MatchesSubscription(filter, notify.Event{Type: "pull_request", Branch: "main", Action: "reopened"}) {
+		t.Fatal("reopened pull request should match opened action")
+	}
+	if !MatchesSubscription(filter, notify.Event{Type: "pull_request", Branch: "develop", Action: "closed"}) {
+		t.Fatal("closed pull request should match closed action")
+	}
+	if MatchesSubscription(filter, notify.Event{Type: "pull_request", Branch: "main", Action: "closed", Merged: true}) {
+		t.Fatal("merged pull request should require merged action")
+	}
+	if MatchesSubscription(filter, notify.Event{Type: "pull_request", Branch: "release", Action: "opened"}) {
+		t.Fatal("pull request should still respect branch filter")
 	}
 }
