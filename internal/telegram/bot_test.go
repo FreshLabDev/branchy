@@ -62,6 +62,10 @@ func TestInlineKeyboardButtonStyleOmitsWhenEmpty(t *testing.T) {
 	if strings.Contains(string(plain), "style") {
 		t.Fatalf("unstyled button should not serialize a style field: %s", plain)
 	}
+	primary, _ := json.Marshal(InlineKeyboardButton{Text: "Done", CallbackData: "x", Style: stylePrimary})
+	if !strings.Contains(string(primary), `"style":"primary"`) {
+		t.Fatalf("primary button should serialize a style field: %s", primary)
+	}
 	styled, _ := json.Marshal(InlineKeyboardButton{Text: "Create", CallbackData: "x", Style: styleSuccess})
 	if !strings.Contains(string(styled), `"style":"success"`) {
 		t.Fatalf("styled button should serialize style: %s", styled)

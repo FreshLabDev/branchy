@@ -430,6 +430,12 @@ func (b *Bot) handleToken(ctx context.Context, cq CallbackQuery, token db.Callba
 			return "", err
 		}
 		return "", b.renderAdvancedSettings(ctx, cq, payload.ID)
+	case "sub.edit.menu":
+		var payload subscriptionPayload
+		if err := decode(token.Payload, &payload); err != nil {
+			return "", err
+		}
+		return "", b.renderSubscriptionEditMenu(ctx, cq, payload.ID)
 	case "sub.edit.branch":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
@@ -801,7 +807,7 @@ func (b *Bot) renderEventSettings(ctx context.Context, cq CallbackQuery, draft s
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: "Create subscription", CallbackData: createCB, Style: styleSuccess}})
 	}
-	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
+	rows = append(rows, []InlineKeyboardButton{{Text: "Done", CallbackData: backCB, Style: stylePrimary}})
 	text := "<b>Event settings</b>\n" + settingsSummary(draft.Events, draft.BranchMode, draft.BranchNames, draft.PullRequestActions, draft.ReleaseMode)
 	if hint := settingsBlockingHint(draft); hint != "" {
 		text += "\n\n⚠ " + hint
@@ -844,7 +850,7 @@ func (b *Bot) renderBranchSettings(ctx context.Context, cq CallbackQuery, draft 
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
+	rows = append(rows, []InlineKeyboardButton{{Text: "Done", CallbackData: backCB, Style: stylePrimary}})
 	return b.respond(ctx, cq, "<b>Branch filter</b>", &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
@@ -1032,15 +1038,7 @@ func (b *Bot) renderSubscription(ctx context.Context, cq CallbackQuery, id strin
 	if err != nil {
 		return err
 	}
-	editEventsCB, err := b.token(ctx, cq.From.ID, "sub.edit.events", editEventsPayload{ID: sub.ID, Events: sub.Events})
-	if err != nil {
-		return err
-	}
-	advancedCB, err := b.token(ctx, cq.From.ID, "sub.edit.settings", subscriptionPayload{ID: sub.ID})
-	if err != nil {
-		return err
-	}
-	editDestCB, err := b.token(ctx, cq.From.ID, "sub.edit.dest", subscriptionPayload{ID: sub.ID})
+	editMenuCB, err := b.token(ctx, cq.From.ID, "sub.edit.menu", subscriptionPayload{ID: sub.ID})
 	if err != nil {
 		return err
 	}
@@ -1050,9 +1048,7 @@ func (b *Bot) renderSubscription(ctx context.Context, cq CallbackQuery, id strin
 	}
 	rows = append(rows,
 		[]InlineKeyboardButton{{Text: statusLabel, CallbackData: statusCB}, {Text: "Test", CallbackData: testCB}},
-		[]InlineKeyboardButton{{Text: "Edit events", CallbackData: editEventsCB}},
-		[]InlineKeyboardButton{{Text: "Advanced settings", CallbackData: advancedCB}},
-		[]InlineKeyboardButton{{Text: "Edit destination", CallbackData: editDestCB}},
+		[]InlineKeyboardButton{{Text: "Edit", CallbackData: editMenuCB, Style: stylePrimary}},
 		[]InlineKeyboardButton{{Text: "Delete", CallbackData: deleteCB, Style: styleDanger}},
 		[]InlineKeyboardButton{{Text: "Back", CallbackData: "sub:list"}},
 	)
@@ -1067,6 +1063,36 @@ func (b *Bot) renderSubscription(ctx context.Context, cq CallbackQuery, id strin
 		text += "\n" + esc(destWarning)
 	}
 	return b.respond(ctx, cq, text, &InlineKeyboardMarkup{InlineKeyboard: rows})
+}
+
+func (b *Bot) renderSubscriptionEditMenu(ctx context.Context, cq CallbackQuery, id string) error {
+	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
+	if err != nil {
+		return b.respond(ctx, cq, "Subscription not found.", backHome())
+	}
+	editEventsCB, err := b.token(ctx, cq.From.ID, "sub.edit.events", editEventsPayload{ID: sub.ID, Events: sub.Events})
+	if err != nil {
+		return err
+	}
+	advancedCB, err := b.token(ctx, cq.From.ID, "sub.edit.settings", subscriptionPayload{ID: sub.ID})
+	if err != nil {
+		return err
+	}
+	editDestCB, err := b.token(ctx, cq.From.ID, "sub.edit.dest", subscriptionPayload{ID: sub.ID})
+	if err != nil {
+		return err
+	}
+	backButton, err := b.viewButton(ctx, cq.From.ID, id)
+	if err != nil {
+		return err
+	}
+	rows := [][]InlineKeyboardButton{
+		{{Text: "Event", CallbackData: editEventsCB}},
+		{{Text: "Destination", CallbackData: editDestCB}},
+		{{Text: "Advanced", CallbackData: advancedCB}},
+		{backButton},
+	}
+	return b.respond(ctx, cq, "<b>Edit subscription</b>\nChoose what to change.", &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 func (b *Bot) renderEditEvents(ctx context.Context, cq CallbackQuery, id string, events []string) error {
@@ -1086,7 +1112,7 @@ func (b *Bot) renderEditEvents(ctx context.Context, cq CallbackQuery, id string,
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: "Save", CallbackData: callback, Style: stylePrimary}})
 	}
-	backButton, err := b.viewButton(ctx, cq.From.ID, id)
+	backButton, err := b.editMenuButton(ctx, cq.From.ID, id)
 	if err != nil {
 		return err
 	}
@@ -1121,7 +1147,7 @@ func (b *Bot) renderAdvancedSettings(ctx context.Context, cq CallbackQuery, id s
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: "Release notifications", CallbackData: callback}})
 	}
-	backButton, err := b.viewButton(ctx, cq.From.ID, id)
+	backButton, err := b.editMenuButton(ctx, cq.From.ID, id)
 	if err != nil {
 		return err
 	}
@@ -1697,6 +1723,14 @@ func (b *Bot) viewButton(ctx context.Context, telegramUserID int64, id string) (
 	return InlineKeyboardButton{Text: "Back", CallbackData: callback}, nil
 }
 
+func (b *Bot) editMenuButton(ctx context.Context, telegramUserID int64, id string) (InlineKeyboardButton, error) {
+	callback, err := b.token(ctx, telegramUserID, "sub.edit.menu", subscriptionPayload{ID: id})
+	if err != nil {
+		return InlineKeyboardButton{}, err
+	}
+	return InlineKeyboardButton{Text: "Back", CallbackData: callback}, nil
+}
+
 func (b *Bot) advancedButton(ctx context.Context, telegramUserID int64, id string) (InlineKeyboardButton, error) {
 	callback, err := b.token(ctx, telegramUserID, "sub.edit.settings", subscriptionPayload{ID: id})
 	if err != nil {
@@ -1709,7 +1743,7 @@ func (b *Bot) advancedButton(ctx context.Context, telegramUserID int64, id strin
 // subscription detail when editing, or to the repository list when creating.
 func (b *Bot) stepBackButton(ctx context.Context, telegramUserID int64, edit bool, editID, createTarget string) (InlineKeyboardButton, error) {
 	if edit {
-		return b.viewButton(ctx, telegramUserID, editID)
+		return b.editMenuButton(ctx, telegramUserID, editID)
 	}
 	return InlineKeyboardButton{Text: "Back", CallbackData: createTarget}, nil
 }
