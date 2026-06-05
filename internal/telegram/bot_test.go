@@ -2,9 +2,11 @@
 package telegram
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"branchy/internal/github"
 )
@@ -61,6 +63,10 @@ func TestInlineKeyboardButtonStyleOmitsWhenEmpty(t *testing.T) {
 	plain, _ := json.Marshal(InlineKeyboardButton{Text: "Back", CallbackData: "home"})
 	if strings.Contains(string(plain), "style") {
 		t.Fatalf("unstyled button should not serialize a style field: %s", plain)
+	}
+	primary, _ := json.Marshal(InlineKeyboardButton{Text: "Done", CallbackData: "x", Style: stylePrimary})
+	if !strings.Contains(string(primary), `"style":"primary"`) {
+		t.Fatalf("primary button should serialize a style field: %s", primary)
 	}
 	styled, _ := json.Marshal(InlineKeyboardButton{Text: "Create", CallbackData: "x", Style: styleSuccess})
 	if !strings.Contains(string(styled), `"style":"success"`) {
@@ -134,4 +140,72 @@ func sameStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// recordingStore implements just enough of Store to observe the callback token
+// a button mints. The embedded nil interface satisfies the rest of Store; any
+// unimplemented method would panic, but the navigation helpers under test only
+// reach CreateCallbackToken.
+type recordingStore struct {
+	Store
+	action  string
+	payload any
+}
+
+func (s *recordingStore) CreateCallbackToken(_ context.Context, _ int64, _, action string, payload any, _ time.Duration) error {
+	s.action = action
+	s.payload = payload
+	return nil
+}
+
+// TestEditNavigationRoutesBackToEditMenu pins the hub-and-spoke edit flow: the
+// per-field editors (events, advanced, destination) hand "Back" off to the edit
+// menu rather than jumping straight to the subscription view, while the create
+// flow keeps its plain Back to the create target.
+func TestEditNavigationRoutesBackToEditMenu(t *testing.T) {
+	store := &recordingStore{}
+	b := &Bot{store: store}
+	ctx := context.Background()
+
+	btn, err := b.editMenuButton(ctx, 42, "sub-1")
+	if err != nil {
+		t.Fatalf("editMenuButton: %v", err)
+	}
+	if btn.Text != "Back" {
+		t.Fatalf("edit-menu back button text = %q, want %q", btn.Text, "Back")
+	}
+	if store.action != "sub.edit.menu" {
+		t.Fatalf("editMenuButton action = %q, want sub.edit.menu", store.action)
+	}
+	if p, ok := store.payload.(subscriptionPayload); !ok || p.ID != "sub-1" {
+		t.Fatalf("editMenuButton payload = %#v, want subscriptionPayload{ID: sub-1}", store.payload)
+	}
+
+	// In edit mode the step-back button routes through the edit menu...
+	store.action = ""
+	if _, err := b.stepBackButton(ctx, 42, true, "sub-1", "sub:new"); err != nil {
+		t.Fatalf("stepBackButton(edit): %v", err)
+	}
+	if store.action != "sub.edit.menu" {
+		t.Fatalf("stepBackButton(edit) action = %q, want sub.edit.menu", store.action)
+	}
+
+	// ...while the create flow stays a plain Back to the create target, minting no token.
+	store.action = ""
+	createBtn, err := b.stepBackButton(ctx, 42, false, "", "sub:new")
+	if err != nil {
+		t.Fatalf("stepBackButton(create): %v", err)
+	}
+	if createBtn.CallbackData != "sub:new" {
+		t.Fatalf("stepBackButton(create) target = %q, want sub:new", createBtn.CallbackData)
+	}
+	if store.action != "" {
+		t.Fatalf("create-flow back should not mint a token, got action %q", store.action)
+	}
+
+	// The edit menu is re-entered every time the user taps Back from a field
+	// editor, so its token must stay re-usable rather than single-use.
+	if isConsumedAction("sub.edit.menu") {
+		t.Fatal("sub.edit.menu must be re-enterable, not consumed on first tap")
+	}
 }

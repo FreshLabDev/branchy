@@ -10,6 +10,13 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+### Changed
+
+- Editing a subscription now opens a single **Edit** menu — Events,
+  Destination, and Advanced settings — replacing the three separate edit
+  buttons on the subscription view; each editor returns to that menu on Back.
+- The branch-filter screen now confirms with a blue "Done" button.
+
 ## v0.2.0-alpha.3 - 2026-06-03
 
 ### Fixed
