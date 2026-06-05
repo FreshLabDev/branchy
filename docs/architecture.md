@@ -55,7 +55,17 @@ LOCKED`, sends Telegram messages, and updates job status.
 - GitHub webhook requests validate signature, dedupe delivery IDs, create
   durable notification jobs, and return `200` without waiting for Telegram.
 - The notification worker retries Telegram `429` and temporary failures using
-  `retry_at` and `attempts`; permanent Telegram API errors are marked failed.
+  `retry_at` and `attempts` (jittered backoff); permanent Telegram API errors are
+  marked failed.
+- When a destination becomes permanently unreachable (bot blocked, kicked, or
+  chat deleted), the worker auto-pauses the owning subscription
+  (`pause_reason = 'telegram_blocked'`) so it stops queuing jobs that can only
+  fail.
+- A confirmed-invalid GitHub token (HTTP 401) is surfaced to the user as a
+  reconnect prompt; no state is mutated, since a revoked authorization already
+  stops GitHub deliveries.
+- `/healthz` and `/metrics` report operational health and Prometheus counters
+  with counts only (no secrets).
 - Telegram API errors are reported by method name, not full bot URL, so the bot
   token is not copied into logs or UI errors. `retry_after` rate-limit responses
   are retried once.

@@ -13,7 +13,7 @@ import (
 
 func TestHandlerRejectsInvalidSignatureBeforeParsing(t *testing.T) {
 	store := &fakeStore{}
-	handler := NewHandler("secret", store)
+	handler := NewHandler("secret", store, 5)
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(`not-json`))
 	req.Header.Set("X-Hub-Signature-256", "sha256=bad")
@@ -34,7 +34,7 @@ func TestHandlerRejectsInvalidSignatureBeforeParsing(t *testing.T) {
 func TestHandlerIgnoresUnsupportedEvent(t *testing.T) {
 	body := []byte(`{"zen":"Keep it logically awesome."}`)
 	store := &fakeStore{}
-	handler := NewHandler("secret", store)
+	handler := NewHandler("secret", store, 5)
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(string(body)))
 	req.Header.Set("X-Hub-Signature-256", SignForTest("secret", body))
@@ -60,7 +60,7 @@ func TestHandlerSkipsDuplicateDeliveryBeforeParsing(t *testing.T) {
 	store := &fakeStore{
 		duplicate: true,
 	}
-	handler := NewHandler("secret", store)
+	handler := NewHandler("secret", store, 5)
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(string(body)))
 	req.Header.Set("X-Hub-Signature-256", SignForTest("secret", body))
@@ -89,7 +89,7 @@ func TestHandlerEnqueuesMatchingSubscription(t *testing.T) {
 		BranchMode:        "default",
 		DefaultBranch:     "main",
 	}}}
-	handler := NewHandler("secret", store)
+	handler := NewHandler("secret", store, 7)
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(string(body)))
 	req.Header.Set("X-Hub-Signature-256", SignForTest("secret", body))
@@ -111,6 +111,9 @@ func TestHandlerEnqueuesMatchingSubscription(t *testing.T) {
 	if len(store.jobs) != 1 {
 		t.Fatalf("jobs = %d, want 1", len(store.jobs))
 	}
+	if store.maxAttempts != 7 {
+		t.Fatalf("maxAttempts = %d, want 7 (handler config should reach enqueue)", store.maxAttempts)
+	}
 	job := store.jobs[0]
 	if job.SubscriptionID != "sub-1" || job.DestinationChatID != 123 {
 		t.Fatalf("unexpected job: %+v", job)
@@ -129,6 +132,7 @@ type fakeStore struct {
 	deliveryID   string
 	event        string
 	repoFullName string
+	maxAttempts  int
 	jobs         []db.NotificationJobInsert
 	subs         []db.Subscription
 }
@@ -153,10 +157,11 @@ func (f *fakeStore) ForgetDelivery(context.Context, string) error {
 	return nil
 }
 
-func (f *fakeStore) EnqueueNotificationJobs(_ context.Context, deliveryID, repoFullName string, jobs []db.NotificationJobInsert) (int, error) {
+func (f *fakeStore) EnqueueNotificationJobs(_ context.Context, deliveryID, repoFullName string, jobs []db.NotificationJobInsert, maxAttempts int) (int, error) {
 	f.enqueueCalls++
 	f.deliveryID = deliveryID
 	f.repoFullName = repoFullName
+	f.maxAttempts = maxAttempts
 	f.jobs = append([]db.NotificationJobInsert(nil), jobs...)
 	return len(jobs), nil
 }

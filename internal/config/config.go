@@ -4,7 +4,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -19,6 +21,15 @@ type Config struct {
 	GitHubOAuthScope    string
 	GitHubWebhookSecret string
 	AppSecret           string
+
+	// Outbox worker and retention tuning. Sensible defaults keep the MVP
+	// zero-config; operators raise these for higher volume.
+	OutboxPollInterval      time.Duration
+	OutboxBatchSize         int
+	OutboxSendTimeout       time.Duration
+	OutboxLease             time.Duration
+	OutboxRetention         time.Duration
+	NotificationMaxAttempts int
 }
 
 func Load() (Config, error) {
@@ -54,6 +65,28 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("APP_SECRET must be at least 32 characters")
 	}
 
+	var err error
+	if cfg.OutboxPollInterval, err = envDuration("OUTBOX_POLL_INTERVAL", 2*time.Second); err != nil {
+		return Config{}, err
+	}
+	if cfg.OutboxBatchSize, err = envInt("OUTBOX_BATCH_SIZE", 20); err != nil {
+		return Config{}, err
+	}
+	if cfg.OutboxSendTimeout, err = envDuration("OUTBOX_SEND_TIMEOUT", 20*time.Second); err != nil {
+		return Config{}, err
+	}
+	if cfg.OutboxLease, err = envDuration("OUTBOX_LEASE", 2*time.Minute); err != nil {
+		return Config{}, err
+	}
+	retentionDays, err := envInt("OUTBOX_RETENTION_DAYS", 7)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.OutboxRetention = time.Duration(retentionDays) * 24 * time.Hour
+	if cfg.NotificationMaxAttempts, err = envInt("NOTIFICATION_MAX_ATTEMPTS", 5); err != nil {
+		return Config{}, err
+	}
+
 	return cfg, nil
 }
 
@@ -71,4 +104,37 @@ func envBool(key string, fallback bool) bool {
 		return fallback
 	}
 	return value == "1" || value == "true" || value == "yes" || value == "on"
+}
+
+// envDuration parses a Go duration string (e.g. "2s", "1m30s"). It must be
+// positive; a malformed or non-positive value fails startup rather than
+// silently falling back, so a typo is caught loudly.
+func envDuration(key string, fallback time.Duration) (time.Duration, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("%s must be positive", key)
+	}
+	return d, nil
+}
+
+func envInt(key string, fallback int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+	if n <= 0 {
+		return 0, fmt.Errorf("%s must be positive", key)
+	}
+	return n, nil
 }

@@ -3,6 +3,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,6 +52,39 @@ func TestListRepositoriesUsesExpectedAffiliation(t *testing.T) {
 
 	if _, err := client.ListRepositories(context.Background(), "token"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAPIErrorClassifiesAuthFailures(t *testing.T) {
+	cases := []struct {
+		status int
+		isAuth bool
+	}{
+		{http.StatusUnauthorized, true},
+		{http.StatusForbidden, false},
+		{http.StatusNotFound, false},
+	}
+	for _, tc := range cases {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(`{"message":"nope"}`))
+		}))
+
+		client := NewClient(Config{UserAgent: "test"})
+		client.apiBase = server.URL
+		_, err := client.GetUser(context.Background(), "token")
+		server.Close()
+
+		if err == nil {
+			t.Fatalf("status %d: expected an error", tc.status)
+		}
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != tc.status {
+			t.Fatalf("status %d: expected *APIError with that status, got %v", tc.status, err)
+		}
+		if got := IsAuthError(err); got != tc.isAuth {
+			t.Fatalf("status %d: IsAuthError = %v, want %v", tc.status, got, tc.isAuth)
+		}
 	}
 }
 

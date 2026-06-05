@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -317,6 +318,27 @@ func (c *Client) apiRequest(ctx context.Context, method, path, accessToken strin
 	return req, nil
 }
 
+// APIError is a non-2xx response from the GitHub API. It carries the status
+// code so callers can react to authentication failures specifically; the body
+// is GitHub's error JSON (never an Authorization header or secret).
+type APIError struct {
+	Method     string
+	Path       string
+	StatusCode int
+	Body       string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("github %s %s: %d: %s", e.Method, e.Path, e.StatusCode, e.Body)
+}
+
+// IsAuthError reports whether err is a GitHub 401, which means the access token
+// is invalid (revoked, expired, or the OAuth authorization was removed).
+func IsAuthError(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == 401
+}
+
 func (c *Client) doJSON(req *http.Request, out any) error {
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -325,7 +347,12 @@ func (c *Client) doJSON(req *http.Request, out any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("github %s %s: %s: %s", req.Method, req.URL.Path, resp.Status, strings.TrimSpace(string(body)))
+		return &APIError{
+			Method:     req.Method,
+			Path:       req.URL.Path,
+			StatusCode: resp.StatusCode,
+			Body:       strings.TrimSpace(string(body)),
+		}
 	}
 	if out == nil {
 		return nil

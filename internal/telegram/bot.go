@@ -374,7 +374,7 @@ func (b *Bot) handleToken(ctx context.Context, cq CallbackQuery, token db.Callba
 			return "", err
 		}
 		if err := b.subs.SetStatus(ctx, cq.From.ID, payload.ID, payload.Status); err != nil {
-			return "", b.respond(ctx, cq, esc(b.userMessage(err, "update the subscription")), backHome())
+			return "", b.githubError(ctx, cq, err, "update the subscription")
 		}
 		toast := "Subscription paused."
 		if payload.Status == "active" {
@@ -387,7 +387,7 @@ func (b *Bot) handleToken(ctx context.Context, cq CallbackQuery, token db.Callba
 			return "", err
 		}
 		if err := b.subs.Delete(ctx, cq.From.ID, payload.ID); err != nil {
-			return "", b.respond(ctx, cq, esc(b.userMessage(err, "delete the subscription")), backHome())
+			return "", b.githubError(ctx, cq, err, "delete the subscription")
 		}
 		return "Subscription deleted.", b.renderSubscriptionList(ctx, cq)
 	case "sub.test":
@@ -421,7 +421,7 @@ func (b *Bot) handleToken(ctx context.Context, cq CallbackQuery, token db.Callba
 			return "", err
 		}
 		if err := b.subs.SetEvents(ctx, cq.From.ID, payload.ID, payload.Events); err != nil {
-			return "", b.respond(ctx, cq, esc(b.userMessage(err, "update the events")), backHome())
+			return "", b.githubError(ctx, cq, err, "update the events")
 		}
 		return "Events updated.", b.renderAdvancedSettings(ctx, cq, payload.ID)
 	case "sub.edit.settings":
@@ -600,7 +600,7 @@ func (b *Bot) renderRepoList(ctx context.Context, cq CallbackQuery, subscribeMod
 	}
 	repos, err := b.github.ListRepositories(ctx, token)
 	if err != nil {
-		return b.respond(ctx, cq, esc(b.userMessage(err, "list your repositories")), backHome())
+		return b.githubError(ctx, cq, err, "list your repositories")
 	}
 	repos = visibleRepositories(repos, subscribeMode)
 	if len(repos) == 0 {
@@ -864,7 +864,7 @@ func (b *Bot) renderBranchList(ctx context.Context, cq CallbackQuery, draft subD
 	}
 	branches, err := b.github.ListBranches(ctx, token, draft.Repo.FullName)
 	if err != nil {
-		return b.respond(ctx, cq, esc(b.userMessage(err, "list the branches")), backHome())
+		return b.githubError(ctx, cq, err, "list the branches")
 	}
 	backCB, err := b.token(ctx, cq.From.ID, "sub.settings.branch", draft)
 	if err != nil {
@@ -989,7 +989,7 @@ func (b *Bot) createSubscription(ctx context.Context, cq CallbackQuery, draft su
 	draft = normalizeDraftForEvents(draft)
 	id, err := b.subs.Create(ctx, cq.From.ID, draft.Repo, draft.DestinationType, draft.DestinationChatID, draft.Events, draft.BranchMode, draft.BranchNames, draft.PullRequestActions, draft.ReleaseMode)
 	if err != nil {
-		return "", b.respond(ctx, cq, esc(b.userMessage(err, "create the subscription")), backHome())
+		return "", b.githubError(ctx, cq, err, "create the subscription")
 	}
 	return "Subscription created.", b.renderSubscription(ctx, cq, id)
 }
@@ -1059,6 +1059,9 @@ func (b *Bot) renderSubscription(ctx context.Context, cq CallbackQuery, id strin
 		esc(destLabel),
 		settingsSummary(sub.Events, sub.BranchMode, subscriptionBranchNames(sub), sub.PullRequestActions, sub.ReleaseMode),
 	)
+	if note := pauseReasonNote(sub.PauseReason); note != "" {
+		text += "\n⚠ " + esc(note)
+	}
 	if destWarning != "" {
 		text += "\n" + esc(destWarning)
 	}
@@ -1205,7 +1208,7 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq CallbackQuery, payloa
 	}
 	branches, err := b.github.ListBranches(ctx, token, sub.RepoFullName)
 	if err != nil {
-		return b.respond(ctx, cq, esc(b.userMessage(err, "list the branches")), backHome())
+		return b.githubError(ctx, cq, err, "list the branches")
 	}
 	// Back returns to the branch-mode picker for this subscription.
 	backCB, err := b.token(ctx, cq.From.ID, "sub.edit.branch", subscriptionPayload{ID: payload.ID})
@@ -1509,6 +1512,17 @@ func statusText(status string) string {
 	}
 }
 
+// pauseReasonNote explains an automatic pause so the user knows what to fix
+// before resuming. Manual pauses carry no reason and return "".
+func pauseReasonNote(reason string) string {
+	switch reason {
+	case "telegram_blocked":
+		return "Paused automatically. Branchy could not deliver here. Restore access, then Resume."
+	default:
+		return ""
+	}
+}
+
 func eventLabel(event string) string {
 	switch event {
 	case "push":
@@ -1712,6 +1726,33 @@ func (b *Bot) userMessage(err error, action string) string {
 	}
 	slog.Error("bot action failed", "action", action, "error", err)
 	return "Something went wrong while trying to " + action + ". Please try again."
+}
+
+// githubError renders the response for an error from a GitHub-backed action. A
+// revoked token (401) gets the reconnect prompt; anything else falls back to the
+// standard user message.
+func (b *Bot) githubError(ctx context.Context, cq CallbackQuery, err error, action string) error {
+	if github.IsAuthError(err) {
+		return b.renderReconnect(ctx, cq)
+	}
+	return b.respond(ctx, cq, esc(b.userMessage(err, action)), backHome())
+}
+
+// renderReconnect shows a single reconnect call to action when a GitHub call
+// fails with an invalid token. It mutates no state: a revoked authorization
+// already stops GitHub deliveries, so no dead jobs accumulate, and reconnecting
+// restores the connection (a later edit re-syncs the webhook).
+func (b *Bot) renderReconnect(ctx context.Context, cq CallbackQuery) error {
+	connectURL, err := b.oauth.CreateAuthURL(ctx, cq.From.ID)
+	if err != nil {
+		return err
+	}
+	text := "<b>GitHub connection expired</b>\nReconnect to continue."
+	markup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{
+		{{Text: "Reconnect GitHub", URL: connectURL, Style: stylePrimary}},
+		{{Text: "Back", CallbackData: "home"}},
+	}}
+	return b.respond(ctx, cq, text, markup)
 }
 
 // viewButton builds a "Back" button that returns to a subscription's detail view.

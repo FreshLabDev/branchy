@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -132,6 +133,7 @@ func (s *Service) handleCallback(ctx context.Context, r *http.Request) error {
 	}); err != nil {
 		return err
 	}
+	slog.Info("github connected", "telegram_user_id", state.TelegramUserID, "github_login", user.Login)
 	if s.notifier != nil {
 		// Send a message that drops the user straight into the (now connected)
 		// main menu, so they are not left looking at a stale "not connected"

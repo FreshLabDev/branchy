@@ -5,7 +5,14 @@ WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/branchy ./cmd/branchy
+# Stamp build metadata into the binary so logs and /healthz report the exact
+# release. Defaults keep a plain build identifiable as "dev".
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
+    -o /out/branchy ./cmd/branchy
 
 FROM alpine:3.22
 # ca-certificates is required for outbound TLS to api.github.com and

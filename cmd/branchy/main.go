@@ -17,11 +17,21 @@ import (
 	"branchy/internal/config"
 	"branchy/internal/db"
 	"branchy/internal/github"
+	"branchy/internal/metrics"
 	"branchy/internal/oauth"
 	"branchy/internal/outbox"
 	"branchy/internal/subscriptions"
 	"branchy/internal/telegram"
 	"branchy/internal/webhooks"
+)
+
+// Build information, stamped at link time via -ldflags "-X main.version=...".
+// They keep their "dev" defaults for a plain `go build`/`go run`, so a developer
+// build is always distinguishable from a released one in logs and /healthz.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
 )
 
 func main() {
@@ -32,6 +42,8 @@ func main() {
 }
 
 func run() error {
+	slog.Info("branchy starting", "version", version, "commit", commit, "built", date)
+
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -71,14 +83,20 @@ func run() error {
 		GitHubWebhookSecret: cfg.GitHubWebhookSecret,
 	}, store, gh, sealer)
 	bot := telegram.NewBot(store, tg, oauthSvc, gh, sealer, subSvc)
-	notificationWorker := outbox.NewWorker(store, tg)
-	hookHandler := webhooks.NewHandler(cfg.GitHubWebhookSecret, store)
+	notificationWorker := outbox.NewWorker(store, tg, outbox.Config{
+		BatchSize:    cfg.OutboxBatchSize,
+		PollInterval: cfg.OutboxPollInterval,
+		SendTimeout:  cfg.OutboxSendTimeout,
+		Lease:        cfg.OutboxLease,
+	})
+	hookHandler := webhooks.NewHandler(cfg.GitHubWebhookSecret, store, cfg.NotificationMaxAttempts)
 	startedAt := time.Now()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		serveHealth(w, r, store, bot.LastPoll, notificationWorker.LastPoll, startedAt)
 	})
+	mux.Handle("GET /metrics", metrics.Handler())
 	mux.Handle("GET /oauth/github/callback", oauthSvc)
 	mux.Handle("POST /webhooks/github", hookHandler)
 
@@ -122,8 +140,8 @@ func run() error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		slog.Info("maintenance cleaner starting")
-		runCleaner(ctx, store)
+		slog.Info("maintenance cleaner starting", "retention", cfg.OutboxRetention)
+		runCleaner(ctx, store, cfg.OutboxRetention)
 	}()
 
 	var runErr error
@@ -146,8 +164,7 @@ func run() error {
 
 // runCleaner periodically removes expired and terminal state so a long-running
 // deployment does not accumulate unbounded rows.
-func runCleaner(ctx context.Context, store *db.Store) {
-	const retention = 7 * 24 * time.Hour
+func runCleaner(ctx context.Context, store *db.Store, retention time.Duration) {
 	clean := func() {
 		if err := store.CleanupExpired(ctx, retention); err != nil && ctx.Err() == nil {
 			slog.Warn("state cleanup failed", "error", err)
@@ -168,6 +185,7 @@ func runCleaner(ctx context.Context, store *db.Store) {
 
 type healthResponse struct {
 	OK                   bool       `json:"ok"`
+	Version              string     `json:"version"`
 	DB                   bool       `json:"db"`
 	OutboxPending        int64      `json:"outbox_pending"`
 	OutboxProcessing     int64      `json:"outbox_processing"`
@@ -186,7 +204,7 @@ func serveHealth(w http.ResponseWriter, r *http.Request, store healthStore, tele
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	resp := healthResponse{}
+	resp := healthResponse{Version: version}
 	status, err := store.HealthStatus(ctx)
 	if err != nil {
 		// Log the detail server-side; do not leak DB error strings to the

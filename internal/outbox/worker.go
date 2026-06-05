@@ -5,16 +5,28 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math/rand"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"branchy/internal/db"
+	"branchy/internal/metrics"
 	"branchy/internal/telegram"
 )
 
+// Config tunes the worker loop. Zero values fall back to the defaults below, so
+// callers can pass an empty Config for the standard MVP behavior.
+type Config struct {
+	BatchSize    int
+	PollInterval time.Duration
+	SendTimeout  time.Duration
+	Lease        time.Duration
+}
+
 type Store interface {
 	ClaimPendingNotificationJobs(ctx context.Context, limit int, lease time.Duration) ([]db.NotificationJob, error)
-	FinishNotificationJob(ctx context.Context, job db.NotificationJob, result db.NotificationJobResult) error
+	FinishNotificationJob(ctx context.Context, job db.NotificationJob, result db.NotificationJobResult) (db.JobOutcome, error)
 }
 
 type Sender interface {
@@ -31,15 +43,28 @@ type Worker struct {
 	lastPollUnix atomic.Int64
 }
 
-func NewWorker(store Store, sender Sender) *Worker {
-	return &Worker{
+func NewWorker(store Store, sender Sender, cfg Config) *Worker {
+	w := &Worker{
 		store:        store,
 		sender:       sender,
-		batchSize:    20,
-		pollInterval: 2 * time.Second,
-		sendTimeout:  20 * time.Second,
-		lease:        2 * time.Minute,
+		batchSize:    cfg.BatchSize,
+		pollInterval: cfg.PollInterval,
+		sendTimeout:  cfg.SendTimeout,
+		lease:        cfg.Lease,
 	}
+	if w.batchSize <= 0 {
+		w.batchSize = 20
+	}
+	if w.pollInterval <= 0 {
+		w.pollInterval = 2 * time.Second
+	}
+	if w.sendTimeout <= 0 {
+		w.sendTimeout = 20 * time.Second
+	}
+	if w.lease <= 0 {
+		w.lease = 2 * time.Minute
+	}
+	return w
 }
 
 func (w *Worker) Run(ctx context.Context) error {
@@ -60,14 +85,21 @@ func (w *Worker) Run(ctx context.Context) error {
 			}
 			slog.Error("notification outbox poll failed", "error", err)
 		}
+		if len(jobs) > 0 {
+			slog.Debug("claimed notification batch", "count", len(jobs))
+		}
 		for _, job := range jobs {
 			result := w.send(ctx, job)
-			if err := w.store.FinishNotificationJob(ctx, job, result); err != nil {
+			outcome, err := w.store.FinishNotificationJob(ctx, job, result)
+			if err != nil {
 				if ctx.Err() != nil {
 					return nil
 				}
 				slog.Error("notification job update failed", "job_id", job.ID, "error", err)
+				continue
 			}
+			recordOutcome(outcome, result)
+			logOutcome(job, outcome, result)
 		}
 		if len(jobs) > 0 {
 			continue
@@ -104,6 +136,9 @@ func classifyError(err error, nextAttempt int) db.NotificationJobResult {
 
 	var apiErr *telegram.APIError
 	if errors.As(err, &apiErr) {
+		if apiErr.StatusCode == 429 || apiErr.RetryAfter > 0 {
+			metrics.TelegramRateLimited.Inc()
+		}
 		if apiErr.RetryAfter > 0 {
 			result.Temporary = true
 			result.RetryAt = time.Now().Add(apiErr.RetryAfter)
@@ -114,6 +149,10 @@ func classifyError(err error, nextAttempt int) db.NotificationJobResult {
 			result.RetryAt = time.Now().Add(backoff(nextAttempt))
 			return result
 		}
+		// A non-retryable Telegram error. If it says the destination is gone for
+		// good, flag the subscription for auto-pause so it stops queuing jobs
+		// that can only fail.
+		result.DisableSubscription = isUnreachableDestination(apiErr)
 		return result
 	}
 
@@ -132,11 +171,97 @@ func backoff(attempt int) time.Duration {
 	if attempt < 1 {
 		attempt = 1
 	}
+	// Cap the exponent before shifting: 30s<<11 already exceeds the 15m ceiling,
+	// and capping keeps the shift well clear of integer overflow even if
+	// max_attempts is configured very high.
+	if attempt > 12 {
+		attempt = 12
+	}
 	delay := time.Duration(30*(1<<(attempt-1))) * time.Second
 	if delay > 15*time.Minute {
-		return 15 * time.Minute
+		delay = 15 * time.Minute
 	}
-	return delay
+	return jitter(delay)
+}
+
+// jitter spreads a delay across [d/2, 3d/2) so a batch of jobs that failed
+// together (e.g. one Telegram outage) does not retry in a synchronized wave.
+func jitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	half := int64(d / 2)
+	return d - time.Duration(half) + time.Duration(rand.Int63n(2*half+1))
+}
+
+// isUnreachableDestination reports whether a permanent Telegram error means the
+// chat can never receive messages again (blocked, kicked, deleted, deactivated),
+// as opposed to a transient or content error. Matched on the human description
+// because Telegram overloads 400/403 across many cases; these markers track the
+// Bot API wording and may need updating if Telegram changes it. The fallback is
+// safe: an unmatched permanent error just fails the job without auto-pausing.
+func isUnreachableDestination(apiErr *telegram.APIError) bool {
+	if apiErr.StatusCode != 400 && apiErr.StatusCode != 403 {
+		return false
+	}
+	desc := strings.ToLower(apiErr.Description)
+	for _, marker := range []string{
+		"bot was blocked",
+		"user is deactivated",
+		"bot was kicked",
+		"bot is not a member",
+		"chat not found",
+		"group chat was deleted",
+		"need administrator rights",
+	} {
+		if strings.Contains(desc, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func recordOutcome(outcome db.JobOutcome, result db.NotificationJobResult) {
+	switch outcome {
+	case db.OutcomeSent:
+		metrics.NotificationsSent.Inc()
+	case db.OutcomeRetried:
+		metrics.NotificationsRetried.Inc()
+	case db.OutcomeFailed:
+		metrics.NotificationsFailed.Inc(failureReason(result))
+		if result.DisableSubscription {
+			metrics.SubscriptionsAutoPaused.Inc("telegram_blocked")
+		}
+	}
+}
+
+// failureReason labels a permanent failure: "exhausted" means a retryable error
+// ran out of attempts, "permanent" means the error was non-retryable up front
+// (e.g. the user blocked the bot).
+func failureReason(result db.NotificationJobResult) string {
+	if result.Temporary {
+		return "exhausted"
+	}
+	return "permanent"
+}
+
+// logOutcome emits one structured line per send attempt. Sent is Debug (the
+// happy path is high volume); retries and failures are louder because they are
+// what operators act on. Error text is a Telegram description, never a token.
+func logOutcome(job db.NotificationJob, outcome db.JobOutcome, result db.NotificationJobResult) {
+	switch outcome {
+	case db.OutcomeSent:
+		slog.Debug("notification sent", "job_id", job.ID, "chat_id", job.DestinationChatID, "attempts", job.Attempts)
+	case db.OutcomeRetried:
+		slog.Info("notification retry scheduled", "job_id", job.ID, "attempts", job.Attempts, "retry_at", result.RetryAt, "error", result.Error)
+	case db.OutcomeFailed:
+		if result.DisableSubscription {
+			slog.Warn("subscription auto-paused after permanent delivery failure",
+				"job_id", job.ID, "subscription_id", job.SubscriptionID, "error", result.Error)
+			return
+		}
+		slog.Warn("notification failed", "job_id", job.ID, "attempts", job.Attempts, "reason", failureReason(result), "error", result.Error)
+	}
 }
 
 func sleep(ctx context.Context, d time.Duration) error {

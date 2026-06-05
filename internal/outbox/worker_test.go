@@ -45,6 +45,42 @@ func TestClassifyPermanentTelegramError(t *testing.T) {
 	}
 }
 
+func TestClassifyBlockedDestinationDisablesSubscription(t *testing.T) {
+	err := &telegram.APIError{
+		Method:      "sendMessage",
+		StatusCode:  httpStatusForbidden,
+		Description: "Forbidden: bot was blocked by the user",
+	}
+
+	result := classifyError(err, 1)
+
+	if result.Temporary {
+		t.Fatal("expected blocked bot to be permanent")
+	}
+	if !result.DisableSubscription {
+		t.Fatal("expected a blocked destination to disable the subscription")
+	}
+}
+
+func TestClassifyContentErrorKeepsSubscription(t *testing.T) {
+	// A permanent error that is about the message, not the destination, must not
+	// pause the subscription.
+	err := &telegram.APIError{
+		Method:      "sendMessage",
+		StatusCode:  400,
+		Description: "Bad Request: message text is empty",
+	}
+
+	result := classifyError(err, 1)
+
+	if result.Temporary {
+		t.Fatal("expected content error to be permanent")
+	}
+	if result.DisableSubscription {
+		t.Fatal("a content error must not disable the subscription")
+	}
+}
+
 func TestClassifyGenericErrorAsTemporary(t *testing.T) {
 	result := classifyError(errors.New("network timeout"), 2)
 
@@ -56,9 +92,41 @@ func TestClassifyGenericErrorAsTemporary(t *testing.T) {
 	}
 }
 
+func TestBackoffJitterSpreadsAroundBase(t *testing.T) {
+	// attempt 1 has a 30s base, so jitter must stay within [15s, 45s] and
+	// actually vary on both sides of the base rather than being a fixed value.
+	lo, hi := 15*time.Second, 45*time.Second
+	sawBelow, sawAbove := false, false
+	for i := 0; i < 300; i++ {
+		d := backoff(1)
+		if d < lo || d > hi {
+			t.Fatalf("backoff(1) = %s, want within [%s, %s]", d, lo, hi)
+		}
+		if d < 30*time.Second {
+			sawBelow = true
+		}
+		if d > 30*time.Second {
+			sawAbove = true
+		}
+	}
+	if !sawBelow || !sawAbove {
+		t.Fatal("expected jitter to vary on both sides of the base delay")
+	}
+}
+
+func TestBackoffStaysCapped(t *testing.T) {
+	// A very high attempt count must not overflow or exceed the jittered ceiling.
+	for i := 0; i < 200; i++ {
+		d := backoff(40)
+		if d < 15*time.Minute/2 || d > 15*time.Minute*3/2 {
+			t.Fatalf("capped backoff = %s, want within [7m30s, 22m30s]", d)
+		}
+	}
+}
+
 func TestWorkerSendSuccess(t *testing.T) {
 	sender := &fakeSender{}
-	worker := NewWorker(nil, sender)
+	worker := NewWorker(nil, sender, Config{})
 
 	result := worker.send(context.Background(), testJob())
 

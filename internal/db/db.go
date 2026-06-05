@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"sort"
 	"strings"
 	"time"
@@ -228,7 +229,7 @@ func (s *Store) ListSubscriptionsByUser(ctx context.Context, telegramUserID int6
 		SELECT s.id::text, s.telegram_user_id, s.destination_type, s.destination_chat_id,
 		       s.github_repo_id, s.repo_full_name, s.events, s.branch_mode, s.branch_name,
 		       s.branch_names, s.pull_request_actions, s.release_mode,
-		       s.status, r.default_branch, r.html_url
+		       s.status, s.pause_reason, r.default_branch, r.html_url
 		FROM subscriptions s
 		JOIN repositories r ON r.github_repo_id = s.github_repo_id
 		WHERE s.telegram_user_id = $1
@@ -247,7 +248,7 @@ func (s *Store) GetSubscriptionForUser(ctx context.Context, telegramUserID int64
 		SELECT s.id::text, s.telegram_user_id, s.destination_type, s.destination_chat_id,
 		       s.github_repo_id, s.repo_full_name, s.events, s.branch_mode, s.branch_name,
 		       s.branch_names, s.pull_request_actions, s.release_mode,
-		       s.status, r.default_branch, r.html_url
+		       s.status, s.pause_reason, r.default_branch, r.html_url
 		FROM subscriptions s
 		JOIN repositories r ON r.github_repo_id = s.github_repo_id
 		WHERE s.telegram_user_id = $1 AND s.id = $2
@@ -255,7 +256,7 @@ func (s *Store) GetSubscriptionForUser(ctx context.Context, telegramUserID int64
 		&sub.ID, &sub.TelegramUserID, &sub.DestinationType, &sub.DestinationChatID,
 		&sub.GitHubRepoID, &sub.RepoFullName, &sub.Events, &sub.BranchMode,
 		&sub.BranchName, &sub.BranchNames, &sub.PullRequestActions,
-		&sub.ReleaseMode, &sub.Status, &sub.DefaultBranch, &sub.HTMLURL,
+		&sub.ReleaseMode, &sub.Status, &sub.PauseReason, &sub.DefaultBranch, &sub.HTMLURL,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Subscription{}, ErrNotFound
@@ -268,7 +269,7 @@ func (s *Store) ListActiveSubscriptionsForRepoEvent(ctx context.Context, repoFul
 		SELECT s.id::text, s.telegram_user_id, s.destination_type, s.destination_chat_id,
 		       s.github_repo_id, s.repo_full_name, s.events, s.branch_mode, s.branch_name,
 		       s.branch_names, s.pull_request_actions, s.release_mode,
-		       s.status, r.default_branch, r.html_url
+		       s.status, s.pause_reason, r.default_branch, r.html_url
 		FROM subscriptions s
 		JOIN repositories r ON r.github_repo_id = s.github_repo_id
 		WHERE s.repo_full_name = $1
@@ -305,10 +306,13 @@ func (s *Store) ListActiveEventsForRepo(ctx context.Context, repoFullName string
 	return events, rows.Err()
 }
 
+// UpdateSubscriptionStatus changes a subscription's status on the user's behalf
+// and clears any pause_reason: a manual pause/resume is a user decision that
+// supersedes an automatic pause, so the reason note must not linger.
 func (s *Store) UpdateSubscriptionStatus(ctx context.Context, telegramUserID int64, id, status string) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE subscriptions
-		SET status = $3, updated_at = now()
+		SET status = $3, pause_reason = '', updated_at = now()
 		WHERE telegram_user_id = $1 AND id = $2
 	`, telegramUserID, id, status)
 	return requireAffected(tag, err)
@@ -415,7 +419,10 @@ func (s *Store) ForgetDelivery(ctx context.Context, deliveryID string) error {
 	return err
 }
 
-func (s *Store) EnqueueNotificationJobs(ctx context.Context, deliveryID, repoFullName string, jobs []NotificationJobInsert) (int, error) {
+func (s *Store) EnqueueNotificationJobs(ctx context.Context, deliveryID, repoFullName string, jobs []NotificationJobInsert, maxAttempts int) (int, error) {
+	if maxAttempts <= 0 {
+		maxAttempts = 5
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return 0, err
@@ -439,10 +446,10 @@ func (s *Store) EnqueueNotificationJobs(ctx context.Context, deliveryID, repoFul
 	insertedJobs := 0
 	for _, job := range jobs {
 		tag, err := tx.Exec(ctx, `
-			INSERT INTO notification_jobs (delivery_id, subscription_id, destination_chat_id, text)
-			VALUES ($1, $2, $3, $4)
+			INSERT INTO notification_jobs (delivery_id, subscription_id, destination_chat_id, text, max_attempts)
+			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (delivery_id, subscription_id) DO NOTHING
-		`, deliveryID, job.SubscriptionID, job.DestinationChatID, job.Text)
+		`, deliveryID, job.SubscriptionID, job.DestinationChatID, job.Text, maxAttempts)
 		if err != nil {
 			return 0, err
 		}
@@ -562,9 +569,12 @@ func (s *Store) ClaimPendingNotificationJobs(ctx context.Context, limit int, lea
 	return jobs, nil
 }
 
-func (s *Store) FinishNotificationJob(ctx context.Context, job NotificationJob, result NotificationJobResult) error {
+// FinishNotificationJob records the result of a send attempt and reports the
+// resulting terminal/retry outcome so callers (the worker) can emit metrics and
+// logs without re-deriving the decision.
+func (s *Store) FinishNotificationJob(ctx context.Context, job NotificationJob, result NotificationJobResult) (JobOutcome, error) {
 	if result.Success {
-		return requireAffected(s.pool.Exec(ctx, `
+		return OutcomeSent, requireAffected(s.pool.Exec(ctx, `
 			UPDATE notification_jobs
 			SET status = 'sent',
 			    updated_at = now(),
@@ -582,7 +592,7 @@ func (s *Store) FinishNotificationJob(ctx context.Context, job NotificationJob, 
 		if retryAt.IsZero() {
 			retryAt = time.Now().Add(defaultRetryDelay(nextAttempts))
 		}
-		return requireAffected(s.pool.Exec(ctx, `
+		return OutcomeRetried, requireAffected(s.pool.Exec(ctx, `
 			UPDATE notification_jobs
 			SET status = 'pending',
 			    attempts = $2,
@@ -594,7 +604,18 @@ func (s *Store) FinishNotificationJob(ctx context.Context, job NotificationJob, 
 		`, job.ID, nextAttempts, retryAt, lastError))
 	}
 
-	return requireAffected(s.pool.Exec(ctx, `
+	return OutcomeFailed, s.failJob(ctx, job, nextAttempts, lastError, result.DisableSubscription)
+}
+
+// failJob marks a job failed and, when the destination is permanently
+// unreachable, auto-pauses the owning subscription so it stops generating jobs
+// that can only fail. The failed mark is persisted first and independently: a
+// later error pausing the subscription must not roll it back (a job that can
+// never be delivered must stay failed, not be re-leased). The pause is scoped to
+// an active subscription so a user-paused one is left exactly as the user set
+// it; if it does not happen, the next failed delivery pauses it.
+func (s *Store) failJob(ctx context.Context, job NotificationJob, attempts int, lastError string, disableSubscription bool) error {
+	if err := requireAffected(s.pool.Exec(ctx, `
 		UPDATE notification_jobs
 		SET status = 'failed',
 		    attempts = $2,
@@ -603,7 +624,21 @@ func (s *Store) FinishNotificationJob(ctx context.Context, job NotificationJob, 
 		    updated_at = now(),
 		    failed_at = now()
 		WHERE id = $1
-	`, job.ID, nextAttempts, lastError))
+	`, job.ID, attempts, lastError)); err != nil {
+		return err
+	}
+
+	if disableSubscription && job.SubscriptionID != "" {
+		if _, err := s.pool.Exec(ctx, `
+			UPDATE subscriptions
+			SET status = 'paused', pause_reason = 'telegram_blocked', updated_at = now()
+			WHERE id = $1::uuid AND status = 'active'
+		`, job.SubscriptionID); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *Store) CreateCallbackToken(ctx context.Context, telegramUserID int64, token, action string, payload any, ttl time.Duration) error {
@@ -712,7 +747,7 @@ func scanSubscriptions(rows pgx.Rows) ([]Subscription, error) {
 			&sub.ID, &sub.TelegramUserID, &sub.DestinationType, &sub.DestinationChatID,
 			&sub.GitHubRepoID, &sub.RepoFullName, &sub.Events, &sub.BranchMode,
 			&sub.BranchName, &sub.BranchNames, &sub.PullRequestActions,
-			&sub.ReleaseMode, &sub.Status, &sub.DefaultBranch, &sub.HTMLURL,
+			&sub.ReleaseMode, &sub.Status, &sub.PauseReason, &sub.DefaultBranch, &sub.HTMLURL,
 		); err != nil {
 			return nil, err
 		}
@@ -754,11 +789,20 @@ func defaultRetryDelay(attempts int) time.Duration {
 	if attempts < 1 {
 		attempts = 1
 	}
+	if attempts > 12 {
+		attempts = 12
+	}
 	delay := time.Duration(30*(1<<(attempts-1))) * time.Second
 	if delay > 15*time.Minute {
-		return 15 * time.Minute
+		delay = 15 * time.Minute
 	}
-	return delay
+	// Spread synchronized retries (see outbox.jitter); this fallback path is
+	// only hit when the worker did not supply an explicit retry_at.
+	half := int64(delay / 2)
+	if half <= 0 {
+		return delay
+	}
+	return delay - time.Duration(half) + time.Duration(rand.Int63n(2*half+1))
 }
 
 func truncate(value string, limit int) string {

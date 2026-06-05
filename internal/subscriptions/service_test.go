@@ -4,6 +4,7 @@ package subscriptions
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"branchy/internal/db"
@@ -147,4 +148,39 @@ func (failingStore) UpsertRepoHook(context.Context, int64, string, int64, []stri
 
 func (failingStore) DeleteRepoHook(context.Context, int64) error {
 	return errors.New("store should not be called")
+}
+
+func TestTranslateGitHubErr(t *testing.T) {
+	forbidden := &github.APIError{StatusCode: 403, Path: "/repos/acme/repo/hooks"}
+	if err := translateGitHubErr(forbidden, "acme/repo"); err == nil {
+		t.Fatal("expected a message for 403")
+	} else {
+		var v *ValidationError
+		if !errors.As(err, &v) {
+			t.Fatalf("403 should become a ValidationError, got %T", err)
+		}
+	}
+
+	notFound := &github.APIError{StatusCode: 404}
+	var v *ValidationError
+	if !errors.As(translateGitHubErr(notFound, "acme/repo"), &v) {
+		t.Fatal("404 should become a ValidationError")
+	}
+
+	// A 403 that is actually a rate limit gets a distinct, accurate message.
+	rateLimited := &github.APIError{StatusCode: 403, Body: `{"message":"You have exceeded a secondary rate limit"}`}
+	var rl *ValidationError
+	if !errors.As(translateGitHubErr(rateLimited, "acme/repo"), &rl) {
+		t.Fatal("rate-limited 403 should become a ValidationError")
+	}
+	if !strings.Contains(rl.Message, "rate limit") {
+		t.Fatalf("rate-limit message = %q, want it to mention the rate limit", rl.Message)
+	}
+
+	// 401 must pass through unchanged so the bot can detect it and prompt a
+	// reconnect rather than showing a dead-end message.
+	unauthorized := &github.APIError{StatusCode: 401}
+	if !github.IsAuthError(translateGitHubErr(unauthorized, "acme/repo")) {
+		t.Fatal("401 must remain an auth error after translation")
+	}
 }

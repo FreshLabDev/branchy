@@ -46,11 +46,12 @@ Branchy keeps the MVP deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v0.2.0` | Stable release with event-specific subscription settings and a single edit menu |
+| Latest | `v1.0.0-alpha.1` | Pre-release hardening the MVP for production: CI/CD, metrics, and automatic recovery |
 | Stable | `v0.2.0` | Latest non-prerelease tag |
 
 The MVP has been live-tested with Telegram and GitHub. `v0.2.0` is the current
-stable release; `v1.0.0` is still reserved for a mature production contract.
+stable release; `v1.0.0-alpha.1` opens the `v1.0.0` line, which is reserved for a
+mature production contract.
 
 ---
 
@@ -175,7 +176,7 @@ Permanent delivery failures are marked `failed`.
 | Telegram DM and verified groups | Non-Telegram delivery channels |
 | `push`, `pull_request`, `release` | Issues, comments, deployments, workflow runs |
 | PostgreSQL outbox delivery | Direct sends inside webhook handlers |
-| `/healthz` operational health | Billing or paid plans |
+| `/healthz` and `/metrics` operational health | Billing or paid plans |
 
 ---
 
@@ -194,6 +195,12 @@ Permanent delivery failures are marked `failed`.
 | `HTTP_ADDR` | no | `:8080` | HTTP listen address |
 | `MIGRATIONS_DIR` | no | `migrations` | Migration directory |
 | `AUTO_MIGRATE` | no | `true` | Run migrations on startup |
+| `OUTBOX_POLL_INTERVAL` | no | `2s` | Outbox poll interval (Go duration) |
+| `OUTBOX_BATCH_SIZE` | no | `20` | Max jobs claimed per poll |
+| `OUTBOX_SEND_TIMEOUT` | no | `20s` | Per-message Telegram send timeout |
+| `OUTBOX_LEASE` | no | `2m` | Job processing lease duration |
+| `OUTBOX_RETENTION_DAYS` | no | `7` | Days to keep terminal jobs and dedupe records |
+| `NOTIFICATION_MAX_ATTEMPTS` | no | `5` | Delivery attempts before a job is failed |
 
 The default `repo read:user` scope is broad, but it supports private repository
 visibility and repository webhook management through the OAuth App flow.
@@ -226,7 +233,10 @@ Put `HTTP_ADDR` behind a TLS-terminating reverse proxy or tunnel and set
 `PUBLIC_BASE_URL` to the matching HTTPS URL.
 
 `/healthz` reports database status, Telegram polling freshness, worker
-freshness, and outbox counts without exposing secrets.
+freshness, outbox counts, and the build version without exposing secrets.
+`/metrics` exposes Prometheus counters (webhook deliveries, notification
+outcomes, Telegram rate limits, automatic pauses). Both endpoints return counts
+only; restrict them at your reverse proxy if you do not want them public.
 
 ---
 

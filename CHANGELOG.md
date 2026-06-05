@@ -10,6 +10,51 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.0.0-alpha.1 - 2026-06-05
+
+First `v1.0.0` pre-release. Hardens the MVP for production: CI/CD, build
+provenance, observability, and automatic recovery from lost GitHub or Telegram
+access. The supported event set (`push`, `pull_request`, `release`) and the
+Telegram-first setup flow are unchanged.
+
+### Added
+
+- Continuous integration (GitHub Actions): build, vet, race tests, `go mod`
+  verification, `govulncheck`, Docker image build, and compose validation on
+  every push and pull request.
+- Release workflow: tagging `v*` builds a version-stamped image, pushes it to
+  GHCR, and publishes a GitHub Release from the matching changelog section
+  (pre-release tags are marked as pre-releases).
+- Build version, commit, and date are stamped into the binary and reported at
+  startup and in `/healthz`.
+- `/metrics` endpoint (Prometheus text format) with counters for webhook
+  deliveries, notification outcomes, Telegram rate limits, and automatic
+  subscription pauses.
+- Tunable outbox via environment: `OUTBOX_POLL_INTERVAL`, `OUTBOX_BATCH_SIZE`,
+  `OUTBOX_SEND_TIMEOUT`, `OUTBOX_LEASE`, `OUTBOX_RETENTION_DAYS`, and
+  `NOTIFICATION_MAX_ATTEMPTS`.
+
+### Changed
+
+- Retry backoff is now jittered to avoid synchronized retry waves after an
+  outage.
+- More structured logs at the webhook, delivery, and subscription lifecycle
+  boundaries (no secrets logged).
+- Webhook-management errors are clearer: missing admin rights and inaccessible
+  repositories now explain the fix.
+
+### Reliability
+
+- A subscription whose destination becomes permanently unreachable (bot blocked,
+  kicked, or chat deleted) is paused automatically instead of retrying forever.
+- A revoked or expired GitHub token (HTTP 401) is surfaced as a reconnect prompt
+  instead of a generic error.
+
+### Migrations
+
+- `007_subscription_pause_reason.sql` adds `subscriptions.pause_reason`
+  (defaults to empty; existing rows are unaffected).
+
 ## v0.2.0 - 2026-06-05
 
 ### Changed

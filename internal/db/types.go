@@ -63,6 +63,7 @@ type Subscription struct {
 	PullRequestActions []string
 	ReleaseMode        string
 	Status             string
+	PauseReason        string
 	DefaultBranch      string
 	HTMLURL            string
 }
@@ -95,7 +96,21 @@ type NotificationJobResult struct {
 	Temporary bool
 	RetryAt   time.Time
 	Error     string
+	// DisableSubscription marks a permanent failure where the destination is
+	// unreachable for good (bot blocked/removed, chat gone). The owning
+	// subscription is auto-paused so it stops generating dead jobs.
+	DisableSubscription bool
 }
+
+// JobOutcome is the terminal/retry decision FinishNotificationJob made for a
+// send attempt.
+type JobOutcome string
+
+const (
+	OutcomeSent    JobOutcome = "sent"
+	OutcomeRetried JobOutcome = "retried"
+	OutcomeFailed  JobOutcome = "failed"
+)
 
 type HealthStatus struct {
 	OutboxPending    int64

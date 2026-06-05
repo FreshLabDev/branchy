@@ -4,6 +4,7 @@ package subscriptions
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -32,6 +33,29 @@ func translateWriteErr(err error) error {
 		return invalid("You already have a subscription with these exact settings.")
 	}
 	return err
+}
+
+// translateGitHubErr turns the common webhook-management failures into
+// actionable user messages. A 401 is deliberately left as a *github.APIError so
+// the bot can detect it (IsAuthError) and drive the reconnect flow instead.
+func translateGitHubErr(err error, repoFullName string) error {
+	var apiErr *github.APIError
+	if !errors.As(err, &apiErr) {
+		return err
+	}
+	switch apiErr.StatusCode {
+	case 403:
+		// 403 covers several distinct causes (missing admin rights, rate limit,
+		// SSO enforcement), so the wording stays a hint, not an assertion.
+		if strings.Contains(strings.ToLower(apiErr.Body), "rate limit") {
+			return invalid("GitHub is rate limiting Branchy. Please try again in a few minutes.")
+		}
+		return invalid("Couldn't manage the webhook on " + repoFullName + ". Check that you have admin rights on the repository, then try again.")
+	case 404:
+		return invalid(repoFullName + " is no longer accessible on GitHub.")
+	default:
+		return err
+	}
 }
 
 type Store interface {
@@ -118,6 +142,7 @@ func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.
 		}
 		return "", err
 	}
+	slog.Info("subscription created", "telegram_user_id", telegramUserID, "repo", storedRepo.FullName, "events", settings.Events)
 	return id, nil
 }
 
@@ -220,15 +245,17 @@ func (s *Service) EnsureWebhook(ctx context.Context, telegramUserID, repoID int6
 	payloadURL := strings.TrimRight(s.cfg.PublicBaseURL, "/") + "/webhooks/github"
 	if len(events) == 0 {
 		if err := s.github.DeleteWebhookByURL(ctx, token, repoFullName, payloadURL); err != nil {
-			return err
+			return translateGitHubErr(err, repoFullName)
 		}
+		slog.Info("repo webhook removed", "repo", repoFullName)
 		return s.store.DeleteRepoHook(ctx, repoID)
 	}
 	sort.Strings(events)
 	hook, err := s.github.EnsureWebhook(ctx, token, repoFullName, payloadURL, s.cfg.GitHubWebhookSecret, events)
 	if err != nil {
-		return err
+		return translateGitHubErr(err, repoFullName)
 	}
+	slog.Info("repo webhook synced", "repo", repoFullName, "events", events)
 	return s.store.UpsertRepoHook(ctx, repoID, repoFullName, hook.ID, events, payloadURL)
 }
 
