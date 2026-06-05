@@ -807,7 +807,7 @@ func (b *Bot) renderEventSettings(ctx context.Context, cq CallbackQuery, draft s
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: "Create subscription", CallbackData: createCB, Style: styleSuccess}})
 	}
-	rows = append(rows, []InlineKeyboardButton{{Text: "Done", CallbackData: backCB, Style: stylePrimary}})
+	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
 	text := "<b>Event settings</b>\n" + settingsSummary(draft.Events, draft.BranchMode, draft.BranchNames, draft.PullRequestActions, draft.ReleaseMode)
 	if hint := settingsBlockingHint(draft); hint != "" {
 		text += "\n\n⚠ " + hint
