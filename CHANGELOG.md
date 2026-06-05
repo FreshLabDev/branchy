@@ -10,8 +10,15 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v0.2.0 - 2026-06-05
+
 ### Changed
 
+- Promoted the v0.2.0 alpha line to the first stable `v0.2.0` release. The
+  headline change since `v0.1.0` is event-specific subscription settings —
+  multi-branch filters, pull request action filters, and release-type filters —
+  grouped under Advanced settings. There are no runtime behavior changes from
+  `v0.2.0-alpha.3` beyond the edit-menu navigation below.
 - Editing a subscription now opens a single **Edit** menu — Events,
   Destination, and Advanced settings — replacing the three separate edit
   buttons on the subscription view; each editor returns to that menu on Back.
