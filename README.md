@@ -201,6 +201,10 @@ Permanent delivery failures are marked `failed`.
 | `OUTBOX_LEASE` | no | `2m` | Job processing lease duration |
 | `OUTBOX_RETENTION_DAYS` | no | `7` | Days to keep terminal jobs and dedupe records |
 | `NOTIFICATION_MAX_ATTEMPTS` | no | `5` | Delivery attempts before a job is failed |
+| `TELEGRAM_API_TIMEOUT` | no | `30s` | Per-request Telegram API timeout (long polling adds its own headroom) |
+| `GITHUB_API_TIMEOUT` | no | `20s` | Per-request GitHub API timeout |
+| `WEBHOOK_RATE_LIMIT` | no | `30` | Webhook endpoint rate limit, requests per second |
+| `WEBHOOK_RATE_BURST` | no | `60` | Webhook endpoint burst allowance |
 
 The default `repo read:user` scope is broad, but it supports private repository
 visibility and repository webhook management through the OAuth App flow.

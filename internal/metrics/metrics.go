@@ -80,6 +80,7 @@ var (
 	WebhooksReceived      = registerCounter("branchy_webhooks_received_total", "GitHub webhook deliveries accepted after signature verification.")
 	WebhooksRejected      = registerCounter("branchy_webhooks_rejected_total", "GitHub webhook deliveries rejected for an invalid signature.")
 	WebhooksDuplicate     = registerCounter("branchy_webhooks_duplicate_total", "GitHub webhook deliveries skipped as duplicates.")
+	WebhooksRateLimited   = registerCounter("branchy_webhooks_rate_limited_total", "GitHub webhook requests rejected by the rate limiter.")
 	NotificationsEnqueued = registerCounter("branchy_notifications_enqueued_total", "Notification jobs created from webhook deliveries.")
 	NotificationsSent     = registerCounter("branchy_notifications_sent_total", "Notification jobs delivered to Telegram.")
 	NotificationsRetried  = registerCounter("branchy_notifications_retried_total", "Notification send attempts rescheduled for retry.")

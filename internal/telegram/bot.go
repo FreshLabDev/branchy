@@ -65,6 +65,7 @@ func (b *Bot) Run(ctx context.Context) error {
 	if err != nil {
 		slog.Warn("telegram offset load failed", "error", err)
 	}
+	var pollFailures int
 	for {
 		select {
 		case <-ctx.Done():
@@ -77,9 +78,21 @@ func (b *Bot) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			slog.Error("telegram getUpdates failed", "error", err)
-			time.Sleep(2 * time.Second)
+			pollFailures++
+			delay := pollRetryDelay(pollFailures)
+			// A sustained outage (DNS down, Telegram unreachable) repeats the
+			// same error for hours: log the first few, then sample.
+			if pollFailures <= 3 || pollFailures%10 == 0 {
+				slog.Error("telegram getUpdates failed", "error", err, "consecutive_failures", pollFailures, "retry_in", delay)
+			}
+			if sleep(ctx, delay) != nil {
+				return nil
+			}
 			continue
+		}
+		if pollFailures > 0 {
+			slog.Info("telegram polling recovered", "after_failures", pollFailures)
+			pollFailures = 0
 		}
 		b.lastPollUnix.Store(time.Now().Unix())
 		for _, update := range updates {
@@ -94,6 +107,22 @@ func (b *Bot) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// pollRetryDelay backs off 2s → 60s (jittered) so a sustained Telegram or DNS
+// outage does not hammer the network — or the logs — every two seconds.
+func pollRetryDelay(failures int) time.Duration {
+	if failures < 1 {
+		failures = 1
+	}
+	if failures > 6 {
+		failures = 6
+	}
+	delay := 2 * time.Second << (failures - 1)
+	if delay > time.Minute {
+		delay = time.Minute
+	}
+	return jitterDuration(delay)
 }
 
 func (b *Bot) LastPoll() time.Time {

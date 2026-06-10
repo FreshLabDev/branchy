@@ -6,11 +6,17 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"branchy/internal/db"
 	"branchy/internal/metrics"
 	"branchy/internal/notify"
 )
+
+// maxBodyBytes bounds a webhook payload. GitHub caps payloads at 25 MB but
+// the events Branchy consumes stay far smaller; oversized requests get an
+// explicit 413 instead of a confusing signature failure on a truncated body.
+const maxBodyBytes = 5 * 1024 * 1024
 
 type Store interface {
 	RecordDelivery(ctx context.Context, deliveryID, event string) (bool, error)
@@ -23,9 +29,18 @@ type Handler struct {
 	secret      string
 	store       Store
 	maxAttempts int
+	limiter     *rateLimiter
+	now         func() time.Time
 }
 
-func NewHandler(secret string, store Store, maxAttempts int) *Handler {
+// Limits tunes the endpoint rate limiter; zero values fall back to defaults
+// (30 requests/second, burst 60) that real GitHub traffic never approaches.
+type Limits struct {
+	RatePerSecond int
+	Burst         int
+}
+
+func NewHandler(secret string, store Store, maxAttempts int, limits Limits) *Handler {
 	if maxAttempts <= 0 {
 		maxAttempts = 5
 	}
@@ -33,6 +48,8 @@ func NewHandler(secret string, store Store, maxAttempts int) *Handler {
 		secret:      secret,
 		store:       store,
 		maxAttempts: maxAttempts,
+		limiter:     newRateLimiter(limits.RatePerSecond, limits.Burst),
+		now:         time.Now,
 	}
 }
 
@@ -41,9 +58,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, 2*1024*1024))
+	if !h.limiter.allow(h.now()) {
+		// Counted for alerting; logged at Debug so a flood cannot also flood
+		// the logs.
+		metrics.WebhooksRateLimited.Inc()
+		slog.Debug("webhook rate limited", "event", r.Header.Get("X-GitHub-Event"))
+		http.Error(w, "rate limited", http.StatusTooManyRequests)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
 	if err != nil {
 		http.Error(w, "read body", http.StatusBadRequest)
+		return
+	}
+	if len(body) > maxBodyBytes {
+		slog.Warn("webhook payload too large",
+			"event", r.Header.Get("X-GitHub-Event"),
+			"delivery_id", r.Header.Get("X-GitHub-Delivery"))
+		http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 	if !VerifySignature(h.secret, body, r.Header.Get("X-Hub-Signature-256")) {

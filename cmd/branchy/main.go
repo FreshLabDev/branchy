@@ -69,8 +69,9 @@ func run() error {
 		ClientID:     cfg.GitHubClientID,
 		ClientSecret: cfg.GitHubClientSecret,
 		UserAgent:    "branchy-mvp",
+		Timeout:      cfg.GitHubAPITimeout,
 	})
-	tg := telegram.NewClient(cfg.TelegramBotToken)
+	tg := telegram.NewClient(cfg.TelegramBotToken, telegram.WithTimeout(cfg.TelegramAPITimeout))
 	sealer := oauth.NewTokenSealer(cfg.AppSecret)
 	oauthSvc := oauth.NewService(oauth.ServiceConfig{
 		ClientID:     cfg.GitHubClientID,
@@ -89,7 +90,10 @@ func run() error {
 		SendTimeout:  cfg.OutboxSendTimeout,
 		Lease:        cfg.OutboxLease,
 	})
-	hookHandler := webhooks.NewHandler(cfg.GitHubWebhookSecret, store, cfg.NotificationMaxAttempts)
+	hookHandler := webhooks.NewHandler(cfg.GitHubWebhookSecret, store, cfg.NotificationMaxAttempts, webhooks.Limits{
+		RatePerSecond: cfg.WebhookRateLimit,
+		Burst:         cfg.WebhookRateBurst,
+	})
 	startedAt := time.Now()
 
 	mux := http.NewServeMux()

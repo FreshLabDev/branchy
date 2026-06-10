@@ -30,6 +30,13 @@ type Config struct {
 	OutboxLease             time.Duration
 	OutboxRetention         time.Duration
 	NotificationMaxAttempts int
+
+	// Upstream API timeouts and webhook endpoint limits, tunable without a
+	// rebuild.
+	TelegramAPITimeout time.Duration
+	GitHubAPITimeout   time.Duration
+	WebhookRateLimit   int
+	WebhookRateBurst   int
 }
 
 func Load() (Config, error) {
@@ -84,6 +91,18 @@ func Load() (Config, error) {
 	}
 	cfg.OutboxRetention = time.Duration(retentionDays) * 24 * time.Hour
 	if cfg.NotificationMaxAttempts, err = envInt("NOTIFICATION_MAX_ATTEMPTS", 5); err != nil {
+		return Config{}, err
+	}
+	if cfg.TelegramAPITimeout, err = envDuration("TELEGRAM_API_TIMEOUT", 30*time.Second); err != nil {
+		return Config{}, err
+	}
+	if cfg.GitHubAPITimeout, err = envDuration("GITHUB_API_TIMEOUT", 20*time.Second); err != nil {
+		return Config{}, err
+	}
+	if cfg.WebhookRateLimit, err = envInt("WEBHOOK_RATE_LIMIT", 30); err != nil {
+		return Config{}, err
+	}
+	if cfg.WebhookRateBurst, err = envInt("WEBHOOK_RATE_BURST", 60); err != nil {
 		return Config{}, err
 	}
 

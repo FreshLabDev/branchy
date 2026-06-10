@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -19,16 +20,39 @@ type Client struct {
 	token   string
 	apiBase string
 	http    *http.Client
+	timeout time.Duration
 	sleep   func(context.Context, time.Duration) error
 }
 
-func NewClient(token string) *Client {
-	return &Client{
+// Option configures optional Client behavior.
+type Option func(*Client)
+
+// WithTimeout sets the per-request deadline for regular API calls. The
+// long-polling getUpdates call derives its own, longer deadline from the poll
+// duration, so this value does not need to cover it.
+func WithTimeout(d time.Duration) Option {
+	return func(c *Client) {
+		if d > 0 {
+			c.timeout = d
+		}
+	}
+}
+
+func NewClient(token string, opts ...Option) *Client {
+	c := &Client{
 		token:   token,
 		apiBase: "https://api.telegram.org",
-		http:    &http.Client{Timeout: 30 * time.Second},
+		// No global http.Client timeout: each attempt carries its own context
+		// deadline, and a single fixed value cannot fit both quick calls and
+		// the getUpdates long poll.
+		http:    &http.Client{},
+		timeout: 30 * time.Second,
 		sleep:   sleep,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 type APIError struct {
@@ -92,7 +116,11 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64, timeoutSeconds in
 		OK     bool     `json:"ok"`
 		Result []Update `json:"result"`
 	}
-	if err := c.get(ctx, "getUpdates", values, &resp); err != nil {
+	// The deadline must outlive the server-side long poll plus headroom for the
+	// handshake and response transfer; a flat client timeout would cut the
+	// request off mid-poll.
+	reqTimeout := time.Duration(timeoutSeconds)*time.Second + 15*time.Second
+	if err := c.getWithTimeout(ctx, "getUpdates", values, &resp, reqTimeout); err != nil {
 		return nil, err
 	}
 	if !resp.OK {
@@ -204,22 +232,33 @@ func (c *Client) GetChatMember(ctx context.Context, chatID, userID int64) (ChatM
 }
 
 func (c *Client) get(ctx context.Context, method string, values url.Values, out any) error {
+	return c.getWithTimeout(ctx, method, values, out, c.timeout)
+}
+
+// getWithTimeout performs an idempotent GET with retries: transport failures
+// (DNS, connect, reset) and Telegram 429/5xx responses are retried with a
+// short jittered backoff, honoring Retry-After when Telegram provides one.
+// POSTs are not retried this way because a lost response would double-send.
+func (c *Client) getWithTimeout(ctx context.Context, method string, values url.Values, out any, timeout time.Duration) error {
+	const maxAttempts = 4
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint(method)+"?"+values.Encode(), nil)
-		if err != nil {
-			return err
-		}
-		retryAfter, err := c.do(method, req, out)
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		retryAfter, err := c.attempt(ctx, timeout, func(attemptCtx context.Context) (*http.Request, error) {
+			return http.NewRequestWithContext(attemptCtx, http.MethodGet, c.endpoint(method)+"?"+values.Encode(), nil)
+		}, method, out)
 		if err == nil {
 			return nil
 		}
 		lastErr = err
-		if retryAfter <= 0 || attempt == 1 {
+		if ctx.Err() != nil || attempt == maxAttempts || !retryableError(err) {
 			return err
 		}
-		if err := c.sleep(ctx, retryAfter); err != nil {
-			return err
+		delay := retryAfter
+		if delay <= 0 {
+			delay = retryDelay(attempt)
+		}
+		if err := c.sleep(ctx, delay); err != nil {
+			return lastErr
 		}
 	}
 	return lastErr
@@ -232,12 +271,14 @@ func (c *Client) post(ctx context.Context, method string, body any, out any) err
 	}
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint(method), bytes.NewReader(raw))
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		retryAfter, err := c.do(method, req, out)
+		retryAfter, err := c.attempt(ctx, c.timeout, func(attemptCtx context.Context) (*http.Request, error) {
+			req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, c.endpoint(method), bytes.NewReader(raw))
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			return req, nil
+		}, method, out)
 		if err == nil {
 			return nil
 		}
@@ -252,10 +293,22 @@ func (c *Client) post(ctx context.Context, method string, body any, out any) err
 	return lastErr
 }
 
+// attempt runs one request under its own deadline. The response body is fully
+// consumed before the deadline is released.
+func (c *Client) attempt(ctx context.Context, timeout time.Duration, build func(context.Context) (*http.Request, error), method string, out any) (time.Duration, error) {
+	attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := build(attemptCtx)
+	if err != nil {
+		return 0, c.redactError(err)
+	}
+	return c.do(method, req, out)
+}
+
 func (c *Client) do(method string, req *http.Request, out any) (time.Duration, error) {
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, err
+		return 0, c.redactError(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -263,6 +316,69 @@ func (c *Client) do(method string, req *http.Request, out any) (time.Duration, e
 		return apiErr.RetryAfter, apiErr
 	}
 	return 0, json.NewDecoder(resp.Body).Decode(out)
+}
+
+// redactError rewrites a request/transport error so its message never contains
+// the bot token: net/http and net/url errors embed the full request URL, which
+// includes the /bot<TOKEN>/ path segment. The underlying cause stays wrapped so
+// errors.Is/As checks (e.g. context.Canceled) keep working, but the URL-bearing
+// wrapper itself is dropped from the chain.
+func (c *Client) redactError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if c.token != "" {
+		msg = strings.ReplaceAll(msg, c.token, "***")
+	}
+	cause := err
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		cause = urlErr.Err
+	}
+	return &transportError{msg: msg, cause: cause}
+}
+
+type transportError struct {
+	msg   string
+	cause error
+}
+
+func (e *transportError) Error() string { return e.msg }
+func (e *transportError) Unwrap() error { return e.cause }
+
+// retryableError reports whether an idempotent request is worth retrying:
+// Telegram 429/5xx responses and transport-level failures qualify; a canceled
+// caller context never does (the retry loop checks the caller's ctx
+// separately, so an expired per-attempt deadline still retries).
+func retryableError(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == 429 || apiErr.StatusCode >= 500
+	}
+	return !errors.Is(err, context.Canceled)
+}
+
+// retryDelay backs off 500ms, 1s, 2s (jittered): transient hiccups recover
+// fast and three retries stay well inside one long-poll cycle.
+func retryDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	if attempt > 3 {
+		attempt = 3
+	}
+	return jitterDuration(500 * time.Millisecond << (attempt - 1))
+}
+
+// jitterDuration spreads a delay across [d/2, 3d/2) so callers that failed
+// together do not retry in a synchronized wave.
+func jitterDuration(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	half := int64(d / 2)
+	return d - time.Duration(half) + time.Duration(rand.Int63n(2*half+1))
 }
 
 func (c *Client) endpoint(method string) string {

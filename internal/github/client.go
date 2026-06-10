@@ -21,6 +21,8 @@ type Config struct {
 	ClientID     string
 	ClientSecret string
 	UserAgent    string
+	// Timeout bounds each API request; zero falls back to 20s.
+	Timeout time.Duration
 }
 
 type Client struct {
@@ -33,11 +35,14 @@ func NewClient(cfg Config) *Client {
 	if cfg.UserAgent == "" {
 		cfg.UserAgent = "branchy"
 	}
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = 20 * time.Second
+	}
 	return &Client{
 		cfg:     cfg,
 		apiBase: apiBase,
 		http: &http.Client{
-			Timeout: 20 * time.Second,
+			Timeout: cfg.Timeout,
 		},
 	}
 }

@@ -7,13 +7,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"branchy/internal/db"
 )
 
 func TestHandlerRejectsInvalidSignatureBeforeParsing(t *testing.T) {
 	store := &fakeStore{}
-	handler := NewHandler("secret", store, 5)
+	handler := NewHandler("secret", store, 5, Limits{})
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(`not-json`))
 	req.Header.Set("X-Hub-Signature-256", "sha256=bad")
@@ -31,10 +32,60 @@ func TestHandlerRejectsInvalidSignatureBeforeParsing(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsOversizedBody(t *testing.T) {
+	store := &fakeStore{}
+	handler := NewHandler("secret", store, 5, Limits{})
+
+	body := strings.Repeat("a", maxBodyBytes+1)
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-GitHub-Delivery", "delivery-huge")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+	if store.recordCalls != 0 {
+		t.Fatalf("oversized body should not touch store")
+	}
+}
+
+func TestHandlerRateLimitsFloods(t *testing.T) {
+	store := &fakeStore{}
+	handler := NewHandler("secret", store, 5, Limits{RatePerSecond: 1, Burst: 2})
+	now := time.Unix(1000, 0)
+	handler.now = func() time.Time { return now }
+
+	send := func() int {
+		req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(`{}`))
+		req.Header.Set("X-GitHub-Event", "push")
+		req.Header.Set("X-GitHub-Delivery", "delivery-1")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	if code := send(); code == http.StatusTooManyRequests {
+		t.Fatal("first request inside burst was limited")
+	}
+	if code := send(); code == http.StatusTooManyRequests {
+		t.Fatal("second request inside burst was limited")
+	}
+	if code := send(); code != http.StatusTooManyRequests {
+		t.Fatalf("third request status = %d, want %d", code, http.StatusTooManyRequests)
+	}
+	now = now.Add(2 * time.Second)
+	if code := send(); code == http.StatusTooManyRequests {
+		t.Fatal("request after refill was limited")
+	}
+}
+
 func TestHandlerIgnoresUnsupportedEvent(t *testing.T) {
 	body := []byte(`{"zen":"Keep it logically awesome."}`)
 	store := &fakeStore{}
-	handler := NewHandler("secret", store, 5)
+	handler := NewHandler("secret", store, 5, Limits{})
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(string(body)))
 	req.Header.Set("X-Hub-Signature-256", SignForTest("secret", body))
@@ -60,7 +111,7 @@ func TestHandlerSkipsDuplicateDeliveryBeforeParsing(t *testing.T) {
 	store := &fakeStore{
 		duplicate: true,
 	}
-	handler := NewHandler("secret", store, 5)
+	handler := NewHandler("secret", store, 5, Limits{})
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(string(body)))
 	req.Header.Set("X-Hub-Signature-256", SignForTest("secret", body))
@@ -89,7 +140,7 @@ func TestHandlerEnqueuesMatchingSubscription(t *testing.T) {
 		BranchMode:        "default",
 		DefaultBranch:     "main",
 	}}}
-	handler := NewHandler("secret", store, 7)
+	handler := NewHandler("secret", store, 7, Limits{})
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(string(body)))
 	req.Header.Set("X-Hub-Signature-256", SignForTest("secret", body))

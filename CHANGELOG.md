@@ -10,6 +10,48 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.0.0-alpha.2 - 2026-06-10
+
+Resilience and security hardening prompted by a production DNS outage: the
+Telegram polling loop now backs off instead of hammering the network, and the
+bot token can no longer leak into container logs through transport errors.
+
+### Security
+
+- Transport-level Telegram errors (DNS failures, connection resets) are
+  redacted before logging: net/http embeds the full request URL — including
+  the bot token — in its error messages, and these previously reached the
+  container log verbatim. API-level errors were already sanitized.
+- The webhook endpoint is rate limited (token bucket, default 30 rps with a
+  burst of 60; tune via `WEBHOOK_RATE_LIMIT` / `WEBHOOK_RATE_BURST`). Rejected
+  requests are counted in the new `branchy_webhooks_rate_limited_total` metric.
+
+### Reliability
+
+- The Telegram polling loop retries with jittered exponential backoff
+  (2s → 60s) instead of a constant 2-second sleep, and samples repeated
+  identical errors after the first three instead of logging every attempt
+  (a 5-minute DNS outage previously produced ~140 identical lines). A
+  recovery line reports how many polls failed once the API is reachable again.
+- Idempotent Telegram API reads (`getUpdates`, `getMe`) retry transient
+  failures — DNS errors, connection resets, 429 and 5xx responses — up to 4
+  attempts with a short jittered backoff, honoring `Retry-After`. Sends are
+  deliberately not retried at this layer (the outbox already retries them
+  with backoff) to avoid double-posting.
+- `getUpdates` long polling now gets a deadline derived from the poll
+  duration plus headroom; previously the flat 30-second client timeout left
+  only 5 seconds of margin over the 25-second server-side poll.
+- Graceful shutdown is no longer delayed by the polling retry sleep (it was
+  an uninterruptible `time.Sleep`; now it observes context cancellation).
+
+### Changed
+
+- Oversized webhook payloads (over 5 MB, raised from 2 MB) are rejected with
+  an explicit `413` and a warning log instead of failing signature
+  verification on a silently truncated body.
+- Telegram and GitHub API timeouts are tunable via `TELEGRAM_API_TIMEOUT`
+  (default `30s`) and `GITHUB_API_TIMEOUT` (default `20s`).
+
 ## v1.0.0-alpha.1 - 2026-06-05
 
 First `v1.0.0` pre-release. Hardens the MVP for production: CI/CD, build
