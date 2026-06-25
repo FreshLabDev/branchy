@@ -10,6 +10,23 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.0.0-alpha.3 - 2026-06-25
+
+Release notes now arrive in full far more often, and container logs no longer
+grow without bound.
+
+### Changed
+
+- Release notifications render up to 3500 characters of notes before
+  truncating, up from 1800. Telegram allows 4096 visible characters per
+  message and the body already sits in an expandable quote, so the previous
+  cap cut typical release notes off mid-sentence for no reason; anything past
+  the cap still falls back to a "Full release notes" link.
+- Both Compose services (`branchy`, `postgres`) rotate their container logs
+  (`json-file`, `max-size: 10m`, `max-file: 3`) so logs stay bounded instead
+  of accumulating in a single unbounded file — a noisy incident can no longer
+  grow the log without limit.
+
 ## v1.0.0-alpha.2 - 2026-06-10
 
 Resilience and security hardening prompted by a production DNS outage: the

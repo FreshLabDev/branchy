@@ -179,6 +179,14 @@ func showsPRBody(action string) bool {
 	}
 }
 
+// maxReleaseBodyRunes caps how much of a release's notes we render. Telegram
+// allows 4096 visible characters per message; the body is sliced from the raw
+// Markdown (visible text after rendering is never longer) and wrapped in an
+// expandable blockquote, so a generous cap stays well under the limit even with
+// the header, footer, and "Full release notes" link, while no longer cutting
+// typical release notes off mid-sentence.
+const maxReleaseBodyRunes = 3500
+
 func releaseEvent(event Event) string {
 	label := "Release"
 	if event.Prerelease {
@@ -199,7 +207,7 @@ func releaseEvent(event Event) string {
 		meta = "by <b>" + esc(event.Actor) + "</b>"
 	}
 
-	body, truncated := bodyBlock(event.Body, 1800)
+	body, truncated := bodyBlock(event.Body, maxReleaseBodyRunes)
 	result := joinSections(header, meta, body)
 	if truncated {
 		if link := safeURL(event.URL); link != "" {

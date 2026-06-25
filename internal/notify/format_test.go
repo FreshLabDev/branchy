@@ -183,6 +183,27 @@ func TestGitHubEventFormatsRelease(t *testing.T) {
 	}
 }
 
+func TestGitHubEventReleaseBodyCapFitsLongNotes(t *testing.T) {
+	// ~2880 runes: above the old 1800 cap but within Telegram's 4096-char
+	// limit, so the full notes must render without truncation or a
+	// "Full release notes" fallback link.
+	body := strings.Repeat("All the release notes go here. ", 96)
+	if len([]rune(body)) <= 1800 || len([]rune(body)) >= maxReleaseBodyRunes {
+		t.Fatalf("test body should sit between the old and new caps, got %d runes", len([]rune(body)))
+	}
+	text := GitHubEvent(Event{
+		Type:         "release",
+		RepoFullName: "FreshLabDev/branchy",
+		Actor:        "amtiYo",
+		TagName:      "v1.0.0",
+		URL:          "https://github.com/FreshLabDev/branchy/releases/tag/v1.0.0",
+		Body:         body,
+	})
+	if strings.Contains(text, "Full release notes") || strings.Contains(text, "\n...") {
+		t.Fatalf("release notes within the cap should not be truncated:\n%s", text)
+	}
+}
+
 func TestGitHubEventDropsUnsafeURL(t *testing.T) {
 	for _, raw := range []string{
 		"javascript:alert(1)",
