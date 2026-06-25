@@ -132,6 +132,28 @@ func TestGitHubEventTrimsOverlongCommitListToRemainder(t *testing.T) {
 	}
 }
 
+func TestGitHubEventBodyStaysUnderTelegramLimit(t *testing.T) {
+	// Markdown-image bomb: rendering expands each "![](x)" into an "Image: "
+	// prefix, so a raw-rune cap alone would overshoot Telegram's 4096 visible
+	// limit and get the whole message rejected. With an overlong title too, the
+	// full message must still fit.
+	body := strings.Repeat("![](x) ", 800)
+	text := GitHubEvent(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		Title:        strings.Repeat("T", 500),
+		TagName:      "v1",
+		URL:          "https://github.com/acme/repo/releases/tag/v1",
+		Body:         body,
+	})
+	if got := visibleRuneCount(text); got > 4096 {
+		t.Fatalf("message visible length = %d, exceeds Telegram's 4096-char limit", got)
+	}
+	if !strings.Contains(text, "Full release notes") {
+		t.Fatalf("a body trimmed to fit should still link to the full notes:\n%s", text)
+	}
+}
+
 func TestGitHubEventCollapsesOnlyLongBodies(t *testing.T) {
 	mk := func(body string) string {
 		return GitHubEvent(Event{Type: "release", RepoFullName: "acme/repo", TagName: "v1", URL: "https://github.com/acme/repo/releases/tag/v1", Body: body})

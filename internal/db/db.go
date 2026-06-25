@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"sort"
 	"strings"
@@ -265,7 +266,10 @@ func (s *Store) GetSubscriptionForUser(ctx context.Context, telegramUserID int64
 	return sub, err
 }
 
-func (s *Store) ListActiveSubscriptionsForRepoEvent(ctx context.Context, repoFullName, event string) ([]Subscription, error) {
+// ListActiveSubscriptionsForRepoEvent matches on the stable github_repo_id, not
+// the repo's full name, so a GitHub repo rename does not silently break delivery
+// (the webhook payload keeps firing under the same id with a new name).
+func (s *Store) ListActiveSubscriptionsForRepoEvent(ctx context.Context, repoID int64, event string) ([]Subscription, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT s.id::text, s.telegram_user_id, s.destination_type, s.destination_chat_id,
 		       s.github_repo_id, s.repo_full_name, s.events, s.branch_mode, s.branch_name,
@@ -273,15 +277,28 @@ func (s *Store) ListActiveSubscriptionsForRepoEvent(ctx context.Context, repoFul
 		       s.status, s.pause_reason, r.default_branch, r.html_url
 		FROM subscriptions s
 		JOIN repositories r ON r.github_repo_id = s.github_repo_id
-		WHERE s.repo_full_name = $1
+		WHERE s.github_repo_id = $1
 		  AND s.status = 'active'
 		  AND $2 = ANY(s.events)
-	`, repoFullName, event)
+	`, repoID, event)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	return scanSubscriptions(rows)
+}
+
+// ReconcileSubscriptionRepoName refreshes the cached repo_full_name for every
+// subscription on a repo (matched by stable github_repo_id) when GitHub reports
+// a new name — e.g. after a rename — so the bot UI and any name-based paths do
+// not drift. A no-op when nothing changed.
+func (s *Store) ReconcileSubscriptionRepoName(ctx context.Context, repoID int64, fullName string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE subscriptions
+		SET repo_full_name = $2, updated_at = now()
+		WHERE github_repo_id = $1 AND repo_full_name <> $2
+	`, repoID, fullName)
+	return err
 }
 
 func (s *Store) ListActiveEventsForRepo(ctx context.Context, repoFullName string) ([]string, error) {
@@ -524,6 +541,12 @@ func (s *Store) ClaimPendingNotificationJobs(ctx context.Context, limit int, lea
 				`, row.job.ID, nextAttempts); err != nil {
 					return nil, err
 				}
+				// This terminal transition happens inside the claim tx, so it
+				// never flows through the worker's recordOutcome/logOutcome. Log
+				// it here so an exhausted-by-lease-expiry failure is not a silent
+				// drop.
+				slog.Warn("notification job failed after repeated lease expiry without a result",
+					"job_id", row.job.ID, "attempts", nextAttempts, "subscription_id", row.job.SubscriptionID)
 				continue
 			}
 			if _, err := tx.Exec(ctx, `

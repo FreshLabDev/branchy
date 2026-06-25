@@ -206,21 +206,62 @@ func TestHandlerEnqueuesMatchingSubscription(t *testing.T) {
 	}
 }
 
-type fakeStore struct {
-	duplicate    bool
-	enqueueCalls int
-	listCalls    int
-	deliveryID   string
-	event        string
-	repoFullName string
-	maxAttempts  int
-	jobs         []db.NotificationJobInsert
-	subs         []db.Subscription
+func TestHandlerReconcilesRenamedRepo(t *testing.T) {
+	// The repo was renamed: the webhook payload carries the new name (acme/repo,
+	// id 12345) while our cached subscription still has the old name. Delivery
+	// must still match (by stable id) and the cached name must be reconciled.
+	body := pushFixture()
+	store := &fakeStore{subs: []db.Subscription{{
+		ID:                "sub-1",
+		DestinationChatID: 123,
+		BranchMode:        "default",
+		DefaultBranch:     "main",
+		RepoFullName:      "acme/old-name",
+	}}}
+	handler := NewHandler("secret", store, 5, Limits{})
+
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(string(body)))
+	req.Header.Set("X-Hub-Signature-256", SignForTest("secret", body))
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-GitHub-Delivery", "delivery-1")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if len(store.jobs) != 1 {
+		t.Fatalf("jobs = %d, want 1 (a rename must not drop delivery)", len(store.jobs))
+	}
+	if store.reconcileCalls != 1 || store.reconciledName != "acme/repo" {
+		t.Fatalf("reconcile = %dx name=%q; want 1, acme/repo", store.reconcileCalls, store.reconciledName)
+	}
 }
 
-func (f *fakeStore) ListActiveSubscriptionsForRepoEvent(context.Context, string, string) ([]db.Subscription, error) {
+type fakeStore struct {
+	duplicate      bool
+	enqueueCalls   int
+	listCalls      int
+	reconcileCalls int
+	reconciledName string
+	deliveryID     string
+	event          string
+	repoFullName   string
+	maxAttempts    int
+	jobs           []db.NotificationJobInsert
+	subs           []db.Subscription
+}
+
+func (f *fakeStore) ListActiveSubscriptionsForRepoEvent(context.Context, int64, string) ([]db.Subscription, error) {
 	f.listCalls++
 	return f.subs, nil
+}
+
+func (f *fakeStore) ReconcileSubscriptionRepoName(_ context.Context, _ int64, fullName string) error {
+	f.reconcileCalls++
+	f.reconciledName = fullName
+	return nil
 }
 
 func (f *fakeStore) EnqueueNotificationJobs(_ context.Context, deliveryID, event, repoFullName string, jobs []db.NotificationJobInsert, maxAttempts int) (int, bool, error) {
@@ -240,7 +281,7 @@ func pushFixture() []byte {
 	return []byte(`{
 		"ref":"refs/heads/main",
 		"compare":"https://github.com/acme/repo/compare/a...b",
-		"repository":{"full_name":"acme/repo","default_branch":"main","html_url":"https://github.com/acme/repo"},
+		"repository":{"id":12345,"full_name":"acme/repo","default_branch":"main","html_url":"https://github.com/acme/repo"},
 		"pusher":{"name":"octocat"},
 		"sender":{"login":"octocat"},
 		"head_commit":{"message":"ship it","url":"https://github.com/acme/repo/commit/1"},

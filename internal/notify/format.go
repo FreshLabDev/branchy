@@ -10,6 +10,7 @@ import (
 
 type Event struct {
 	Type          string
+	RepoID        int64
 	RepoFullName  string
 	DefaultBranch string
 	Actor         string
@@ -144,7 +145,7 @@ func pullRequestEvent(event Event) string {
 	header := fmt.Sprintf("%s <b>%s</b>\nPull request %s", iconPR, esc(event.RepoFullName), esc(action))
 
 	var meta []string
-	if title := strings.TrimSpace(event.Title); title != "" {
+	if title := truncateText(event.Title, maxTitleRunes); title != "" {
 		label := title
 		if event.Number > 0 {
 			label = fmt.Sprintf("#%d %s", event.Number, title)
@@ -197,12 +198,15 @@ func showsPRBody(action string) bool {
 }
 
 // maxReleaseBodyRunes caps how much of a release's notes we render. Telegram
-// allows 4096 visible characters per message; the body is sliced from the raw
-// Markdown (visible text after rendering is never longer) and wrapped in an
-// expandable blockquote, so a generous cap stays well under the limit even with
-// the header, footer, and "Full release notes" link, while no longer cutting
-// typical release notes off mid-sentence.
+// allows 4096 visible characters per message; bodyBlock holds the rendered body
+// to this many *visible* characters and the header/footer/title are bounded, so
+// the whole message stays under the limit while no longer cutting typical
+// release notes off mid-sentence.
 const maxReleaseBodyRunes = 3500
+
+// maxTitleRunes bounds an attacker-influenced release/PR title in the header so
+// it cannot, together with the body, push the message past Telegram's limit.
+const maxTitleRunes = 200
 
 func releaseEvent(event Event) string {
 	label := "Release"
@@ -210,7 +214,7 @@ func releaseEvent(event Event) string {
 		label = "Pre-release"
 	}
 	versionLine := fmt.Sprintf("<b>%s</b>", label)
-	if version := firstNonEmpty(event.Title, event.TagName); version != "" {
+	if version := truncateText(firstNonEmpty(event.Title, event.TagName), maxTitleRunes); version != "" {
 		if link := safeURL(event.URL); link != "" {
 			versionLine += fmt.Sprintf(` · <a href="%s">%s</a>`, escAttr(link), esc(version))
 		} else {
@@ -282,6 +286,15 @@ const (
 // contain them are shown as-is.
 func bodyBlock(raw string, maxRunes int) (string, bool) {
 	rendered, truncated := renderGitHubMarkdown(raw, maxRunes)
+	// Rendering can make the visible text LONGER than the raw slice — a Markdown
+	// image becomes an "Image: " prefix — so a raw-rune cap alone can overshoot
+	// Telegram's 4096 visible-char limit and get the whole message rejected.
+	// Shrink the raw cap and re-render until the visible body fits its budget.
+	for rawCap := maxRunes; rawCap > 64 && visibleRuneCount(rendered) > maxRunes; {
+		rawCap = rawCap * 3 / 4
+		rendered, _ = renderGitHubMarkdown(raw, rawCap)
+		truncated = true
+	}
 	if rendered == "" {
 		return "", false
 	}

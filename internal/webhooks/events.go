@@ -107,6 +107,7 @@ func parsePush(body []byte) (notify.Event, bool, error) {
 		Compare    string `json:"compare"`
 		Deleted    bool   `json:"deleted"`
 		Repository struct {
+			ID            int64  `json:"id"`
 			FullName      string `json:"full_name"`
 			DefaultBranch string `json:"default_branch"`
 			HTMLURL       string `json:"html_url"`
@@ -154,6 +155,7 @@ func parsePush(body []byte) (notify.Event, bool, error) {
 	}
 	return notify.Event{
 		Type:          "push",
+		RepoID:        payload.Repository.ID,
 		RepoFullName:  payload.Repository.FullName,
 		DefaultBranch: payload.Repository.DefaultBranch,
 		Actor:         actor,
@@ -188,6 +190,7 @@ func parsePullRequest(body []byte) (notify.Event, bool, error) {
 	}
 	return notify.Event{
 		Type:          "pull_request",
+		RepoID:        payload.Repository.ID,
 		RepoFullName:  payload.Repository.FullName,
 		DefaultBranch: payload.Repository.DefaultBranch,
 		Actor:         payload.Sender.Login,
@@ -225,6 +228,7 @@ func parseRelease(body []byte) (notify.Event, bool, error) {
 	title := firstNonEmpty(payload.Release.Name, payload.Release.TagName)
 	return notify.Event{
 		Type:          "release",
+		RepoID:        payload.Repository.ID,
 		RepoFullName:  payload.Repository.FullName,
 		DefaultBranch: payload.Repository.DefaultBranch,
 		Actor:         payload.Sender.Login,
@@ -240,6 +244,7 @@ func parseRelease(body []byte) (notify.Event, bool, error) {
 }
 
 type repo struct {
+	ID            int64  `json:"id"`
 	FullName      string `json:"full_name"`
 	DefaultBranch string `json:"default_branch"`
 	HTMLURL       string `json:"html_url"`

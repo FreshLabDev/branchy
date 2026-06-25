@@ -164,6 +164,15 @@ func run() error {
 	case <-ctx.Done():
 	case runErr = <-errCh:
 	}
+	// If a shutdown signal won the race against a fatal goroutine error (e.g. a
+	// bind failure buffered the same instant a SIGTERM arrived), drain it so the
+	// real failure is still reported instead of a misleading clean exit.
+	if runErr == nil {
+		select {
+		case runErr = <-errCh:
+		default:
+		}
+	}
 
 	// Cancel the signal context so the polling and worker loops observe it,
 	// shut the HTTP server, then wait for every goroutine to return before the

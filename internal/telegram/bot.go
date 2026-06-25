@@ -197,11 +197,21 @@ func (b *Bot) handleUpdate(ctx context.Context, update Update) error {
 	return nil
 }
 
+// isStartCommand reports whether text is the /start command, tolerating the
+// /start@botname form Telegram delivers in groups and any trailing arguments.
+func isStartCommand(text string) bool {
+	text = strings.TrimSpace(text)
+	if i := strings.IndexAny(text, " @"); i >= 0 {
+		text = text[:i]
+	}
+	return text == "/start"
+}
+
 func (b *Bot) handleMessage(ctx context.Context, msg Message) error {
 	if err := b.upsertUser(ctx, msg.From); err != nil {
 		return err
 	}
-	if msg.Text == "/start" {
+	if isStartCommand(msg.Text) {
 		if msg.Chat.Type != "private" {
 			var markup *InlineKeyboardMarkup
 			if username := b.botUsername(ctx); username != "" {

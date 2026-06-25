@@ -10,6 +10,33 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.0.0-rc.1 - 2026-06-25
+
+Release candidate. A second independent review pass closed the last two
+lost-notification gaps in the delivery path; everything else was clean.
+
+### Reliability
+
+- Release and pull-request notification bodies are now budgeted by their
+  **visible** rendered length, not the raw Markdown slice. Rendering can expand
+  the visible text (a Markdown image becomes an `Image:` prefix), so an
+  image-heavy body could previously exceed Telegram's 4096-character limit and
+  be rejected outright — silently losing the notification with no retry. The
+  body is re-rendered to fit, and titles are bounded.
+- Subscriptions are matched to incoming webhooks by the stable
+  `github_repo_id` instead of the repository's full name. A GitHub repo
+  **rename** no longer silently drops every notification for that repo (the hook
+  keeps firing under the same id with a new name); the cached name is refreshed.
+
+### Fixed
+
+- `/start@botname` — the form Telegram delivers in groups — is now recognized,
+  so the "open me in a DM" prompt fires there.
+- A fatal startup error (e.g. the HTTP port already in use) is no longer masked
+  as a clean exit when a shutdown signal arrives at the same instant.
+- A notification job that exhausts its attempts purely through worker
+  lease-expiry is now logged instead of being a silent terminal drop.
+
 ## v1.0.0-alpha.4 - 2026-06-25
 
 A multi-dimension review pass: two delivery-path correctness blockers closed

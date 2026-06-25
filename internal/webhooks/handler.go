@@ -23,7 +23,10 @@ type Store interface {
 	// transaction, returning (enqueued, duplicate, error). A true duplicate means
 	// the delivery was already fully processed.
 	EnqueueNotificationJobs(ctx context.Context, deliveryID, event, repoFullName string, jobs []db.NotificationJobInsert, maxAttempts int) (int, bool, error)
-	ListActiveSubscriptionsForRepoEvent(ctx context.Context, repoFullName, event string) ([]db.Subscription, error)
+	// ListActiveSubscriptionsForRepoEvent matches by stable github_repo_id so a
+	// repo rename does not break delivery.
+	ListActiveSubscriptionsForRepoEvent(ctx context.Context, repoID int64, event string) ([]db.Subscription, error)
+	ReconcileSubscriptionRepoName(ctx context.Context, repoID int64, fullName string) error
 }
 
 type Handler struct {
@@ -109,11 +112,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	subs, err := h.store.ListActiveSubscriptionsForRepoEvent(r.Context(), event.RepoFullName, event.Type)
+	subs, err := h.store.ListActiveSubscriptionsForRepoEvent(r.Context(), event.RepoID, event.Type)
 	if err != nil {
 		slog.Error("webhook list subscriptions failed", "delivery_id", deliveryID, "repo", event.RepoFullName, "error", err)
 		http.Error(w, "list subscriptions", http.StatusInternalServerError)
 		return
+	}
+	// If GitHub renamed the repo, the payload carries the new name while our
+	// cached one is stale; refresh it. Delivery itself already matched by the
+	// stable repo id, so this only keeps the displayed name current.
+	for _, sub := range subs {
+		if sub.RepoFullName != event.RepoFullName {
+			if err := h.store.ReconcileSubscriptionRepoName(r.Context(), event.RepoID, event.RepoFullName); err != nil {
+				slog.Warn("reconcile repo name failed", "repo_id", event.RepoID, "error", err)
+			}
+			break
+		}
 	}
 
 	text := notify.GitHubEvent(event)
