@@ -94,6 +94,17 @@ func run() error {
 		RatePerSecond: cfg.WebhookRateLimit,
 		Burst:         cfg.WebhookRateBurst,
 	})
+
+	// Register the bot's command menu so /start is discoverable in Telegram's
+	// "/" UI. Best effort: a transient failure must not block startup.
+	setCmdCtx, cancelSetCmd := context.WithTimeout(ctx, 10*time.Second)
+	if err := tg.SetMyCommands(setCmdCtx, []telegram.BotCommand{
+		{Command: "start", Description: "Open the Branchy menu"},
+	}); err != nil {
+		slog.Warn("set telegram commands failed", "error", err)
+	}
+	cancelSetCmd()
+
 	startedAt := time.Now()
 
 	mux := http.NewServeMux()

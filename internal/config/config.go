@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -70,6 +71,13 @@ func Load() (Config, error) {
 	}
 	if len(cfg.AppSecret) < 32 {
 		return Config{}, fmt.Errorf("APP_SECRET must be at least 32 characters")
+	}
+	// PUBLIC_BASE_URL is concatenated raw into the OAuth redirect URI and the
+	// GitHub webhook payload URL, so a scheme-less or malformed value fails far
+	// downstream (GitHub rejects a non-https hook, the OAuth redirect 404s).
+	// Catch it at startup instead.
+	if u, err := url.Parse(cfg.PublicBaseURL); err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return Config{}, fmt.Errorf("PUBLIC_BASE_URL must be an absolute http(s) URL, e.g. https://branchy.example.com")
 	}
 
 	var err error

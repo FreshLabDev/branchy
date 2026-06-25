@@ -90,16 +90,26 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 		for _, job := range jobs {
 			result := w.send(ctx, job)
-			outcome, err := w.store.FinishNotificationJob(ctx, job, result)
+			// Persist the result under a short context derived from Background,
+			// not the cancelable run-loop ctx: a send that just succeeded must be
+			// recorded as 'sent' even while shutdown is cancelling the loop,
+			// otherwise the job stays 'processing' and is re-sent on restart (a
+			// duplicate). The status fence in FinishNotificationJob keeps a late
+			// write safe if another worker already finalized the job.
+			finishCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			outcome, err := w.store.FinishNotificationJob(finishCtx, job, result)
+			cancel()
 			if err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
 				slog.Error("notification job update failed", "job_id", job.ID, "error", err)
-				continue
+			} else {
+				recordOutcome(outcome, result)
+				logOutcome(job, outcome, result)
 			}
-			recordOutcome(outcome, result)
-			logOutcome(job, outcome, result)
+			// Stop taking new work once shutdown is signaled; the just-processed
+			// job's result has already been persisted above.
+			if ctx.Err() != nil {
+				return nil
+			}
 		}
 		if len(jobs) > 0 {
 			continue
@@ -204,6 +214,13 @@ func isUnreachableDestination(apiErr *telegram.APIError) bool {
 	if apiErr.StatusCode != 400 && apiErr.StatusCode != 403 {
 		return false
 	}
+	// A group→supergroup upgrade also makes the old chat_id permanently dead
+	// (Telegram returns migrate_to_chat_id, not a fresh deliverable chat): treat
+	// it as unreachable so the subscription auto-pauses instead of enqueuing jobs
+	// to the dead id forever.
+	if apiErr.MigrateToChatID != 0 {
+		return true
+	}
 	desc := strings.ToLower(apiErr.Description)
 	for _, marker := range []string{
 		"bot was blocked",
@@ -212,6 +229,7 @@ func isUnreachableDestination(apiErr *telegram.APIError) bool {
 		"bot is not a member",
 		"chat not found",
 		"group chat was deleted",
+		"group chat was upgraded to a supergroup",
 		"need administrator rights",
 	} {
 		if strings.Contains(desc, marker) {
@@ -250,6 +268,8 @@ func failureReason(result db.NotificationJobResult) string {
 // what operators act on. Error text is a Telegram description, never a token.
 func logOutcome(job db.NotificationJob, outcome db.JobOutcome, result db.NotificationJobResult) {
 	switch outcome {
+	case db.OutcomeSkipped:
+		slog.Debug("notification job already finalized; skipped stale update", "job_id", job.ID)
 	case db.OutcomeSent:
 		slog.Debug("notification sent", "job_id", job.ID, "chat_id", job.DestinationChatID, "attempts", job.Attempts)
 	case db.OutcomeRetried:

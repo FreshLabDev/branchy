@@ -218,6 +218,7 @@ func (s *Store) CreateSubscription(ctx context.Context, sub Subscription) (strin
 			events, branch_mode, branch_names, pull_request_actions, release_mode
 		) DO UPDATE SET
 			status = 'active',
+			pause_reason = '',
 			updated_at = now()
 		RETURNING id::text, (xmax = 0)
 	`, sub.TelegramUserID, sub.DestinationType, sub.DestinationChatID, sub.GitHubRepoID, sub.RepoFullName, sub.Events, sub.BranchMode, legacyBranchName(sub.BranchMode, sub.BranchNames), sub.BranchNames, sub.PullRequestActions, sub.ReleaseMode).Scan(&id, &inserted)
@@ -399,48 +400,36 @@ func (s *Store) DeleteRepoHook(ctx context.Context, repoID int64) error {
 	return err
 }
 
-func (s *Store) RecordDelivery(ctx context.Context, deliveryID, event string) (bool, error) {
-	tag, err := s.pool.Exec(ctx, `
-		INSERT INTO webhook_deliveries (delivery_id, event, repo_full_name)
-		VALUES ($1, $2, '')
-		ON CONFLICT (delivery_id) DO NOTHING
-	`, deliveryID, event)
-	if err != nil {
-		return false, err
-	}
-	return tag.RowsAffected() > 0, nil
-}
-
-func (s *Store) ForgetDelivery(ctx context.Context, deliveryID string) error {
-	_, err := s.pool.Exec(ctx, `
-		DELETE FROM webhook_deliveries
-		WHERE delivery_id = $1
-	`, deliveryID)
-	return err
-}
-
-func (s *Store) EnqueueNotificationJobs(ctx context.Context, deliveryID, repoFullName string, jobs []NotificationJobInsert, maxAttempts int) (int, error) {
+// EnqueueNotificationJobs records the delivery and enqueues its jobs atomically:
+// the idempotency marker (the webhook_deliveries row) and the notification_jobs
+// rows are written in one transaction, so a crash mid-handler can never leave a
+// recorded-but-unenqueued delivery that a later GitHub retry would skip as a
+// duplicate. The boolean return reports a true duplicate — the delivery was
+// already recorded by a prior committed call — so the handler can 200 it without
+// re-enqueuing.
+func (s *Store) EnqueueNotificationJobs(ctx context.Context, deliveryID, event, repoFullName string, jobs []NotificationJobInsert, maxAttempts int) (int, bool, error) {
 	if maxAttempts <= 0 {
 		maxAttempts = 5
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	defer func() {
 		_ = tx.Rollback(ctx)
 	}()
 
 	tag, err := tx.Exec(ctx, `
-		UPDATE webhook_deliveries
-		SET repo_full_name = $2
-		WHERE delivery_id = $1
-	`, deliveryID, repoFullName)
+		INSERT INTO webhook_deliveries (delivery_id, event, repo_full_name)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (delivery_id) DO NOTHING
+	`, deliveryID, event, repoFullName)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	if tag.RowsAffected() == 0 {
-		return 0, ErrNotFound
+		// Already recorded by a prior fully-committed delivery: a real duplicate.
+		return 0, true, nil
 	}
 
 	insertedJobs := 0
@@ -451,15 +440,15 @@ func (s *Store) EnqueueNotificationJobs(ctx context.Context, deliveryID, repoFul
 			ON CONFLICT (delivery_id, subscription_id) DO NOTHING
 		`, deliveryID, job.SubscriptionID, job.DestinationChatID, job.Text, maxAttempts)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 		insertedJobs += int(tag.RowsAffected())
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return insertedJobs, nil
+	return insertedJobs, false, nil
 }
 
 func (s *Store) ClaimPendingNotificationJobs(ctx context.Context, limit int, lease time.Duration) ([]NotificationJob, error) {
@@ -574,15 +563,16 @@ func (s *Store) ClaimPendingNotificationJobs(ctx context.Context, limit int, lea
 // logs without re-deriving the decision.
 func (s *Store) FinishNotificationJob(ctx context.Context, job NotificationJob, result NotificationJobResult) (JobOutcome, error) {
 	if result.Success {
-		return OutcomeSent, requireAffected(s.pool.Exec(ctx, `
+		tag, err := s.pool.Exec(ctx, `
 			UPDATE notification_jobs
 			SET status = 'sent',
 			    updated_at = now(),
 			    sent_at = now(),
 			    locked_until = NULL,
 			    last_error = ''
-			WHERE id = $1
-		`, job.ID))
+			WHERE id = $1 AND status = 'processing'
+		`, job.ID)
+		return finishOutcome(OutcomeSent, tag, err)
 	}
 
 	nextAttempts := job.Attempts + 1
@@ -592,7 +582,7 @@ func (s *Store) FinishNotificationJob(ctx context.Context, job NotificationJob, 
 		if retryAt.IsZero() {
 			retryAt = time.Now().Add(defaultRetryDelay(nextAttempts))
 		}
-		return OutcomeRetried, requireAffected(s.pool.Exec(ctx, `
+		tag, err := s.pool.Exec(ctx, `
 			UPDATE notification_jobs
 			SET status = 'pending',
 			    attempts = $2,
@@ -600,22 +590,38 @@ func (s *Store) FinishNotificationJob(ctx context.Context, job NotificationJob, 
 			    locked_until = NULL,
 			    last_error = $4,
 			    updated_at = now()
-			WHERE id = $1
-		`, job.ID, nextAttempts, retryAt, lastError))
+			WHERE id = $1 AND status = 'processing'
+		`, job.ID, nextAttempts, retryAt, lastError)
+		return finishOutcome(OutcomeRetried, tag, err)
 	}
 
-	return OutcomeFailed, s.failJob(ctx, job, nextAttempts, lastError, result.DisableSubscription)
+	return s.failJob(ctx, job, nextAttempts, lastError, result.DisableSubscription)
+}
+
+// finishOutcome maps a fenced terminal/retry UPDATE to an outcome. A real error
+// propagates; zero rows affected means the job was no longer 'processing' (a
+// concurrent worker already finalized it, or its lease was reclaimed and
+// re-leased), so the stale write is a safe no-op reported as OutcomeSkipped
+// rather than ErrNotFound.
+func finishOutcome(outcome JobOutcome, tag pgconn.CommandTag, err error) (JobOutcome, error) {
+	if err != nil {
+		return outcome, err
+	}
+	if tag.RowsAffected() == 0 {
+		return OutcomeSkipped, nil
+	}
+	return outcome, nil
 }
 
 // failJob marks a job failed and, when the destination is permanently
 // unreachable, auto-pauses the owning subscription so it stops generating jobs
-// that can only fail. The failed mark is persisted first and independently: a
-// later error pausing the subscription must not roll it back (a job that can
-// never be delivered must stay failed, not be re-leased). The pause is scoped to
-// an active subscription so a user-paused one is left exactly as the user set
-// it; if it does not happen, the next failed delivery pauses it.
-func (s *Store) failJob(ctx context.Context, job NotificationJob, attempts int, lastError string, disableSubscription bool) error {
-	if err := requireAffected(s.pool.Exec(ctx, `
+// that can only fail. The fenced UPDATE (status = 'processing') makes a stale
+// write from a re-leased job a no-op: if it matched nothing, the job was already
+// finalized elsewhere, so the subscription is left untouched. The pause is
+// scoped to an active subscription so a user-paused one is left exactly as the
+// user set it; if it does not happen, the next failed delivery pauses it.
+func (s *Store) failJob(ctx context.Context, job NotificationJob, attempts int, lastError string, disableSubscription bool) (JobOutcome, error) {
+	tag, err := s.pool.Exec(ctx, `
 		UPDATE notification_jobs
 		SET status = 'failed',
 		    attempts = $2,
@@ -623,9 +629,13 @@ func (s *Store) failJob(ctx context.Context, job NotificationJob, attempts int, 
 		    last_error = $3,
 		    updated_at = now(),
 		    failed_at = now()
-		WHERE id = $1
-	`, job.ID, attempts, lastError)); err != nil {
-		return err
+		WHERE id = $1 AND status = 'processing'
+	`, job.ID, attempts, lastError)
+	if err != nil {
+		return OutcomeFailed, err
+	}
+	if tag.RowsAffected() == 0 {
+		return OutcomeSkipped, nil
 	}
 
 	if disableSubscription && job.SubscriptionID != "" {
@@ -634,11 +644,11 @@ func (s *Store) failJob(ctx context.Context, job NotificationJob, attempts int, 
 			SET status = 'paused', pause_reason = 'telegram_blocked', updated_at = now()
 			WHERE id = $1::uuid AND status = 'active'
 		`, job.SubscriptionID); err != nil {
-			return err
+			return OutcomeFailed, err
 		}
 	}
 
-	return nil
+	return OutcomeFailed, nil
 }
 
 func (s *Store) CreateCallbackToken(ctx context.Context, telegramUserID int64, token, action string, payload any, ttl time.Duration) error {

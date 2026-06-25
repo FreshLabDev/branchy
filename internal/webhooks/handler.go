@@ -19,9 +19,10 @@ import (
 const maxBodyBytes = 5 * 1024 * 1024
 
 type Store interface {
-	RecordDelivery(ctx context.Context, deliveryID, event string) (bool, error)
-	ForgetDelivery(ctx context.Context, deliveryID string) error
-	EnqueueNotificationJobs(ctx context.Context, deliveryID, repoFullName string, jobs []db.NotificationJobInsert, maxAttempts int) (int, error)
+	// EnqueueNotificationJobs records the delivery and enqueues its jobs in one
+	// transaction, returning (enqueued, duplicate, error). A true duplicate means
+	// the delivery was already fully processed.
+	EnqueueNotificationJobs(ctx context.Context, deliveryID, event, repoFullName string, jobs []db.NotificationJobInsert, maxAttempts int) (int, bool, error)
 	ListActiveSubscriptionsForRepoEvent(ctx context.Context, repoFullName, event string) ([]db.Subscription, error)
 }
 
@@ -58,14 +59,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !h.limiter.allow(h.now()) {
-		// Counted for alerting; logged at Debug so a flood cannot also flood
-		// the logs.
-		metrics.WebhooksRateLimited.Inc()
-		slog.Debug("webhook rate limited", "event", r.Header.Get("X-GitHub-Event"))
-		http.Error(w, "rate limited", http.StatusTooManyRequests)
-		return
-	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
 	if err != nil {
 		http.Error(w, "read body", http.StatusBadRequest)
@@ -87,6 +80,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
 	}
+	// Rate-limit only authenticated traffic: the check sits after signature
+	// verification, so an unsigned flood is rejected as 401 without draining the
+	// shared bucket and 429-ing real GitHub deliveries. Logged at Debug so a
+	// flood cannot also flood the logs.
+	if !h.limiter.allow(h.now()) {
+		metrics.WebhooksRateLimited.Inc()
+		slog.Debug("webhook rate limited", "event", r.Header.Get("X-GitHub-Event"))
+		http.Error(w, "rate limited", http.StatusTooManyRequests)
+		return
+	}
 
 	eventName := r.Header.Get("X-GitHub-Event")
 	deliveryID := r.Header.Get("X-GitHub-Delivery")
@@ -94,24 +97,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing delivery id", http.StatusBadRequest)
 		return
 	}
-	inserted, err := h.store.RecordDelivery(r.Context(), deliveryID, eventName)
-	if err != nil {
-		slog.Error("webhook record delivery failed", "delivery_id", deliveryID, "error", err)
-		http.Error(w, "store delivery", http.StatusInternalServerError)
-		return
-	}
-	if !inserted {
-		metrics.WebhooksDuplicate.Inc()
-		slog.Debug("webhook duplicate ignored", "delivery_id", deliveryID, "event", eventName)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("duplicate delivery ignored\n"))
-		return
-	}
-	metrics.WebhooksReceived.Inc()
 
 	event, supported, err := ParseEvent(eventName, body)
 	if err != nil {
-		_ = h.store.ForgetDelivery(r.Context(), deliveryID)
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
@@ -124,7 +112,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	subs, err := h.store.ListActiveSubscriptionsForRepoEvent(r.Context(), event.RepoFullName, event.Type)
 	if err != nil {
 		slog.Error("webhook list subscriptions failed", "delivery_id", deliveryID, "repo", event.RepoFullName, "error", err)
-		_ = h.store.ForgetDelivery(r.Context(), deliveryID)
 		http.Error(w, "list subscriptions", http.StatusInternalServerError)
 		return
 	}
@@ -149,13 +136,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	enqueued, err := h.store.EnqueueNotificationJobs(r.Context(), deliveryID, event.RepoFullName, jobs, h.maxAttempts)
+	// Recording the delivery and enqueuing its jobs is one atomic call: a crash
+	// before it commits leaves no idempotency marker, so a GitHub retry
+	// re-processes cleanly instead of being silently dropped as a duplicate.
+	enqueued, duplicate, err := h.store.EnqueueNotificationJobs(r.Context(), deliveryID, eventName, event.RepoFullName, jobs, h.maxAttempts)
 	if err != nil {
 		slog.Error("webhook enqueue jobs failed", "delivery_id", deliveryID, "repo", event.RepoFullName, "error", err)
-		_ = h.store.ForgetDelivery(r.Context(), deliveryID)
 		http.Error(w, "store jobs", http.StatusInternalServerError)
 		return
 	}
+	if duplicate {
+		metrics.WebhooksDuplicate.Inc()
+		slog.Debug("webhook duplicate ignored", "delivery_id", deliveryID, "event", eventName)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("duplicate delivery ignored\n"))
+		return
+	}
+	metrics.WebhooksReceived.Inc()
 	metrics.NotificationsEnqueued.Add(int64(enqueued))
 	slog.Info("webhook processed",
 		"delivery_id", deliveryID,

@@ -25,7 +25,15 @@ func renderGitHubMarkdown(markdown string, maxRunes int) (string, bool) {
 		if len(quote) == 0 {
 			return
 		}
-		out = append(out, "<blockquote>"+esc(strings.Join(quote, "\n"))+"</blockquote>")
+		// Render each quoted line as inline Markdown (links, emphasis, code)
+		// rather than escaping it raw: blockquotes are the most common rich-text
+		// region of release notes and PR bodies, and inline entities are valid
+		// inside a Telegram <blockquote>.
+		rendered := make([]string, len(quote))
+		for i, line := range quote {
+			rendered[i] = renderMarkdownInline(line)
+		}
+		out = append(out, "<blockquote>"+strings.Join(rendered, "\n")+"</blockquote>")
 		quote = nil
 	}
 	flushCode := func() {

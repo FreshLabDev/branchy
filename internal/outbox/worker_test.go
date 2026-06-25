@@ -81,6 +81,27 @@ func TestClassifyContentErrorKeepsSubscription(t *testing.T) {
 	}
 }
 
+func TestClassifySupergroupMigrationDisablesSubscription(t *testing.T) {
+	// A group→supergroup upgrade kills the old chat_id for good (Telegram returns
+	// migrate_to_chat_id): treat it as permanent and auto-pause so it stops
+	// enqueuing jobs to the dead id forever.
+	err := &telegram.APIError{
+		Method:          "sendMessage",
+		StatusCode:      400,
+		Description:     "Bad Request: group chat was upgraded to a supergroup chat",
+		MigrateToChatID: -1001234567890,
+	}
+
+	result := classifyError(err, 1)
+
+	if result.Temporary {
+		t.Fatal("a supergroup migration is permanent for the old chat id")
+	}
+	if !result.DisableSubscription {
+		t.Fatal("a supergroup migration should auto-pause the subscription")
+	}
+}
+
 func TestClassifyGenericErrorAsTemporary(t *testing.T) {
 	result := classifyError(errors.New("network timeout"), 2)
 

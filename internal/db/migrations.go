@@ -21,6 +21,11 @@ type Migration struct {
 
 var migrationFilePattern = regexp.MustCompile(`^(\d+)_.+\.sql$`)
 
+// migrationLockKey is a fixed application-chosen key for the session-level
+// advisory lock that serializes migrations across instances. Any constant works
+// as long as it is stable across builds.
+const migrationLockKey int64 = 0x6272636879 // "brchy"
+
 func RunMigrations(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 	if dir == "" {
 		dir = "migrations"
@@ -29,6 +34,25 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 	if err != nil {
 		return err
 	}
+
+	// Serialize migrations across instances: two pods starting together must not
+	// both run a non-idempotent migration (e.g. 006's DROP/CREATE INDEX). A
+	// session-level advisory lock on a dedicated connection blocks the second
+	// migrator until the first commits; it then sees every migration already
+	// applied and does nothing.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration lock connection: %w", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, migrationLockKey); err != nil {
+		return fmt.Errorf("acquire migration advisory lock: %w", err)
+	}
+	defer func() {
+		// Best effort: releasing the connection drops the session lock anyway.
+		// Use a background context so unlock still runs if ctx was canceled.
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, migrationLockKey)
+	}()
 
 	if _, err := pool.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (

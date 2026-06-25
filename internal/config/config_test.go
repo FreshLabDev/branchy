@@ -111,3 +111,23 @@ func TestLoadRejectsBadOutboxValue(t *testing.T) {
 		t.Fatal("expected Load to reject a negative batch size")
 	}
 }
+
+func TestLoadRejectsMalformedPublicBaseURL(t *testing.T) {
+	for _, bad := range []string{"branchy.example.com", "ftp://example.test", "/relative/path", "not a url"} {
+		setRequired(t)
+		t.Setenv("PUBLIC_BASE_URL", bad)
+		if _, err := Load(); err == nil {
+			t.Fatalf("expected Load to reject PUBLIC_BASE_URL=%q", bad)
+		}
+	}
+}
+
+func TestLoadAcceptsValidPublicBaseURL(t *testing.T) {
+	for _, good := range []string{"https://branchy.example.com", "http://localhost:8080", "https://example.test/base"} {
+		setRequired(t)
+		t.Setenv("PUBLIC_BASE_URL", good)
+		if _, err := Load(); err != nil {
+			t.Fatalf("PUBLIC_BASE_URL=%q should be accepted, got %v", good, err)
+		}
+	}
+}

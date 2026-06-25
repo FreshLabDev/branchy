@@ -2,6 +2,7 @@
 package notify
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -90,6 +91,98 @@ func TestGitHubEventFormatsMultipleCommits(t *testing.T) {
 	}
 }
 
+func TestGitHubEventShowsAllCommitsThatFit(t *testing.T) {
+	// 15 short commits all fit well within the text budget, so none are hidden
+	// behind a "+N more" line (the old fixed cap of 10 would have hidden 5).
+	var commits []Commit
+	for i := 0; i < 15; i++ {
+		commits = append(commits, Commit{
+			SHA:     fmt.Sprintf("%07dabcdef", i),
+			Message: fmt.Sprintf("fix issue number %d", i),
+			URL:     "https://github.com/acme/repo/commit/x",
+		})
+	}
+	text := GitHubEvent(Event{Type: "push", RepoFullName: "acme/repo", Branch: "main", Commits: commits, CommitCount: 15})
+	if strings.Contains(text, "more commit") {
+		t.Fatalf("15 short commits should all fit without a remainder line:\n%s", text)
+	}
+	if got := strings.Count(text, "github.com/acme/repo/commit/x"); got != 15 {
+		t.Fatalf("expected 15 commit lines, got %d:\n%s", got, text)
+	}
+}
+
+func TestGitHubEventTrimsOverlongCommitListToRemainder(t *testing.T) {
+	// A pathologically long list of long-subject commits exceeds the text budget,
+	// so it is trimmed and the overflow is summarized as "+N more commits".
+	var commits []Commit
+	for i := 0; i < 60; i++ {
+		commits = append(commits, Commit{
+			SHA:     fmt.Sprintf("%07dabcdef", i),
+			Message: strings.Repeat("x", 72),
+			URL:     "https://github.com/acme/repo/commit/x",
+		})
+	}
+	text := GitHubEvent(Event{Type: "push", RepoFullName: "acme/repo", Branch: "main", Commits: commits, CommitCount: 60})
+	if !strings.Contains(text, "more commits") {
+		t.Fatalf("an overlong commit list should be trimmed to a remainder line:\n%s", text)
+	}
+	shown := strings.Count(text, "github.com/acme/repo/commit/x")
+	if shown == 0 || shown >= 60 {
+		t.Fatalf("expected a trimmed subset of commits, got %d of 60", shown)
+	}
+}
+
+func TestGitHubEventCollapsesOnlyLongBodies(t *testing.T) {
+	mk := func(body string) string {
+		return GitHubEvent(Event{Type: "release", RepoFullName: "acme/repo", TagName: "v1", URL: "https://github.com/acme/repo/releases/tag/v1", Body: body})
+	}
+
+	short := mk("A quick one-line release note.")
+	if strings.Contains(short, "expandable") {
+		t.Fatalf("a short body must not be collapsed:\n%s", short)
+	}
+	if !strings.Contains(short, "<blockquote>") {
+		t.Fatalf("a short body should still render in a plain quote:\n%s", short)
+	}
+
+	// Wordy (~1100 visible chars) crosses the rune threshold.
+	wordy := mk(strings.Repeat("This release changes a lot of things. ", 30))
+	if !strings.Contains(wordy, "<blockquote expandable>") {
+		t.Fatalf("a long body should collapse into an expandable quote:\n%s", wordy)
+	}
+
+	// Tall (15 short lines) crosses the line threshold despite low char count.
+	var lines []string
+	for i := 0; i < 15; i++ {
+		lines = append(lines, fmt.Sprintf("- item %d", i))
+	}
+	tall := mk(strings.Join(lines, "\n"))
+	if !strings.Contains(tall, "<blockquote expandable>") {
+		t.Fatalf("a tall body should collapse into an expandable quote:\n%s", tall)
+	}
+}
+
+func TestGitHubEventRendersMarkdownInsideBlockquote(t *testing.T) {
+	// Inline Markdown inside a GitHub blockquote (the common callout region of
+	// release notes) must render as entities, not raw source.
+	text := GitHubEvent(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		TagName:      "v1.2.3",
+		URL:          "https://github.com/acme/repo/releases/tag/v1.2.3",
+		Body:         "> See the [migration guide](https://github.com/acme/repo/wiki) and **back up** first",
+	})
+	if !strings.Contains(text, `<a href="https://github.com/acme/repo/wiki">migration guide</a>`) {
+		t.Fatalf("blockquote link should render as an anchor:\n%s", text)
+	}
+	if !strings.Contains(text, "<b>back up</b>") {
+		t.Fatalf("blockquote bold should render as <b>:\n%s", text)
+	}
+	if strings.Contains(text, "[migration guide]") || strings.Contains(text, "**back up**") {
+		t.Fatalf("raw markdown leaked from the blockquote:\n%s", text)
+	}
+}
+
 func TestGitHubEventFormatsPullRequest(t *testing.T) {
 	text := GitHubEvent(Event{
 		Type:         "pull_request",
@@ -107,8 +200,9 @@ func TestGitHubEventFormatsPullRequest(t *testing.T) {
 		"Pull request opened",
 		"into <code>main</code> · by <b>amtiYo</b>",
 		`<a href="https://github.com/FreshLabDev/branchy/pull/7">#7 Fix &lt;format&gt; &amp; &#34;escape&#34;</a>`,
-		// PR description is rendered (Markdown) inside an expandable quote.
-		"<blockquote expandable>",
+		// A short PR description renders (Markdown) inside a plain, non-collapsed
+		// quote — only long bodies get the expandable (collapsed) variant.
+		"<blockquote>",
 		"<b>improves</b>",
 		"<code>notify</code>",
 	} {

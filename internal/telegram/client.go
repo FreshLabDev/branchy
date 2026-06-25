@@ -61,6 +61,10 @@ type APIError struct {
 	ErrorCode   int
 	Description string
 	RetryAfter  time.Duration
+	// MigrateToChatID is set when Telegram reports that a group was upgraded to a
+	// supergroup (parameters.migrate_to_chat_id): the old chat_id is dead and
+	// this is the chat_id to use instead.
+	MigrateToChatID int64
 }
 
 func (e *APIError) Error() string {
@@ -103,6 +107,28 @@ func (c *Client) GetMe(ctx context.Context) (Me, error) {
 		return Me{}, fmt.Errorf("telegram getMe returned ok=false")
 	}
 	return resp.Result, nil
+}
+
+// BotCommand is one entry in the bot's command menu (the blue "/" menu in
+// Telegram clients), registered via SetMyCommands.
+type BotCommand struct {
+	Command     string `json:"command"`
+	Description string `json:"description"`
+}
+
+// SetMyCommands registers the bot's command list so the commands are
+// discoverable in Telegram's "/" menu instead of users having to know them.
+func (c *Client) SetMyCommands(ctx context.Context, commands []BotCommand) error {
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	if err := c.post(ctx, "setMyCommands", map[string]any{"commands": commands}, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("telegram setMyCommands returned ok=false")
+	}
+	return nil
 }
 
 func (c *Client) GetUpdates(ctx context.Context, offset int64, timeoutSeconds int) ([]Update, error) {
@@ -391,7 +417,8 @@ func parseAPIError(method string, statusCode int, body io.Reader) *APIError {
 		ErrorCode   int    `json:"error_code"`
 		Description string `json:"description"`
 		Parameters  struct {
-			RetryAfter int `json:"retry_after"`
+			RetryAfter      int   `json:"retry_after"`
+			MigrateToChatID int64 `json:"migrate_to_chat_id"`
 		} `json:"parameters"`
 	}
 	description := strings.TrimSpace(string(raw))
@@ -401,10 +428,11 @@ func parseAPIError(method string, statusCode int, body io.Reader) *APIError {
 		}
 	}
 	apiErr := &APIError{
-		Method:      method,
-		StatusCode:  statusCode,
-		ErrorCode:   payload.ErrorCode,
-		Description: description,
+		Method:          method,
+		StatusCode:      statusCode,
+		ErrorCode:       payload.ErrorCode,
+		Description:     description,
+		MigrateToChatID: payload.Parameters.MigrateToChatID,
 	}
 	if payload.Parameters.RetryAfter > 0 {
 		apiErr.RetryAfter = time.Duration(payload.Parameters.RetryAfter) * time.Second

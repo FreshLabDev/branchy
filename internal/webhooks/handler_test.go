@@ -27,7 +27,7 @@ func TestHandlerRejectsInvalidSignatureBeforeParsing(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
-	if store.recordCalls != 0 {
+	if store.listCalls != 0 || store.enqueueCalls != 0 {
 		t.Fatalf("invalid signature should not touch store")
 	}
 }
@@ -47,19 +47,21 @@ func TestHandlerRejectsOversizedBody(t *testing.T) {
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
 	}
-	if store.recordCalls != 0 {
+	if store.listCalls != 0 || store.enqueueCalls != 0 {
 		t.Fatalf("oversized body should not touch store")
 	}
 }
 
-func TestHandlerRateLimitsFloods(t *testing.T) {
+func TestHandlerRateLimitsAuthenticatedFloods(t *testing.T) {
 	store := &fakeStore{}
 	handler := NewHandler("secret", store, 5, Limits{RatePerSecond: 1, Burst: 2})
 	now := time.Unix(1000, 0)
 	handler.now = func() time.Time { return now }
 
+	body := []byte(`{}`)
 	send := func() int {
-		req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(`{}`))
+		req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(string(body)))
+		req.Header.Set("X-Hub-Signature-256", SignForTest("secret", body))
 		req.Header.Set("X-GitHub-Event", "push")
 		req.Header.Set("X-GitHub-Delivery", "delivery-1")
 		rec := httptest.NewRecorder()
@@ -82,6 +84,39 @@ func TestHandlerRateLimitsFloods(t *testing.T) {
 	}
 }
 
+func TestHandlerRateLimitSkipsUnauthenticated(t *testing.T) {
+	// The fix: the rate limiter runs after signature verification, so an unsigned
+	// flood is rejected as 401 and never drains the bucket shared with real
+	// GitHub deliveries.
+	store := &fakeStore{}
+	handler := NewHandler("secret", store, 5, Limits{RatePerSecond: 1, Burst: 1})
+	now := time.Unix(1000, 0)
+	handler.now = func() time.Time { return now }
+
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(`{}`))
+		req.Header.Set("X-Hub-Signature-256", "sha256=bad")
+		req.Header.Set("X-GitHub-Event", "push")
+		req.Header.Set("X-GitHub-Delivery", "delivery-bad")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("unsigned request %d status = %d, want %d", i, rec.Code, http.StatusUnauthorized)
+		}
+	}
+
+	body := []byte(`{}`)
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(string(body)))
+	req.Header.Set("X-Hub-Signature-256", SignForTest("secret", body))
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-GitHub-Delivery", "delivery-ok")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code == http.StatusTooManyRequests {
+		t.Fatal("an unsigned flood drained the bucket and 429'd a valid delivery")
+	}
+}
+
 func TestHandlerIgnoresUnsupportedEvent(t *testing.T) {
 	body := []byte(`{"zen":"Keep it logically awesome."}`)
 	store := &fakeStore{}
@@ -98,19 +133,16 @@ func TestHandlerIgnoresUnsupportedEvent(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if store.recordCalls != 1 {
-		t.Fatalf("unsupported event should record delivery once, got %d", store.recordCalls)
-	}
+	// An unsupported event is dropped before recording or enqueuing: GitHub does
+	// not retry a 200, so there is nothing to dedupe.
 	if store.enqueueCalls != 0 || store.listCalls != 0 {
 		t.Fatalf("unsupported event should not list subscriptions or enqueue jobs")
 	}
 }
 
-func TestHandlerSkipsDuplicateDeliveryBeforeParsing(t *testing.T) {
-	body := []byte(`not-json`)
-	store := &fakeStore{
-		duplicate: true,
-	}
+func TestHandlerSkipsDuplicateDelivery(t *testing.T) {
+	body := pushFixture()
+	store := &fakeStore{duplicate: true}
 	handler := NewHandler("secret", store, 5, Limits{})
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(string(body)))
@@ -124,11 +156,11 @@ func TestHandlerSkipsDuplicateDeliveryBeforeParsing(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if store.recordCalls != 1 {
-		t.Fatalf("recordCalls = %d, want 1", store.recordCalls)
-	}
-	if store.listCalls != 0 || store.enqueueCalls != 0 || store.forgetCalls != 0 {
-		t.Fatalf("duplicate should return before parsing/list/enqueue/forget: list=%d enqueue=%d forget=%d", store.listCalls, store.enqueueCalls, store.forgetCalls)
+	// Dedup is decided atomically inside the enqueue (record + jobs in one tx),
+	// so list/enqueue still run; the enqueue reports the duplicate and commits no
+	// jobs.
+	if store.enqueueCalls != 1 {
+		t.Fatalf("enqueueCalls = %d, want 1", store.enqueueCalls)
 	}
 }
 
@@ -156,8 +188,8 @@ func TestHandlerEnqueuesMatchingSubscription(t *testing.T) {
 	if store.deliveryID != "delivery-1" || store.event != "push" || store.repoFullName != "acme/repo" {
 		t.Fatalf("unexpected delivery record: delivery=%q event=%q repo=%q", store.deliveryID, store.event, store.repoFullName)
 	}
-	if store.recordCalls != 1 || store.enqueueCalls != 1 {
-		t.Fatalf("record/enqueue calls = %d/%d, want 1/1", store.recordCalls, store.enqueueCalls)
+	if store.enqueueCalls != 1 {
+		t.Fatalf("enqueueCalls = %d, want 1", store.enqueueCalls)
 	}
 	if len(store.jobs) != 1 {
 		t.Fatalf("jobs = %d, want 1", len(store.jobs))
@@ -176,8 +208,6 @@ func TestHandlerEnqueuesMatchingSubscription(t *testing.T) {
 
 type fakeStore struct {
 	duplicate    bool
-	recordCalls  int
-	forgetCalls  int
 	enqueueCalls int
 	listCalls    int
 	deliveryID   string
@@ -193,28 +223,17 @@ func (f *fakeStore) ListActiveSubscriptionsForRepoEvent(context.Context, string,
 	return f.subs, nil
 }
 
-func (f *fakeStore) RecordDelivery(_ context.Context, deliveryID, event string) (bool, error) {
-	f.recordCalls++
-	f.deliveryID = deliveryID
-	f.event = event
-	if f.duplicate {
-		return false, nil
-	}
-	return true, nil
-}
-
-func (f *fakeStore) ForgetDelivery(context.Context, string) error {
-	f.forgetCalls++
-	return nil
-}
-
-func (f *fakeStore) EnqueueNotificationJobs(_ context.Context, deliveryID, repoFullName string, jobs []db.NotificationJobInsert, maxAttempts int) (int, error) {
+func (f *fakeStore) EnqueueNotificationJobs(_ context.Context, deliveryID, event, repoFullName string, jobs []db.NotificationJobInsert, maxAttempts int) (int, bool, error) {
 	f.enqueueCalls++
 	f.deliveryID = deliveryID
+	f.event = event
 	f.repoFullName = repoFullName
 	f.maxAttempts = maxAttempts
 	f.jobs = append([]db.NotificationJobInsert(nil), jobs...)
-	return len(jobs), nil
+	if f.duplicate {
+		return 0, true, nil
+	}
+	return len(jobs), false, nil
 }
 
 func pushFixture() []byte {

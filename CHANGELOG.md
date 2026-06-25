@@ -10,6 +10,67 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.0.0-alpha.4 - 2026-06-25
+
+A multi-dimension review pass: two delivery-path correctness blockers closed
+plus a cluster of latent outbox/idempotency hardening, and a round of
+notification and UX polish.
+
+### Security
+
+- The webhook rate limiter now runs **after** signature verification, so an
+  unsigned flood can no longer drain the shared token bucket and return 429 to
+  real GitHub deliveries. Unauthenticated traffic is rejected as 401 without
+  touching the limiter.
+
+### Reliability
+
+- Recording a delivery and enqueuing its notification jobs is now a single
+  atomic transaction. Previously a crash between the two could leave an
+  idempotency marker with no jobs, so a GitHub retry was ignored as a duplicate
+  and the notification was lost.
+- Notification job terminal/retry updates are fenced on `status = 'processing'`;
+  a stale write from a re-leased job is a safe no-op instead of overwriting a
+  job another worker already finalized.
+- A successful send is recorded under an uncancelable context, so a graceful
+  shutdown immediately after delivery no longer leaves the job `processing` and
+  re-sends it (a duplicate) on restart.
+- A group→supergroup upgrade now auto-pauses the subscription instead of
+  enqueuing jobs to the dead chat id forever (`migrate_to_chat_id` is detected).
+- A failed Telegram update is re-delivered (the poll offset is not advanced)
+  with a short backoff instead of being silently dropped; a persistently failing
+  update is given up on after a few attempts so it cannot stall the poll loop.
+- Migrations take a session-level advisory lock, so two instances starting
+  together cannot double-run a non-idempotent migration.
+- `PUBLIC_BASE_URL` is validated as an absolute http(s) URL at startup instead of
+  failing far downstream on a malformed value.
+
+### Changed
+
+- Push notifications show as many commits as fit a text budget instead of a
+  fixed cap of 10; since GitHub caps a push payload at ~20 commits, real pushes
+  now list every commit, with "+N more" only for a pathologically long list.
+- PR and release bodies collapse into an expandable quote only when long
+  (over ~600 visible characters or ~10 lines, or truncated); short and medium
+  notes render in full in a plain quote.
+- Re-subscribing to a previously auto-paused configuration clears the stale
+  `pause_reason`, so the subscription is no longer shown active with a pause
+  warning.
+
+### Fixed
+
+- Deleting a subscription now asks for confirmation first, so a single mistaken
+  tap can no longer destroy a subscription and its webhook.
+- The bot registers its command menu (`setMyCommands`) and replies to
+  unrecognized private-chat input with a hint, instead of staying silent and
+  reading as a dead bot.
+- A failed test notification keeps the subscription screen (surfaced as a toast)
+  instead of ejecting the user to the home menu.
+- Markdown inside a GitHub blockquote (links, emphasis, inline code) renders as
+  formatted text instead of raw source.
+- A declined GitHub OAuth consent surfaces the real reason instead of a
+  misleading "missing code or state".
+
 ## v1.0.0-alpha.3 - 2026-06-25
 
 Release notes now arrive in full far more often, and container logs no longer

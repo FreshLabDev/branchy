@@ -66,6 +66,12 @@ func (b *Bot) Run(ctx context.Context) error {
 		slog.Warn("telegram offset load failed", "error", err)
 	}
 	var pollFailures int
+	// Track consecutive re-delivery attempts of a single failing update so a
+	// persistently failing (poison) update is dropped after a few tries instead
+	// of stalling the whole poll loop forever.
+	const maxUpdateRetries = 3
+	var lastFailedUpdate int64
+	var failedRetries int
 	for {
 		select {
 		case <-ctx.Done():
@@ -97,7 +103,37 @@ func (b *Bot) Run(ctx context.Context) error {
 		b.lastPollUnix.Store(time.Now().Unix())
 		for _, update := range updates {
 			if err := b.handleUpdate(ctx, update); err != nil {
-				slog.Error("telegram update failed", "update_id", update.UpdateID, "error", err)
+				if ctx.Err() != nil {
+					return nil
+				}
+				// Do not advance the offset past a failed update: leaving it
+				// unconfirmed makes the next GetUpdates re-deliver it, giving a
+				// transient DB/Telegram hiccup another chance instead of silently
+				// dropping the user's command. Give up after a few attempts so a
+				// poison update cannot stall the loop.
+				if update.UpdateID == lastFailedUpdate {
+					failedRetries++
+				} else {
+					lastFailedUpdate = update.UpdateID
+					failedRetries = 1
+				}
+				if failedRetries <= maxUpdateRetries {
+					slog.Error("telegram update failed; will retry", "update_id", update.UpdateID, "attempt", failedRetries, "error", err)
+					// Brief backoff before the next GetUpdates re-delivers this
+					// update: it stays unconfirmed so GetUpdates returns it
+					// immediately, and a tiny pause lets a transient error clear
+					// instead of spinning.
+					if sleep(ctx, jitterDuration(250*time.Millisecond)) != nil {
+						return nil
+					}
+					break
+				}
+				slog.Error("telegram update permanently failed; dropping", "update_id", update.UpdateID, "attempts", failedRetries, "error", err)
+				lastFailedUpdate = 0
+				failedRetries = 0
+			} else if update.UpdateID == lastFailedUpdate {
+				lastFailedUpdate = 0
+				failedRetries = 0
 			}
 			if update.UpdateID >= offset {
 				offset = update.UpdateID + 1
@@ -181,6 +217,12 @@ func (b *Bot) handleMessage(ctx context.Context, msg Message) error {
 			return err
 		}
 		_, err = b.client.SendMessage(ctx, msg.Chat.ID, text, markup)
+		return err
+	}
+	// Nudge unrecognized private-chat input toward the menu instead of silently
+	// ignoring it (which reads as a dead bot). Groups stay quiet to avoid noise.
+	if msg.Chat.Type == "private" && strings.TrimSpace(msg.Text) != "" {
+		_, err := b.client.SendMessage(ctx, msg.Chat.ID, "Send /start to open the Branchy menu.", nil)
 		return err
 	}
 	return nil
@@ -410,6 +452,12 @@ func (b *Bot) handleToken(ctx context.Context, cq CallbackQuery, token db.Callba
 			toast = "Subscription resumed."
 		}
 		return toast, b.renderSubscription(ctx, cq, payload.ID)
+	case "sub.delete.confirm":
+		var payload subscriptionPayload
+		if err := decode(token.Payload, &payload); err != nil {
+			return "", err
+		}
+		return "", b.renderDeleteConfirm(ctx, cq, payload.ID)
 	case "sub.delete":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
@@ -425,7 +473,9 @@ func (b *Bot) handleToken(ctx context.Context, cq CallbackQuery, token db.Callba
 			return "", err
 		}
 		if err := b.subs.SendTest(ctx, b.client, cq.From.ID, payload.ID); err != nil {
-			return "", b.respond(ctx, cq, esc(b.userMessage(err, "send the test notification")), backHome())
+			// Keep the user on the subscription screen and surface the failure as
+			// a toast, mirroring the success path, instead of ejecting them home.
+			return b.userMessage(err, "send the test notification"), b.renderSubscription(ctx, cq, payload.ID)
 		}
 		return "Test notification sent.", b.renderSubscription(ctx, cq, payload.ID)
 	case "sub.edit.events":
@@ -1071,7 +1121,7 @@ func (b *Bot) renderSubscription(ctx context.Context, cq CallbackQuery, id strin
 	if err != nil {
 		return err
 	}
-	deleteCB, err := b.token(ctx, cq.From.ID, "sub.delete", subscriptionPayload{ID: sub.ID})
+	deleteCB, err := b.token(ctx, cq.From.ID, "sub.delete.confirm", subscriptionPayload{ID: sub.ID})
 	if err != nil {
 		return err
 	}
@@ -1094,6 +1144,31 @@ func (b *Bot) renderSubscription(ctx context.Context, cq CallbackQuery, id strin
 	if destWarning != "" {
 		text += "\n" + esc(destWarning)
 	}
+	return b.respond(ctx, cq, text, &InlineKeyboardMarkup{InlineKeyboard: rows})
+}
+
+// renderDeleteConfirm asks for explicit confirmation before deleting a
+// subscription: the destructive action is one fat-finger tap away on the detail
+// screen, so it gets a dedicated yes/no hop. "Delete" issues a fresh consumed
+// sub.delete token; "Cancel" returns to the subscription.
+func (b *Bot) renderDeleteConfirm(ctx context.Context, cq CallbackQuery, id string) error {
+	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
+	if err != nil {
+		return b.respond(ctx, cq, "Subscription not found.", backHome())
+	}
+	deleteCB, err := b.token(ctx, cq.From.ID, "sub.delete", subscriptionPayload{ID: id})
+	if err != nil {
+		return err
+	}
+	cancelCB, err := b.token(ctx, cq.From.ID, "sub.view", subscriptionPayload{ID: id})
+	if err != nil {
+		return err
+	}
+	rows := [][]InlineKeyboardButton{
+		{{Text: "Delete", CallbackData: deleteCB, Style: styleDanger}},
+		{{Text: "Cancel", CallbackData: cancelCB}},
+	}
+	text := fmt.Sprintf("<b>Delete this subscription?</b>\n%s\nThis permanently removes the subscription and cannot be undone.", esc(sub.RepoFullName))
 	return b.respond(ctx, cq, text, &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 

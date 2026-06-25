@@ -96,13 +96,16 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleCallback(ctx context.Context, r *http.Request) error {
+	// Surface GitHub's own error first: when a user declines consent, GitHub
+	// redirects with error=access_denied and state but no code, so the
+	// missing-code guard below would otherwise mask the real reason.
+	if errValue := r.URL.Query().Get("error"); errValue != "" {
+		return fmt.Errorf("%s", errValue)
+	}
 	code := r.URL.Query().Get("code")
 	stateValue := r.URL.Query().Get("state")
 	if code == "" || stateValue == "" {
 		return fmt.Errorf("missing code or state")
-	}
-	if errValue := r.URL.Query().Get("error"); errValue != "" {
-		return fmt.Errorf("%s", errValue)
 	}
 
 	state, err := s.store.ConsumeOAuthState(ctx, stateValue)

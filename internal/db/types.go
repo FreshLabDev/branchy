@@ -110,6 +110,10 @@ const (
 	OutcomeSent    JobOutcome = "sent"
 	OutcomeRetried JobOutcome = "retried"
 	OutcomeFailed  JobOutcome = "failed"
+	// OutcomeSkipped means the fenced terminal/retry UPDATE matched no row: the
+	// job was no longer 'processing' (a concurrent worker already finalized it,
+	// or its lease was reclaimed), so the write was a safe no-op.
+	OutcomeSkipped JobOutcome = "skipped"
 )
 
 type HealthStatus struct {
