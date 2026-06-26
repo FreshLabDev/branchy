@@ -10,6 +10,18 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.0.0 - 2026-06-26
+
+First stable release. Branchy watches your GitHub repositories and delivers
+push, pull-request and release notifications to Telegram — set up and managed
+entirely through the bot, with GitHub OAuth, per-event and branch filters, and
+reliable at-least-once delivery through a Postgres outbox.
+
+Promoted from `v1.0.0-rc.1` unchanged, after a clean production soak (no errors,
+a real release notification delivered end-to-end). This tag marks the 1.0
+milestone after a hardening program across the alpha series and two independent
+review passes.
+
 ## v1.0.0-rc.1 - 2026-06-25
 
 Release candidate. A second independent review pass closed the last two
