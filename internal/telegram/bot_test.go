@@ -11,6 +11,34 @@ import (
 	"branchy/internal/github"
 )
 
+func TestStartCommandTargetsBot(t *testing.T) {
+	self := func() string { return "branchybot" }
+	noSelf := func() string { return "" }
+	cases := []struct {
+		text string
+		self func() string
+		want bool
+	}{
+		{"/start", self, true},                  // bare start (general)
+		{"/start@branchybot", self, true},       // our own mention
+		{"/start@BranchyBot", self, true},       // case-insensitive
+		{"/start@branchybot extra", self, true}, // trailing args ignored
+		{"/start payload", self, true},          // deep-link payload
+		{"/start@quoto_bot", self, false},       // another bot
+		{"/start@quoto_bot extra", self, false}, // another bot + args
+		{"/start@branchybot", noSelf, false},    // own username unknown → ignore
+		{"/help", self, false},
+		{"/startfoo", self, false},
+		{"hello", self, false},
+		{"", self, false},
+	}
+	for _, c := range cases {
+		if got := startCommandTargetsBot(c.text, c.self); got != c.want {
+			t.Errorf("startCommandTargetsBot(%q) = %v, want %v", c.text, got, c.want)
+		}
+	}
+}
+
 func TestBranchModeLabelReadsAsAction(t *testing.T) {
 	cases := []struct {
 		mode     string

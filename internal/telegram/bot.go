@@ -197,21 +197,33 @@ func (b *Bot) handleUpdate(ctx context.Context, update Update) error {
 	return nil
 }
 
-// isStartCommand reports whether text is the /start command, tolerating the
-// /start@botname form Telegram delivers in groups and any trailing arguments.
-func isStartCommand(text string) bool {
+// startCommandTargetsBot reports whether text is a /start meant for THIS bot:
+// the bare "/start" (Telegram delivers it to every bot in a group) or
+// "/start@<self>". A "/start@<otherbot>" — which Telegram also delivers to us in
+// a group — returns false, so branchy stays quiet when the /start was addressed
+// to a different bot. self is resolved lazily and only consulted for the "@"
+// form (so the common path makes no extra call); an empty self never matches a
+// suffixed start.
+func startCommandTargetsBot(text string, self func() string) bool {
 	text = strings.TrimSpace(text)
-	if i := strings.IndexAny(text, " @"); i >= 0 {
+	if i := strings.IndexByte(text, ' '); i >= 0 {
 		text = text[:i]
 	}
-	return text == "/start"
+	if text == "/start" {
+		return true
+	}
+	if suffix, ok := strings.CutPrefix(text, "/start@"); ok {
+		s := self()
+		return s != "" && strings.EqualFold(suffix, s)
+	}
+	return false
 }
 
 func (b *Bot) handleMessage(ctx context.Context, msg Message) error {
 	if err := b.upsertUser(ctx, msg.From); err != nil {
 		return err
 	}
-	if isStartCommand(msg.Text) {
+	if startCommandTargetsBot(msg.Text, func() string { return b.botUsername(ctx) }) {
 		if msg.Chat.Type != "private" {
 			var markup *InlineKeyboardMarkup
 			if username := b.botUsername(ctx); username != "" {

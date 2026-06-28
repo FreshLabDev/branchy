@@ -10,6 +10,15 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.0.1 - 2026-06-28
+
+### Fixed
+
+- In a group, branchy no longer answers a `/start` that was addressed to a
+  different bot (`/start@otherbot`, which Telegram delivers to every bot in the
+  group). It now responds only to the bare `/start` or its own
+  `/start@<botname>`.
+
 ## v1.0.0 - 2026-06-26
 
 First stable release. Branchy watches your GitHub repositories and delivers
