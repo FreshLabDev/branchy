@@ -10,6 +10,21 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.0.2 - 2026-07-01
+
+### Changed
+
+- **Shared `core` database.** Branchy's data now lives in the shared
+  `core-postgres` under a `branchy` schema, and identity/presence (Telegram
+  users and chats) are delegated to the central `core` hub (`core.person` /
+  `core.chat`), keyed on the global Telegram id. Domain tables reference
+  `core.person(telegram_user_id)` directly; the local `telegram_users` and
+  `telegram_chats` tables are dropped. Chat-specific state (bot status, active,
+  added-by) moves to a small `chat_state` table that FKs into `core.chat`.
+  Identity/presence is upserted via the shared `core.touch` before any dependent
+  insert. The bot connects to core-postgres with `search_path=branchy`; its
+  dedicated `branchy-postgres` is retired.
+
 ## v1.0.1 - 2026-06-28
 
 ### Fixed
