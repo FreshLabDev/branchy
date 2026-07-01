@@ -6,14 +6,7 @@ import (
 	"time"
 )
 
-type TelegramUser struct {
-	ID        int64
-	Username  string
-	FirstName string
-	LastName  string
-}
-
-type TelegramChat struct {
+type ChatState struct {
 	ID          int64
 	Type        string
 	Title       string

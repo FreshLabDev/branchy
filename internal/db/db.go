@@ -81,52 +81,63 @@ func (s *Store) HealthStatus(ctx context.Context) (HealthStatus, error) {
 	return status, rows.Err()
 }
 
-func (s *Store) UpsertTelegramUser(ctx context.Context, user TelegramUser) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO telegram_users (telegram_user_id, username, first_name, last_name)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (telegram_user_id) DO UPDATE SET
-			username = EXCLUDED.username,
-			first_name = EXCLUDED.first_name,
-			last_name = EXCLUDED.last_name,
-			updated_at = now()
-	`, user.ID, user.Username, user.FirstName, user.LastName)
+// TouchArgs carries the identity+presence fields for a single core.touch call.
+// ChatID is nil for a private/DM chat or when no chat context is available.
+type TouchArgs struct {
+	UserID       int64
+	Username     string
+	FirstName    string
+	LastName     string
+	ChatID       *int64
+	ChatType     string
+	ChatTitle    string
+	ChatUsername string
+	IsBot        bool
+}
+
+// TouchCore upserts identity+presence in the shared core hub (person, chat,
+// name history, presence) via the SECURITY DEFINER core.touch. Awaited before
+// any FK insert into branchy.* so core.person/core.chat exist first.
+func (s *Store) TouchCore(ctx context.Context, a TouchArgs) error {
+	_, err := s.pool.Exec(ctx,
+		`SELECT core.touch($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		"branchy", a.UserID, ns(a.Username), ns(a.FirstName), ns(a.LastName),
+		nil, a.ChatID, ns(a.ChatType), ns(a.ChatTitle), ns(a.ChatUsername), a.IsBot)
 	return err
 }
 
-func (s *Store) UpsertTelegramChat(ctx context.Context, chat TelegramChat) error {
+func (s *Store) UpsertChatState(ctx context.Context, chat ChatState) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO telegram_chats (chat_id, type, title, username, added_by_telegram_user_id, bot_status, active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO chat_state (chat_id, bot_status, active, added_by_telegram_user_id)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (chat_id) DO UPDATE SET
-			type = EXCLUDED.type,
-			title = EXCLUDED.title,
-			username = EXCLUDED.username,
-			added_by_telegram_user_id = COALESCE(EXCLUDED.added_by_telegram_user_id, telegram_chats.added_by_telegram_user_id),
 			bot_status = EXCLUDED.bot_status,
 			active = EXCLUDED.active,
+			added_by_telegram_user_id = COALESCE(EXCLUDED.added_by_telegram_user_id, chat_state.added_by_telegram_user_id),
 			updated_at = now()
-	`, chat.ID, chat.Type, chat.Title, chat.Username, nullableInt64(chat.AddedByUser), chat.BotStatus, chat.Active)
+	`, chat.ID, chat.BotStatus, chat.Active, nullableInt64(chat.AddedByUser))
 	return err
 }
 
-func (s *Store) ListKnownGroups(ctx context.Context, telegramUserID int64) ([]TelegramChat, error) {
+func (s *Store) ListKnownGroups(ctx context.Context, telegramUserID int64) ([]ChatState, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT chat_id, type, title, username, bot_status, active, COALESCE(added_by_telegram_user_id, 0)
-		FROM telegram_chats
-		WHERE added_by_telegram_user_id = $1
-		  AND active = true
-		  AND type IN ('group', 'supergroup')
-		ORDER BY title, chat_id
+		SELECT cs.chat_id, c.type, COALESCE(c.title,''), COALESCE(c.username,''),
+		       cs.bot_status, cs.active, COALESCE(cs.added_by_telegram_user_id, 0)
+		FROM chat_state cs
+		JOIN core.chat c ON c.chat_id = cs.chat_id
+		WHERE cs.added_by_telegram_user_id = $1
+		  AND cs.active = true
+		  AND c.type IN ('group', 'supergroup')
+		ORDER BY c.title, cs.chat_id
 	`, telegramUserID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var chats []TelegramChat
+	var chats []ChatState
 	for rows.Next() {
-		var chat TelegramChat
+		var chat ChatState
 		if err := rows.Scan(&chat.ID, &chat.Type, &chat.Title, &chat.Username, &chat.BotStatus, &chat.Active, &chat.AddedByUser); err != nil {
 			return nil, err
 		}
@@ -808,6 +819,15 @@ func nullableInt64(v int64) any {
 		return nil
 	}
 	return v
+}
+
+// ns maps an empty string to a SQL NULL, leaving non-empty values as-is. Used
+// for core.touch arguments where "" should be stored as NULL, not a blank.
+func ns(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func interval(d time.Duration) string {

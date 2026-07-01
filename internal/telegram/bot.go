@@ -23,9 +23,9 @@ import (
 )
 
 type Store interface {
-	UpsertTelegramUser(ctx context.Context, user db.TelegramUser) error
-	UpsertTelegramChat(ctx context.Context, chat db.TelegramChat) error
-	ListKnownGroups(ctx context.Context, telegramUserID int64) ([]db.TelegramChat, error)
+	TouchCore(ctx context.Context, a db.TouchArgs) error
+	UpsertChatState(ctx context.Context, chat db.ChatState) error
+	ListKnownGroups(ctx context.Context, telegramUserID int64) ([]db.ChatState, error)
 	GetGitHubConnection(ctx context.Context, telegramUserID int64) (db.GitHubConnection, error)
 	ListSubscriptionsByUser(ctx context.Context, telegramUserID int64) ([]db.Subscription, error)
 	GetSubscriptionForUser(ctx context.Context, telegramUserID int64, id string) (db.Subscription, error)
@@ -220,7 +220,7 @@ func startCommandTargetsBot(text string, self func() string) bool {
 }
 
 func (b *Bot) handleMessage(ctx context.Context, msg Message) error {
-	if err := b.upsertUser(ctx, msg.From); err != nil {
+	if err := b.upsertUser(ctx, msg.From, &msg.Chat); err != nil {
 		return err
 	}
 	if startCommandTargetsBot(msg.Text, func() string { return b.botUsername(ctx) }) {
@@ -251,16 +251,23 @@ func (b *Bot) handleMessage(ctx context.Context, msg Message) error {
 }
 
 func (b *Bot) handleMyChatMember(ctx context.Context, upd ChatMemberUpdated) error {
-	if err := b.upsertUser(ctx, upd.From); err != nil {
+	// upsertUser touches core.person (upd.From) and, since this is a non-private
+	// chat, core.chat (upd.Chat identity) — both must exist before chat_state's
+	// FK inserts below.
+	if err := b.upsertUser(ctx, upd.From, &upd.Chat); err != nil {
 		return err
+	}
+	// Only groups/supergroups/channels are tracked in chat_state (its chat_id FKs
+	// to core.chat, which upsertUser only populates for non-private chats). A
+	// private my_chat_member (a user blocking/unblocking the bot in a DM) has no
+	// group presence to record.
+	if upd.Chat.Type == "private" {
+		return nil
 	}
 	status := upd.NewChatMember.Status
 	active := status == "member" || status == "administrator"
-	return b.store.UpsertTelegramChat(ctx, db.TelegramChat{
+	return b.store.UpsertChatState(ctx, db.ChatState{
 		ID:          upd.Chat.ID,
-		Type:        upd.Chat.Type,
-		Title:       upd.Chat.Title,
-		Username:    upd.Chat.Username,
 		BotStatus:   status,
 		Active:      active,
 		AddedByUser: upd.From.ID,
@@ -268,7 +275,7 @@ func (b *Bot) handleMyChatMember(ctx context.Context, upd ChatMemberUpdated) err
 }
 
 func (b *Bot) handleCallback(ctx context.Context, cq CallbackQuery) error {
-	if err := b.upsertUser(ctx, cq.From); err != nil {
+	if err := b.upsertUser(ctx, cq.From, &cq.Message.Chat); err != nil {
 		return err
 	}
 	// Dispatch first, then answer the callback query exactly once with an
@@ -1479,13 +1486,27 @@ func (b *Bot) respond(ctx context.Context, cq CallbackQuery, text string, markup
 	return err
 }
 
-func (b *Bot) upsertUser(ctx context.Context, user User) error {
-	return b.store.UpsertTelegramUser(ctx, db.TelegramUser{
-		ID:        user.ID,
+// upsertUser records the caller's identity (and, when the caller is acting in a
+// group, that chat's identity + presence) in the shared core hub via core.touch.
+// It is awaited before any FK insert into branchy.* so core.person/core.chat
+// exist first. chat may be nil; a private chat or an absent chat leaves ChatID
+// nil (a DM's chat_id equals the user id and carries no group identity).
+func (b *Bot) upsertUser(ctx context.Context, user User, chat *Chat) error {
+	args := db.TouchArgs{
+		UserID:    user.ID,
 		Username:  user.Username,
 		FirstName: user.FirstName,
 		LastName:  user.LastName,
-	})
+		IsBot:     user.IsBot,
+	}
+	if chat != nil && chat.ID != 0 && chat.Type != "private" {
+		id := chat.ID
+		args.ChatID = &id
+		args.ChatType = chat.Type
+		args.ChatTitle = chat.Title
+		args.ChatUsername = chat.Username
+	}
+	return b.store.TouchCore(ctx, args)
 }
 
 func (b *Bot) accessToken(ctx context.Context, telegramUserID int64) (string, error) {
