@@ -10,6 +10,18 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.0.3 - 2026-07-01
+
+### Fixed
+
+- **Local `docker-compose` stack could not boot after the core consolidation.**
+  Migration `001` now references the shared `core.person`/`core.chat`, but the
+  bundled dev Postgres had no `core` schema, so `docker-compose up` crash-looped
+  (`schema "core" does not exist`). Added `deploy/core-init.sql` (a minimal local
+  `core` schema + `core.touch`) mounted via `docker-entrypoint-initdb.d`, and set
+  `search_path=branchy` on the compose `DATABASE_URL`. Production is unaffected
+  (it uses the real shared core-postgres); this only fixes local development.
+
 ## v1.0.2 - 2026-07-01
 
 ### Changed

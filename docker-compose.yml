@@ -16,6 +16,8 @@ services:
       - "5432:5432"
     volumes:
       - branchy-postgres:/var/lib/postgresql/data
+      # Local-dev only: seed a minimal shared `core` schema so the migrations boot.
+      - ./deploy/core-init.sql:/docker-entrypoint-initdb.d/00-core-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U branchy -d branchy"]
       interval: 5s
@@ -34,7 +36,7 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: postgres://branchy:branchy@postgres:5432/branchy?sslmode=disable
+      DATABASE_URL: postgres://branchy:branchy@postgres:5432/branchy?sslmode=disable&options=-csearch_path%3Dbranchy
       HTTP_ADDR: :8080
       MIGRATIONS_DIR: /app/migrations
     ports:
