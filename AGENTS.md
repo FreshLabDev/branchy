@@ -5,7 +5,11 @@ This file is for coding agents working on Branchy. Keep the project minimal, sec
 ## Project Shape
 
 - Branchy is one Go service.
-- PostgreSQL is the only durable store.
+- PostgreSQL is the only durable store. Branchy's tables live in a `branchy`
+  schema; Telegram identity/presence is delegated to a shared `core` schema
+  (`core.person`, `core.chat`) upserted via `core.touch`. In production this is
+  the shared `core-postgres`, reached on a single pool with `search_path=branchy`
+  (the retired standalone `branchy-postgres` is gone).
 - Telegram uses long polling in the MVP.
 - GitHub OAuth callbacks and repository webhooks are served by the same HTTP process.
 - Notification delivery uses the durable PostgreSQL outbox, not direct sending inside the webhook handler.
@@ -59,6 +63,11 @@ Temporary Telegram/GitHub failures should retry with `retry_at` and `attempts`. 
 
 - Add new SQL migrations under `migrations/` with the next numeric prefix.
 - Migrations must be safe to run once and tracked by `schema_migrations`.
+- Migrations run against the `branchy` schema (`search_path=branchy`) and may FK
+  into `core.person`/`core.chat` or call `core.touch`; those live in the shared
+  `core-postgres` in production and are seeded locally by `deploy/core-init.sql`
+  so `docker-compose up` boots. Do not recreate the dropped local
+  `telegram_users`/`telegram_chats` tables.
 - Do not edit old migrations after they may have been applied, unless the repo is still explicitly pre-release and the user asks for it.
 - Keep `AUTO_MIGRATE=true` useful for local development.
 

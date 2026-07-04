@@ -119,6 +119,11 @@ Branchy runs startup migrations from `migrations/` and records completed
 versions in `schema_migrations`. Keep `AUTO_MIGRATE=true` for local
 development.
 
+The bundled `docker compose` runs a local PostgreSQL and seeds a minimal shared
+`core` schema (`deploy/core-init.sql`) so migrations that reference
+`core.person` / `core.chat` boot cleanly. In the shared production deployment
+Branchy instead connects to the existing `core-postgres`.
+
 ---
 
 ## Using Branchy
@@ -141,7 +146,13 @@ delivery is enabled, Branchy verifies that the Telegram user is a group
 
 ## How It Works
 
-Branchy is one Go service with PostgreSQL as the only durable store.
+Branchy is one Go service with PostgreSQL as its only durable store. Branchy's
+own tables — subscriptions, the notification outbox, OAuth and runtime state —
+live in a `branchy` schema. Telegram identity and presence (users and chats) are
+delegated to a shared `core` schema (`core.person`, `core.chat`), which Branchy
+upserts via `core.touch` before any dependent write. In production that schema
+lives in the shared `core-postgres` database; local `docker compose` seeds a
+minimal `core` schema so development boots the same way.
 
 ```text
 telegram poller  -> inline-button UI
@@ -184,7 +195,7 @@ Permanent delivery failures are marked `failed`.
 
 | Variable | Required | Default | Description |
 |:--|:--:|:--|:--|
-| `DATABASE_URL` | yes | - | PostgreSQL connection string |
+| `DATABASE_URL` | yes | - | PostgreSQL connection string; Branchy's tables live in the `branchy` schema, so a shared database needs `search_path=branchy` (append `options=-csearch_path%3Dbranchy`) |
 | `PUBLIC_BASE_URL` | yes | - | Public HTTPS base URL |
 | `TELEGRAM_BOT_TOKEN` | yes | - | Bot token from BotFather |
 | `GITHUB_CLIENT_ID` | yes | - | GitHub OAuth App client ID |
