@@ -6,10 +6,16 @@ Branchy is one Go service with three runtime surfaces:
 - HTTP routes for GitHub OAuth and GitHub repository webhooks.
 - A notification outbox worker that sends queued Telegram messages.
 
-The service stores all durable state in PostgreSQL. GitHub webhook handlers do
-not send Telegram messages directly; they create durable `notification_jobs`
-rows and return quickly. The worker polls pending jobs with `FOR UPDATE SKIP
-LOCKED`, sends Telegram messages, and updates job status.
+The service stores its durable state in PostgreSQL. Branchy's own tables live in
+a `branchy` schema (subscriptions, repositories, hooks, the notification outbox,
+OAuth and runtime state), and Telegram identity/presence is delegated to a shared
+`core` schema (`core.person`, `core.chat`) that Branchy upserts through the
+`SECURITY DEFINER` `core.touch` function before any dependent write. In production
+this is the shared `core-postgres` database; local `docker compose` seeds a
+minimal `core` schema (`deploy/core-init.sql`) so migrations boot. GitHub webhook
+handlers do not send Telegram messages directly; they create durable
+`notification_jobs` rows and return quickly. The worker polls pending jobs with
+`FOR UPDATE SKIP LOCKED`, sends Telegram messages, and updates job status.
 
 ## Packages
 
@@ -49,6 +55,13 @@ LOCKED`, sends Telegram messages, and updates job status.
   webhook routes.
 - One service keeps the codebase small. The durable outbox lives in PostgreSQL
   instead of adding separate queue infrastructure.
+- Branchy owns the `branchy` schema and, in production, connects to the shared
+  `core-postgres` as a dedicated least-privilege role (`branchy_core`) with
+  `search_path=branchy` on a single pool. Domain tables reference shared identity
+  in the `core` schema by natural key (Telegram id) and call `core.touch`
+  schema-qualified on that same pool — there is no separate `core` connection.
+  The old standalone `branchy-postgres` container is retired (its volume kept for
+  rollback).
 - GitHub webhooks are owned per repository, not per subscription. Active
   subscription events are unioned into the repository hook configuration. When
   the active event union becomes empty, Branchy deletes its matching hook.
