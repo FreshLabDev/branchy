@@ -77,7 +77,7 @@ func GitHubEvent(event Event) string {
 }
 
 func TestMessage(repoFullName string) string {
-	return "<b>" + esc(repoFullName) + "</b>\nTest notification. Branchy can deliver notifications to this chat."
+	return "<b>" + esc(repoFullName) + "</b>\n\nTest notification. Branchy can deliver notifications to this chat."
 }
 
 func eventTitle(eventType string) string {
@@ -111,7 +111,8 @@ func commitEvent(event Event) string {
 	if event.Branch != "" {
 		summary += fmt.Sprintf(" · <code>%s</code>", esc(event.Branch))
 	}
-	header := fmt.Sprintf("%s <b>%s</b>\n%s", iconCommits, esc(event.RepoFullName), summary)
+	// Double newline: Rich Markdown collapses single \n into one visual line.
+	header := fmt.Sprintf("%s <b>%s</b>\n\n%s", iconCommits, esc(event.RepoFullName), summary)
 
 	var list []string
 	used := 0
@@ -142,7 +143,7 @@ func commitEvent(event Event) string {
 
 func pullRequestEvent(event Event) string {
 	action := humanizePRAction(event)
-	header := fmt.Sprintf("%s <b>%s</b>\nPull request %s", iconPR, esc(event.RepoFullName), esc(action))
+	header := fmt.Sprintf("%s <b>%s</b>\n\nPull request %s", iconPR, esc(event.RepoFullName), esc(action))
 
 	var meta []string
 	if title := truncateText(event.Title, maxTitleRunes); title != "" {
@@ -220,7 +221,7 @@ func releaseEvent(event Event) string {
 			versionLine += " · " + esc(version)
 		}
 	}
-	header := fmt.Sprintf("%s <b>%s</b>\n%s", iconRelease, esc(event.RepoFullName), versionLine)
+	header := fmt.Sprintf("%s <b>%s</b>\n\n%s", iconRelease, esc(event.RepoFullName), versionLine)
 
 	var meta string
 	if event.Actor != "" {

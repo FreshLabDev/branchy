@@ -8,7 +8,12 @@ GitHub Releases.
 
 ## Unreleased
 
-Use this section for changes that are merged but not released yet.
+### Fixed
+
+- **Notification headers keep a line break under the repo name.** Rich Markdown
+  collapses a single `\n`, so the event line (`Release · …`, commit summary,
+  PR action) sat on the same visual row as `📦 repo`. Headers now use a blank
+  line between the title row and the event row.
 
 ## v1.1.0-alpha.1 - 2026-07-16
 

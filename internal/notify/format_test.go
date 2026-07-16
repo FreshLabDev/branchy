@@ -51,7 +51,7 @@ func TestGitHubEventFormatsSingleCommit(t *testing.T) {
 		CommitCount: 1,
 	})
 	for _, want := range []string{
-		iconCommits + " <b>FreshLabDev/branchy</b>",
+		iconCommits + " <b>FreshLabDev/branchy</b>\n\n1 new commit · <code>main</code>",
 		"1 new commit · <code>main</code>",
 		"Pushed by <b>amtiYo</b>",
 		`<a href="https://github.com/FreshLabDev/branchy/compare/a...b">Compare changes</a>`,
@@ -211,7 +211,7 @@ func TestGitHubEventFormatsPullRequest(t *testing.T) {
 		Body:         "This PR **improves** things.\n\nSee `notify` for details.",
 	})
 	for _, want := range []string{
-		iconPR + " <b>FreshLabDev/branchy</b>",
+		iconPR + " <b>FreshLabDev/branchy</b>\n\nPull request opened",
 		"Pull request opened",
 		"into <code>main</code> · by <b>amtiYo</b>",
 		`<a href="https://github.com/FreshLabDev/branchy/pull/7">#7 Fix &lt;format&gt; &amp; &#34;escape&#34;</a>`,
@@ -267,7 +267,7 @@ func TestGitHubEventFormatsRelease(t *testing.T) {
 			"<ins>Underlined bit</ins>",
 	})
 	for _, want := range []string{
-		iconRelease + " <b>FreshLabDev/branchy</b>",
+		iconRelease + " <b>FreshLabDev/branchy</b>\n\n<b>Pre-release</b>",
 		`<b>Pre-release</b> · <a href="https://github.com/FreshLabDev/branchy/releases/tag/v0.1.0-alpha.1">v0.1.0-alpha.1 &lt;format&gt; &amp; &#34;escape&#34;</a>`,
 		"> ## Added",
 		"> - **Commit notifications** with [compare links](https://github.com/FreshLabDev/branchy/compare/a...b)",
