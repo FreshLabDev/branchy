@@ -40,33 +40,28 @@ This document explains how Branchy uses `CHANGELOG.md` and GitHub Releases.
 
 ## GitHub Release Notes
 
-Use this shape for release notes:
+Use this shape for release notes (same sections as `CHANGELOG.md`):
 
 ```text
-Branchy v0.1.0-alpha.1
+### Changed
 
-Summary:
-- Short release purpose.
+- Short concrete bullets from the version section of CHANGELOG.md.
 
-Highlights:
-- Important shipped behavior.
+### Fixed
 
-Operations:
-- Migration notes.
-- Required env or deployment notes.
+- ...
 
-Verification:
-- go test ./...
-- go vet ./...
-- docker build
-- smoke test status
+### Operations
 
-Known limitations:
-- What is intentionally not done yet.
+- Migration notes, env, or deploy notes when relevant.
 ```
 
+GitHub Release **title** is the version only (`v1.1.0-alpha.1`), not
+`Branchy v…`. Copy the matching `CHANGELOG.md` version section into the release
+body (skip the `## vX.Y.Z` heading).
+
 For `alpha`, `beta`, and `rc` versions, mark the GitHub Release as pre-release.
-For the public MVP tag `v0.1.0`, publish a normal GitHub Release.
+For stable tags, publish a normal GitHub Release.
 
 ## Commands
 
@@ -78,18 +73,18 @@ git push origin main
 git push origin v0.1.0-alpha.1
 gh release create v0.1.0-alpha.1 \
   --prerelease \
-  --title "Branchy v0.1.0-alpha.1" \
+  --title "v0.1.0-alpha.1" \
   --notes-file /tmp/branchy-release-notes.md
 ```
 
-Create the public MVP release:
+Create a stable release:
 
 ```sh
 git tag -a v0.1.0 -m "v0.1.0"
 git push origin main
 git push origin v0.1.0
 gh release create v0.1.0 \
-  --title "Branchy v0.1.0" \
+  --title "v0.1.0" \
   --notes-file /tmp/branchy-release-notes.md
 ```
 
