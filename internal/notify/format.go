@@ -44,36 +44,52 @@ type Commit struct {
 	Author  string
 }
 
-// GitHubEvent builds a Telegram Rich Markdown notification string for
-// sendRichMessage. Header/meta fields use HTML tags with escaped user text;
-// GitHub bodies are passed as GFM for Telegram's native Rich Markdown engine.
+// Notification carries both the preferred Bot API Rich HTML payload and a
+// classic HTML fallback that fits sendMessage. Keeping both representations in
+// the outbox makes retries deterministic and rollback-safe.
+type Notification struct {
+	RichHTML     string
+	FallbackHTML string
+}
+
+// GitHubEvent returns the preferred Rich HTML representation. It remains as a
+// compatibility seam for formatting callers and tests; delivery code should
+// persist both variants from GitHubNotification.
 func GitHubEvent(event Event) string {
+	return GitHubNotification(event).RichHTML
+}
+
+func GitHubNotification(event Event) Notification {
+	var notification Notification
 	switch event.Type {
 	case "push":
-		return commitEvent(event)
+		text := commitEvent(event)
+		notification = Notification{RichHTML: text, FallbackHTML: text}
 	case "pull_request":
-		return pullRequestEvent(event)
+		notification = pullRequestNotification(event)
 	case "release":
-		return releaseEvent(event)
+		notification = releaseNotification(event)
+	default:
+		lines := []string{
+			fmt.Sprintf("<b>%s</b> %s", esc(event.RepoFullName), esc(eventTitle(event.Type))),
+			fmt.Sprintf("Actor: %s", esc(event.Actor)),
+		}
+		if event.Branch != "" {
+			lines = append(lines, fmt.Sprintf("Branch: %s", esc(event.Branch)))
+		}
+		if event.Title != "" {
+			lines = append(lines, esc(event.Title))
+		}
+		if event.Summary != "" {
+			lines = append(lines, esc(event.Summary))
+		}
+		if link := safeURL(event.URL); link != "" {
+			lines = append(lines, fmt.Sprintf(`<a href="%s">Open on GitHub</a>`, escAttr(link)))
+		}
+		text := strings.Join(lines, "\n")
+		notification = Notification{RichHTML: text, FallbackHTML: text}
 	}
-
-	lines := []string{
-		fmt.Sprintf("<b>%s</b> %s", esc(event.RepoFullName), esc(eventTitle(event.Type))),
-		fmt.Sprintf("Actor: %s", esc(event.Actor)),
-	}
-	if event.Branch != "" {
-		lines = append(lines, fmt.Sprintf("Branch: %s", esc(event.Branch)))
-	}
-	if event.Title != "" {
-		lines = append(lines, esc(event.Title))
-	}
-	if event.Summary != "" {
-		lines = append(lines, esc(event.Summary))
-	}
-	if link := safeURL(event.URL); link != "" {
-		lines = append(lines, fmt.Sprintf(`<a href="%s">Open on GitHub</a>`, escAttr(link)))
-	}
-	return strings.Join(lines, "\n")
+	return boundNotification(notification)
 }
 
 func TestMessage(repoFullName string) string {
@@ -111,7 +127,8 @@ func commitEvent(event Event) string {
 	if event.Branch != "" {
 		summary += fmt.Sprintf(" · <code>%s</code>", esc(event.Branch))
 	}
-	// Double newline: Rich Markdown collapses single \n into one visual line.
+	// Double newline keeps the title and event summary visually separate in
+	// Telegram Rich Messages.
 	header := fmt.Sprintf("%s <b>%s</b>\n\n%s", iconCommits, esc(event.RepoFullName), summary)
 
 	var list []string
@@ -141,7 +158,7 @@ func commitEvent(event Event) string {
 	return joinSections(header, strings.Join(list, "\n"), strings.Join(meta, " · "))
 }
 
-func pullRequestEvent(event Event) string {
+func pullRequestNotification(event Event) Notification {
 	action := humanizePRAction(event)
 	header := fmt.Sprintf("%s <b>%s</b>\n\nPull request %s", iconPR, esc(event.RepoFullName), esc(action))
 
@@ -168,18 +185,23 @@ func pullRequestEvent(event Event) string {
 		meta = append(meta, strings.Join(sub, " · "))
 	}
 
-	var body string
+	var richBody, fallbackBody string
 	if showsPRBody(action) {
-		prepared, truncated := prepareGitHubBody(event.Body, maxPRBodyRunes)
-		body = wrapBody(prepared, "Description", truncated)
-		if truncated {
+		prepared := renderGitHubBody(event.Body, maxPRBodyRunes)
+		richBody, fallbackBody = wrapRenderedBody(prepared, "Description")
+		if prepared.Truncated {
 			if link := safeURL(event.URL); link != "" {
-				body += fmt.Sprintf("\n\n"+`<a href="%s">Read more</a>`, escAttr(link))
+				more := fmt.Sprintf("\n\n"+`<a href="%s">Read more</a>`, escAttr(link))
+				richBody += more
+				fallbackBody += more
 			}
 		}
 	}
 
-	return joinSections(header, strings.Join(meta, "\n"), body)
+	return Notification{
+		RichHTML:     joinSections(header, strings.Join(meta, "\n"), richBody),
+		FallbackHTML: joinSections(header, strings.Join(meta, "\n"), fallbackBody),
+	}
 }
 
 func humanizePRAction(event Event) string {
@@ -208,7 +230,7 @@ const (
 	maxRichMessageBytes = 32768
 )
 
-func releaseEvent(event Event) string {
+func releaseNotification(event Event) Notification {
 	label := "Release"
 	if event.Prerelease {
 		label = "Pre-release"
@@ -228,15 +250,18 @@ func releaseEvent(event Event) string {
 		meta = "by <b>" + esc(event.Actor) + "</b>"
 	}
 
-	prepared, truncated := prepareGitHubBody(event.Body, maxReleaseBodyRunes)
-	body := wrapBody(prepared, "Release notes", truncated)
-	result := joinSections(header, meta, body)
-	if truncated {
+	prepared := renderGitHubBody(event.Body, maxReleaseBodyRunes)
+	richBody, fallbackBody := wrapRenderedBody(prepared, "Release notes")
+	rich := joinSections(header, meta, richBody)
+	fallback := joinSections(header, meta, fallbackBody)
+	if prepared.Truncated {
 		if link := safeURL(event.URL); link != "" {
-			result += "\n\n" + fmt.Sprintf(`<a href="%s">Full release notes</a>`, escAttr(link))
+			more := "\n\n" + fmt.Sprintf(`<a href="%s">Full release notes</a>`, escAttr(link))
+			rich += more
+			fallback += more
 		}
 	}
-	return result
+	return Notification{RichHTML: rich, FallbackHTML: fallback}
 }
 
 // formatCommitLine renders one commit row and returns its approximate visible

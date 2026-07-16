@@ -159,8 +159,8 @@ func TestGitHubEventCollapsesOnlyLongBodies(t *testing.T) {
 	if strings.Contains(short, "<details>") {
 		t.Fatalf("a short body must not be collapsed:\n%s", short)
 	}
-	if !strings.Contains(short, "> A quick one-line release note.") {
-		t.Fatalf("a short body should render as a Markdown quote:\n%s", short)
+	if !strings.Contains(short, "<blockquote><p>A quick one-line release note.</p></blockquote>") {
+		t.Fatalf("a short body should render as a rich HTML quote:\n%s", short)
 	}
 
 	wordy := mk(strings.Repeat("This release changes a lot of things. ", 30))
@@ -178,8 +178,7 @@ func TestGitHubEventCollapsesOnlyLongBodies(t *testing.T) {
 	}
 }
 
-func TestGitHubEventKeepsRawMarkdownInBody(t *testing.T) {
-	// Body is Rich Markdown source for Telegram — do not convert GFM to HTML.
+func TestGitHubEventRendersGFMBodyToRichHTML(t *testing.T) {
 	text := GitHubEvent(Event{
 		Type:         "release",
 		RepoFullName: "acme/repo",
@@ -187,14 +186,14 @@ func TestGitHubEventKeepsRawMarkdownInBody(t *testing.T) {
 		URL:          "https://github.com/acme/repo/releases/tag/v1.2.3",
 		Body:         "> See the [migration guide](https://github.com/acme/repo/wiki) and **back up** first",
 	})
-	if !strings.Contains(text, "[migration guide](https://github.com/acme/repo/wiki)") {
-		t.Fatalf("body link markdown should be preserved:\n%s", text)
+	if !strings.Contains(text, `<a href="https://github.com/acme/repo/wiki">migration guide</a>`) {
+		t.Fatalf("body link should be rendered safely:\n%s", text)
 	}
-	if !strings.Contains(text, "**back up**") {
-		t.Fatalf("body bold markdown should be preserved:\n%s", text)
+	if !strings.Contains(text, "<b>back up</b>") {
+		t.Fatalf("body bold should be rendered safely:\n%s", text)
 	}
-	if strings.Contains(text, "<b>back up</b>") {
-		t.Fatalf("body must not be pre-converted to HTML entities:\n%s", text)
+	if strings.Contains(text, "**back up**") {
+		t.Fatalf("raw Markdown must not reach Telegram:\n%s", text)
 	}
 }
 
@@ -215,8 +214,8 @@ func TestGitHubEventFormatsPullRequest(t *testing.T) {
 		"Pull request opened",
 		"into <code>main</code> · by <b>amtiYo</b>",
 		`<a href="https://github.com/FreshLabDev/branchy/pull/7">#7 Fix &lt;format&gt; &amp; &#34;escape&#34;</a>`,
-		"> This PR **improves** things.",
-		"> See `notify` for details.",
+		"<p>This PR <b>improves</b> things.</p>",
+		"<p>See <code>notify</code> for details.</p>",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("formatted PR notification missing %q:\n%s", want, text)
@@ -269,12 +268,12 @@ func TestGitHubEventFormatsRelease(t *testing.T) {
 	for _, want := range []string{
 		iconRelease + " <b>FreshLabDev/branchy</b>\n\n<b>Pre-release</b>",
 		`<b>Pre-release</b> · <a href="https://github.com/FreshLabDev/branchy/releases/tag/v0.1.0-alpha.1">v0.1.0-alpha.1 &lt;format&gt; &amp; &#34;escape&#34;</a>`,
-		"> ## Added",
-		"> - **Commit notifications** with [compare links](https://github.com/FreshLabDev/branchy/compare/a...b)",
-		"> - _Release notes_ with `code` and ~~old wording~~",
-		"> > Keep it concise",
-		"> ![Screenshot](https://github.com/FreshLabDev/branchy/assets/release.png)",
-		"> <ins>Underlined bit</ins>",
+		"<h2>Added</h2>",
+		`<li><b>Commit notifications</b> with <a href="https://github.com/FreshLabDev/branchy/compare/a...b">compare links</a></li>`,
+		"<li><i>Release notes</i> with <code>code</code> and <del>old wording</del></li>",
+		"<p>Keep it concise",
+		`<figure><img src="https://github.com/FreshLabDev/branchy/assets/release.png"><figcaption>Screenshot</figcaption></figure>`,
+		"Underlined bit",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("formatted release notification missing %q:\n%s", want, text)
@@ -345,4 +344,264 @@ func TestPrepareGitHubBodyPreservesMarkdown(t *testing.T) {
 	if body != "**bold** and [x](https://example.com)" {
 		t.Fatalf("unexpected body: %q", body)
 	}
+}
+
+func TestGitHubEventRejectsTelegramSpecificBodyInjection(t *testing.T) {
+	text := GitHubEvent(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		TagName:      "v1",
+		Body: `<tg-emoji emoji-id="1">spoof</tg-emoji>
+
+[mention](tg://user?id=42)
+
+<script>alert(1)</script>`,
+	})
+	for _, forbidden := range []string{"<tg-emoji", "tg://", "<script>"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("untrusted body injected %q:\n%s", forbidden, text)
+		}
+	}
+}
+
+func TestGitHubEventDoesNotPromoteMediaFromDroppedContainers(t *testing.T) {
+	text := GitHubEvent(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		TagName:      "v1",
+		Body:         `<object><img src="https://example.com/tracker.png"></object>safe`,
+	})
+	if strings.Contains(text, "tracker.png") || !strings.Contains(text, "safe") {
+		t.Fatalf("media escaped a dropped container:\n%s", text)
+	}
+}
+
+func TestGitHubEventKeepsAllowlistedRawGFMHTML(t *testing.T) {
+	text := GitHubEvent(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		TagName:      "v1",
+		Body:         "<ins>added</ins> and H<sub>2</sub>O with x<sup>2</sup>",
+	})
+	for _, want := range []string{"<ins>added</ins>", "<sub>2</sub>", "<sup>2</sup>"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("allowlisted GFM HTML missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestGitHubEventKeepsFirstFiftyMediaBlocks(t *testing.T) {
+	var lines []string
+	for i := 0; i < 51; i++ {
+		lines = append(lines, fmt.Sprintf("![Screenshot %d](https://example.com/%d.png)", i, i))
+	}
+	notification := GitHubNotification(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		TagName:      "v1",
+		URL:          "https://github.com/acme/repo/releases/tag/v1",
+		Body:         strings.Join(lines, "\n\n"),
+	})
+	if got := strings.Count(notification.RichHTML, "<img "); got != maxRichBodyMedia {
+		t.Fatalf("visible media = %d, want %d:\n%s", got, maxRichBodyMedia, notification.RichHTML)
+	}
+	if !strings.Contains(notification.RichHTML, `<a href="https://example.com/50.png">Screenshot 50</a>`) {
+		t.Fatalf("media past the limit should remain available as a link:\n%s", notification.RichHTML)
+	}
+	if strings.Contains(notification.FallbackHTML, "<img ") || !strings.Contains(notification.FallbackHTML, "https://example.com/0.png") {
+		t.Fatalf("classic fallback should turn media into links:\n%s", notification.FallbackHTML)
+	}
+}
+
+func TestGitHubEventUsesMediaTypeAndMarkdownTitle(t *testing.T) {
+	text := GitHubEvent(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		TagName:      "v1",
+		Body:         `![fallback alt](https://example.com/demo.gif "Demo animation")`,
+	})
+	if !strings.Contains(text, `<video src="https://example.com/demo.gif"></video>`) {
+		t.Fatalf("GIF should use a video media block:\n%s", text)
+	}
+	if !strings.Contains(text, "<figcaption>Demo animation</figcaption>") || strings.Contains(text, "<figcaption>fallback alt</figcaption>") {
+		t.Fatalf("Markdown title should be the media caption:\n%s", text)
+	}
+}
+
+func TestGitHubEventPromotesLinkedImageToVisibleMedia(t *testing.T) {
+	text := GitHubEvent(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		TagName:      "v1",
+		Body:         `[![Screenshot](https://example.com/screenshot.png "New screen")](https://example.com/demo)`,
+	})
+	if !strings.Contains(text, `<img src="https://example.com/screenshot.png">`) {
+		t.Fatalf("linked image should remain visible media:\n%s", text)
+	}
+	if !strings.Contains(text, `<figcaption><a href="https://example.com/demo">New screen</a></figcaption>`) {
+		t.Fatalf("linked image should preserve its destination in the caption:\n%s", text)
+	}
+}
+
+func TestGitHubEventKeepsRawVideoAndAudioMedia(t *testing.T) {
+	text := GitHubEvent(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		TagName:      "v1",
+		Body: strings.Join([]string{
+			`<video src="https://example.com/demo.mp4"></video>`,
+			`<audio src="https://example.com/demo.mp3"></audio>`,
+		}, "\n\n"),
+	})
+	for _, want := range []string{
+		`<video src="https://example.com/demo.mp4"></video>`,
+		`<audio src="https://example.com/demo.mp3"></audio>`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("raw media missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestGitHubEventCapsTableColumns(t *testing.T) {
+	var headers, separators, values []string
+	for i := 0; i < 25; i++ {
+		headers = append(headers, fmt.Sprintf("h%d", i))
+		separators = append(separators, "---")
+		values = append(values, fmt.Sprintf("v%d", i))
+	}
+	body := "| " + strings.Join(headers, " | ") + " |\n| " + strings.Join(separators, " | ") + " |\n| " + strings.Join(values, " | ") + " |"
+	text := GitHubEvent(Event{Type: "release", RepoFullName: "acme/repo", TagName: "v1", Body: body})
+	if got := strings.Count(text, "<th>"); got != maxRichTableColumns {
+		t.Fatalf("header columns = %d, want %d:\n%s", got, maxRichTableColumns, text)
+	}
+	if got := strings.Count(text, "<td>"); got != maxRichTableColumns {
+		t.Fatalf("body columns = %d, want %d:\n%s", got, maxRichTableColumns, text)
+	}
+	for _, unsupported := range []string{"<thead", "<tbody", "<tfoot"} {
+		if strings.Contains(text, unsupported) {
+			t.Fatalf("HTML5 table wrapper %q must not reach Telegram:\n%s", unsupported, text)
+		}
+	}
+}
+
+func TestRichHTMLWithoutMediaPreservesStructureAndLinksSources(t *testing.T) {
+	rich := `<details><summary>Notes</summary><table><tr><th>Kind</th></tr><tr><td>Photo</td></tr></table><figure><img src="https://example.com/a.png"><figcaption>Screenshot</figcaption></figure></details>`
+	got := RichHTMLWithoutMedia(rich)
+	for _, want := range []string{"<details>", "<table>", "<tr>", `<a href="https://example.com/a.png">Screenshot</a>`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("media-free rich fallback missing %q:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"<img", "<figure", "<tbody"} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("media-free rich fallback kept %q:\n%s", unwanted, got)
+		}
+	}
+}
+
+func TestPlainTextFromHTMLKeepsLinkDestination(t *testing.T) {
+	got := PlainTextFromHTML(`<b>Release</b><p>See <a href="https://example.com/notes">notes</a>.</p>`)
+	if strings.Contains(got, "<") || !strings.Contains(got, "Release") || !strings.Contains(got, "notes (https://example.com/notes)") {
+		t.Fatalf("unexpected plain text fallback: %q", got)
+	}
+}
+
+func TestSanitizeLegacyRichMarkdownRemovesUnsafeHTML(t *testing.T) {
+	got := SanitizeLegacyRichMarkdown(`**Release** <script>alert(1)</script> [notes](https://example.com)`)
+	if !strings.Contains(got.RichHTML, "<b>Release</b>") || !strings.Contains(got.RichHTML, `href="https://example.com"`) {
+		t.Fatalf("legacy rich markdown lost safe formatting: %s", got.RichHTML)
+	}
+	if strings.Contains(strings.ToLower(got.RichHTML), "<script") || strings.Contains(got.RichHTML, "alert(1)") {
+		t.Fatalf("legacy rich markdown kept unsafe content: %s", got.RichHTML)
+	}
+}
+
+func TestGitHubEventCapsRichBlocksAndNesting(t *testing.T) {
+	text := GitHubEvent(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		TagName:      "v1",
+		URL:          "https://github.com/acme/repo/releases/tag/v1",
+		Body:         strings.Repeat("paragraph\n\n", 600),
+	})
+	if got := strings.Count(text, "<p>"); got > maxRichBodyBlocks {
+		t.Fatalf("paragraph blocks = %d, max %d", got, maxRichBodyBlocks)
+	}
+	if !strings.Contains(text, "Full release notes") {
+		t.Fatalf("block truncation should keep the source link:\n%s", text)
+	}
+
+	deep := strings.Repeat("> ", 30) + "nested"
+	deepText := GitHubEvent(Event{Type: "release", RepoFullName: "acme/repo", TagName: "v1", Body: deep})
+	if got := strings.Count(deepText, "<blockquote>"); got > maxRichBodyDepth+1 {
+		t.Fatalf("blockquote nesting = %d, safe max %d:\n%s", got, maxRichBodyDepth+1, deepText)
+	}
+}
+
+func TestGitHubEventKeepsGFMTaskLists(t *testing.T) {
+	text := GitHubEvent(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		TagName:      "v1",
+		Body:         "- [x] shipped\n- [ ] follow-up",
+	})
+	for _, want := range []string{`<input type="checkbox" checked>`, `<input type="checkbox">`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("task list missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestGitHubNotificationFallbackAndRichHTMLStayBoundedAndBalanced(t *testing.T) {
+	notification := GitHubNotification(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		TagName:      "v1",
+		URL:          "https://github.com/acme/repo/releases/tag/v1",
+		Body:         strings.Repeat("& ", 10000),
+	})
+	if len([]rune(notification.RichHTML)) > maxRichMessageBytes {
+		t.Fatalf("rich payload has %d chars, limit %d", len([]rune(notification.RichHTML)), maxRichMessageBytes)
+	}
+	if len([]rune(notification.FallbackHTML)) > 4096 {
+		t.Fatalf("fallback payload has %d chars, classic limit 4096", len([]rune(notification.FallbackHTML)))
+	}
+	if strings.Count(notification.RichHTML, "<p>") != strings.Count(notification.RichHTML, "</p>") ||
+		strings.Count(notification.RichHTML, "<details>") != strings.Count(notification.RichHTML, "</details>") {
+		t.Fatalf("truncation produced unbalanced rich HTML:\n%s", notification.RichHTML)
+	}
+}
+
+func FuzzGitHubNotificationBodyBounds(f *testing.F) {
+	for _, seed := range []string{
+		"plain text",
+		"[link](javascript:alert(1)) <tg-emoji emoji-id=\"1\">x</tg-emoji>",
+		"![image](https://example.com/a.png) text ![second](https://example.com/b.png)",
+		strings.Repeat("> ", 40) + "nested",
+		"<details><summary>x</summary><script>bad</script>safe</details>",
+		strings.Repeat("&<> ", 3000),
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, body string) {
+		notification := GitHubNotification(Event{
+			Type:         "release",
+			RepoFullName: "acme/repo",
+			TagName:      "v1",
+			URL:          "https://github.com/acme/repo/releases/tag/v1",
+			Body:         body,
+		})
+		if len([]rune(notification.RichHTML)) > maxRichMessageBytes {
+			t.Fatalf("rich payload has %d chars", len([]rune(notification.RichHTML)))
+		}
+		if len([]rune(notification.FallbackHTML)) > maxClassicMessageRunes {
+			t.Fatalf("classic payload has %d chars", len([]rune(notification.FallbackHTML)))
+		}
+		for _, forbidden := range []string{"<script", "<iframe", "<tg-emoji"} {
+			if strings.Contains(strings.ToLower(notification.RichHTML), forbidden) {
+				t.Fatalf("unsafe tag survived: %s", forbidden)
+			}
+		}
+	})
 }

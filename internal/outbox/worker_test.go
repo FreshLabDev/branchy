@@ -4,6 +4,7 @@ package outbox
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,24 +155,213 @@ func TestWorkerSendSuccess(t *testing.T) {
 	if !result.Success {
 		t.Fatalf("expected success, got %+v", result)
 	}
-	if sender.sent != 1 {
-		t.Fatalf("sent = %d, want 1", sender.sent)
+	if sender.richSent != 1 || sender.htmlSent != 0 {
+		t.Fatalf("rich/html sends = %d/%d, want 1/0", sender.richSent, sender.htmlSent)
+	}
+}
+
+func TestWorkerFallsBackAfterRichContentError(t *testing.T) {
+	sender := &fakeSender{richErr: &telegram.APIError{
+		Method: "sendRichMessage", StatusCode: 400, Description: "Bad Request: invalid rich message",
+	}}
+	worker := NewWorker(nil, sender, Config{})
+
+	result := worker.send(context.Background(), testJob())
+
+	if !result.Success {
+		t.Fatalf("expected fallback success, got %+v", result)
+	}
+	if sender.richSent != 1 || sender.htmlSent != 1 {
+		t.Fatalf("rich/html sends = %d/%d, want 1/1", sender.richSent, sender.htmlSent)
+	}
+}
+
+func TestWorkerRetriesRichWithoutMediaBeforeClassicHTML(t *testing.T) {
+	contentErr := &telegram.APIError{
+		Method: "sendRichMessage", StatusCode: 400, Description: "Bad Request: failed to fetch media",
+	}
+	sender := &fakeSender{richErrs: []error{contentErr, nil}}
+	worker := NewWorker(nil, sender, Config{})
+	job := testJob()
+	job.RichText = `<p>hello</p><figure><img src="https://example.com/a.png"><figcaption>Screenshot</figcaption></figure>`
+
+	result := worker.send(context.Background(), job)
+
+	if !result.Success {
+		t.Fatalf("expected media-free rich fallback success, got %+v", result)
+	}
+	if sender.richSent != 2 || sender.htmlSent != 0 || sender.textSent != 0 {
+		t.Fatalf("rich/html/text sends = %d/%d/%d, want 2/0/0", sender.richSent, sender.htmlSent, sender.textSent)
+	}
+	if len(sender.richPayloads) != 2 || !strings.Contains(sender.richPayloads[0], "<img ") || strings.Contains(sender.richPayloads[1], "<img ") {
+		t.Fatalf("unexpected rich fallback payloads: %#v", sender.richPayloads)
+	}
+	if !strings.Contains(sender.richPayloads[1], `href="https://example.com/a.png"`) {
+		t.Fatalf("media-free rich fallback lost source link: %s", sender.richPayloads[1])
+	}
+}
+
+func TestWorkerFallsBackFromClassicHTMLToPlainText(t *testing.T) {
+	contentErr := &telegram.APIError{
+		Method: "sendMessage", StatusCode: 400, Description: "Bad Request: can't parse entities",
+	}
+	sender := &fakeSender{htmlErr: contentErr}
+	worker := NewWorker(nil, sender, Config{})
+	job := testJob()
+	job.PayloadFormat = db.NotificationPayloadHTMLV1
+	job.RichText = ""
+	job.Text = `<b>Hello</b> <a href="https://example.com">site</a>`
+
+	result := worker.send(context.Background(), job)
+
+	if !result.Success {
+		t.Fatalf("expected plain text fallback success, got %+v", result)
+	}
+	if sender.htmlSent != 1 || sender.textSent != 1 {
+		t.Fatalf("html/text sends = %d/%d, want 1/1", sender.htmlSent, sender.textSent)
+	}
+	if len(sender.textPayloads) != 1 || strings.Contains(sender.textPayloads[0], "<b>") || !strings.Contains(sender.textPayloads[0], "https://example.com") {
+		t.Fatalf("unexpected plain text payload: %#v", sender.textPayloads)
+	}
+}
+
+func TestWorkerGivesFallbackAttemptAFreshDeadline(t *testing.T) {
+	contentErr := &telegram.APIError{
+		Method: "sendRichMessage", StatusCode: 400, Description: "Bad Request: invalid rich message",
+	}
+	sender := &fakeSender{
+		richFunc: func(ctx context.Context, _ int64, _ string) error {
+			<-ctx.Done()
+			return contentErr
+		},
+		htmlFunc: func(ctx context.Context, _ int64, _ string) error {
+			return ctx.Err()
+		},
+	}
+	worker := NewWorker(nil, sender, Config{SendTimeout: 10 * time.Millisecond})
+
+	result := worker.send(context.Background(), testJob())
+
+	if !result.Success {
+		t.Fatalf("fallback inherited the expired rich deadline: %+v", result)
+	}
+}
+
+func TestWorkerDoesNotFallbackOnRichRateLimit(t *testing.T) {
+	sender := &fakeSender{richErr: &telegram.APIError{
+		Method: "sendRichMessage", StatusCode: 429, Description: "Too Many Requests",
+	}}
+	worker := NewWorker(nil, sender, Config{})
+
+	result := worker.send(context.Background(), testJob())
+
+	if !result.Temporary {
+		t.Fatalf("expected retry, got %+v", result)
+	}
+	if sender.richSent != 1 || sender.htmlSent != 0 {
+		t.Fatalf("rich/html sends = %d/%d, want 1/0", sender.richSent, sender.htmlSent)
+	}
+}
+
+func TestWorkerFallsBackOnMediaPermissionError(t *testing.T) {
+	sender := &fakeSender{richErr: &telegram.APIError{
+		Method: "sendRichMessage", StatusCode: 403, Description: "Forbidden: not enough rights to send photos",
+	}}
+	worker := NewWorker(nil, sender, Config{})
+
+	result := worker.send(context.Background(), testJob())
+
+	if !result.Success || sender.htmlSent != 1 {
+		t.Fatalf("media permission error should use text-only fallback: result=%+v html=%d", result, sender.htmlSent)
+	}
+}
+
+func TestWorkerSendsLegacyJobAsClassicHTML(t *testing.T) {
+	sender := &fakeSender{}
+	worker := NewWorker(nil, sender, Config{})
+	job := testJob()
+	job.PayloadFormat = db.NotificationPayloadHTMLV1
+	job.RichText = ""
+
+	result := worker.send(context.Background(), job)
+
+	if !result.Success {
+		t.Fatalf("expected success, got %+v", result)
+	}
+	if sender.richSent != 0 || sender.htmlSent != 1 {
+		t.Fatalf("rich/html sends = %d/%d, want 0/1", sender.richSent, sender.htmlSent)
+	}
+}
+
+func TestWorkerSanitizesPendingAlphaRichMarkdownJob(t *testing.T) {
+	sender := &fakeSender{}
+	worker := NewWorker(nil, sender, Config{})
+	job := testJob()
+	job.PayloadFormat = db.NotificationPayloadRichMarkdownV1
+	job.RichText = ""
+	job.Text = "**legacy rich markdown** <script>bad()</script>"
+
+	result := worker.send(context.Background(), job)
+
+	if !result.Success {
+		t.Fatalf("expected success, got %+v", result)
+	}
+	if sender.richSent != 1 || sender.htmlSent != 0 || sender.textSent != 0 {
+		t.Fatalf("rich/html/text sends = %d/%d/%d, want 1/0/0", sender.richSent, sender.htmlSent, sender.textSent)
+	}
+	if len(sender.richPayloads) != 1 || !strings.Contains(sender.richPayloads[0], "<b>legacy rich markdown</b>") || strings.Contains(sender.richPayloads[0], "<script") {
+		t.Fatalf("legacy payload was not sanitized: %#v", sender.richPayloads)
 	}
 }
 
 type fakeSender struct {
-	sent int
+	richSent     int
+	htmlSent     int
+	textSent     int
+	richErr      error
+	htmlErr      error
+	textErr      error
+	richErrs     []error
+	richPayloads []string
+	textPayloads []string
+	richFunc     func(context.Context, int64, string) error
+	htmlFunc     func(context.Context, int64, string) error
 }
 
-func (f *fakeSender) SendRichMarkdown(context.Context, int64, string) error {
-	f.sent++
-	return nil
+func (f *fakeSender) SendRichHTML(ctx context.Context, chatID int64, text string) error {
+	f.richSent++
+	f.richPayloads = append(f.richPayloads, text)
+	if f.richFunc != nil {
+		return f.richFunc(ctx, chatID, text)
+	}
+	if len(f.richErrs) > 0 {
+		err := f.richErrs[0]
+		f.richErrs = f.richErrs[1:]
+		return err
+	}
+	return f.richErr
+}
+
+func (f *fakeSender) SendHTML(ctx context.Context, chatID int64, text string) error {
+	f.htmlSent++
+	if f.htmlFunc != nil {
+		return f.htmlFunc(ctx, chatID, text)
+	}
+	return f.htmlErr
+}
+
+func (f *fakeSender) SendText(_ context.Context, _ int64, text string) error {
+	f.textSent++
+	f.textPayloads = append(f.textPayloads, text)
+	return f.textErr
 }
 
 func testJob() db.NotificationJob {
 	return db.NotificationJob{
 		DestinationChatID: 123,
 		Text:              "hello",
+		RichText:          "<p>hello</p>",
+		PayloadFormat:     db.NotificationPayloadRichHTMLV1,
 	}
 }
 

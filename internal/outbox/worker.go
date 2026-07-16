@@ -12,6 +12,7 @@ import (
 
 	"branchy/internal/db"
 	"branchy/internal/metrics"
+	"branchy/internal/notify"
 	"branchy/internal/telegram"
 )
 
@@ -30,7 +31,9 @@ type Store interface {
 }
 
 type Sender interface {
-	SendRichMarkdown(ctx context.Context, chatID int64, markdown string) error
+	SendRichHTML(ctx context.Context, chatID int64, richHTML string) error
+	SendHTML(ctx context.Context, chatID int64, text string) error
+	SendText(ctx context.Context, chatID int64, text string) error
 }
 
 type Worker struct {
@@ -129,14 +132,85 @@ func (w *Worker) LastPoll() time.Time {
 }
 
 func (w *Worker) send(ctx context.Context, job db.NotificationJob) db.NotificationJobResult {
-	sendCtx, cancel := context.WithTimeout(ctx, w.sendTimeout)
-	defer cancel()
+	if job.PayloadFormat == db.NotificationPayloadRichMarkdownV1 {
+		legacy := notify.SanitizeLegacyRichMarkdown(job.Text)
+		return w.sendRichWithFallbacks(ctx, job, legacy.RichHTML, legacy.FallbackHTML)
+	}
+	if job.PayloadFormat != db.NotificationPayloadRichHTMLV1 || strings.TrimSpace(job.RichText) == "" {
+		return w.sendHTMLWithFallback(ctx, job, job.Text)
+	}
+	return w.sendRichWithFallbacks(ctx, job, job.RichText, job.Text)
+}
 
-	err := w.sender.SendRichMarkdown(sendCtx, job.DestinationChatID, job.Text)
+func (w *Worker) sendRichWithFallbacks(ctx context.Context, job db.NotificationJob, richHTML, fallbackHTML string) db.NotificationJobResult {
+	err := w.sendAttempt(ctx, func(attemptCtx context.Context) error {
+		return w.sender.SendRichHTML(attemptCtx, job.DestinationChatID, richHTML)
+	})
+	if err == nil {
+		return db.NotificationJobResult{Success: true}
+	}
+	if !shouldFallbackContent(err) {
+		return classifyError(err, job.Attempts+1)
+	}
+
+	withoutMedia := notify.RichHTMLWithoutMedia(richHTML)
+	if withoutMedia != "" && withoutMedia != strings.TrimSpace(richHTML) {
+		slog.Warn("rich notification rejected; retrying without media", "job_id", job.ID)
+		err = w.sendAttempt(ctx, func(attemptCtx context.Context) error {
+			return w.sender.SendRichHTML(attemptCtx, job.DestinationChatID, withoutMedia)
+		})
+		if err == nil {
+			return db.NotificationJobResult{Success: true}
+		}
+		if !shouldFallbackContent(err) {
+			return classifyError(err, job.Attempts+1)
+		}
+	}
+
+	slog.Warn("rich notification rejected; using classic HTML fallback", "job_id", job.ID)
+	return w.sendHTMLWithFallback(ctx, job, fallbackHTML)
+}
+
+func (w *Worker) sendHTMLWithFallback(ctx context.Context, job db.NotificationJob, fallbackHTML string) db.NotificationJobResult {
+	err := w.sendAttempt(ctx, func(attemptCtx context.Context) error {
+		return w.sender.SendHTML(attemptCtx, job.DestinationChatID, fallbackHTML)
+	})
+	if err == nil {
+		return db.NotificationJobResult{Success: true}
+	}
+	if !shouldFallbackContent(err) {
+		return classifyError(err, job.Attempts+1)
+	}
+
+	plain := notify.PlainTextFromHTML(fallbackHTML)
+	if plain == "" {
+		return classifyError(err, job.Attempts+1)
+	}
+	slog.Warn("classic HTML notification rejected; using plain text fallback", "job_id", job.ID)
+	err = w.sendAttempt(ctx, func(attemptCtx context.Context) error {
+		return w.sender.SendText(attemptCtx, job.DestinationChatID, plain)
+	})
 	if err == nil {
 		return db.NotificationJobResult{Success: true}
 	}
 	return classifyError(err, job.Attempts+1)
+}
+
+func (w *Worker) sendAttempt(ctx context.Context, send func(context.Context) error) error {
+	attemptCtx, cancel := context.WithTimeout(ctx, w.sendTimeout)
+	defer cancel()
+	return send(attemptCtx)
+}
+
+// Fallback is for content or method-availability failures only. Rate
+// limits, server failures, transport errors, cancellation, and unreachable
+// destinations retain normal retry/disable behavior instead of double-sending.
+func shouldFallbackContent(err error) bool {
+	var apiErr *telegram.APIError
+	if !errors.As(err, &apiErr) || isUnreachableDestination(apiErr) {
+		return false
+	}
+	return apiErr.StatusCode == 400 || apiErr.StatusCode == 403 || apiErr.StatusCode == 404 || apiErr.StatusCode == 413
 }
 
 func classifyError(err error, nextAttempt int) db.NotificationJobResult {

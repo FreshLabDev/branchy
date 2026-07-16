@@ -114,15 +114,28 @@ func (c *Client) GetMe(ctx context.Context) (Me, error) {
 type BotCommand struct {
 	Command     string `json:"command"`
 	Description string `json:"description"`
+	IsEphemeral bool   `json:"is_ephemeral,omitempty"`
+}
+
+type BotCommandScope struct {
+	Type string `json:"type"`
 }
 
 // SetMyCommands registers the bot's command list so the commands are
 // discoverable in Telegram's "/" menu instead of users having to know them.
 func (c *Client) SetMyCommands(ctx context.Context, commands []BotCommand) error {
+	return c.SetMyCommandsForScope(ctx, commands, nil)
+}
+
+func (c *Client) SetMyCommandsForScope(ctx context.Context, commands []BotCommand, scope *BotCommandScope) error {
 	var resp struct {
 		OK bool `json:"ok"`
 	}
-	if err := c.post(ctx, "setMyCommands", map[string]any{"commands": commands}, &resp); err != nil {
+	req := map[string]any{"commands": commands}
+	if scope != nil {
+		req["scope"] = scope
+	}
+	if err := c.post(ctx, "setMyCommands", req, &resp); err != nil {
 		return err
 	}
 	if !resp.OK {
@@ -160,9 +173,51 @@ func (c *Client) SendHTML(ctx context.Context, chatID int64, text string) error 
 	return err
 }
 
-// SendRichMarkdown sends a Bot API 10.1+ rich message. The payload is Telegram
-// Rich Markdown (GFM-compatible, may include supported HTML tags). Used for
-// GitHub notification delivery; bot UI keeps classic HTML parse_mode.
+// SendText is the final notification fallback. It intentionally omits
+// parse_mode so malformed or newly unsupported HTML cannot prevent delivery.
+func (c *Client) SendText(ctx context.Context, chatID int64, text string) error {
+	req := map[string]any{
+		"chat_id":                  chatID,
+		"text":                     text,
+		"disable_web_page_preview": true,
+	}
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	if err := c.post(ctx, "sendMessage", req, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("telegram sendMessage returned ok=false")
+	}
+	return nil
+}
+
+// SendRichHTML sends a Bot API 10.1+ rich message. Branchy renders and
+// sanitizes GitHub Markdown before this boundary; Telegram receives only the
+// versioned Rich HTML stored in the notification outbox.
+func (c *Client) SendRichHTML(ctx context.Context, chatID int64, richHTML string) error {
+	req := map[string]any{
+		"chat_id": chatID,
+		"rich_message": map[string]any{
+			"html":                  richHTML,
+			"skip_entity_detection": true,
+		},
+	}
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	if err := c.post(ctx, "sendRichMessage", req, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("telegram sendRichMessage returned ok=false")
+	}
+	return nil
+}
+
+// SendRichMarkdown is retained as a transport compatibility seam. The current
+// worker sanitizes legacy alpha jobs into Rich HTML before reaching the client.
 func (c *Client) SendRichMarkdown(ctx context.Context, chatID int64, markdown string) error {
 	req := map[string]any{
 		"chat_id": chatID,
@@ -202,6 +257,36 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, mar
 		"text":                     text,
 		"parse_mode":               "HTML",
 		"disable_web_page_preview": true,
+	}
+	if markup != nil {
+		req["reply_markup"] = markup
+	}
+	var resp struct {
+		OK     bool    `json:"ok"`
+		Result Message `json:"result"`
+	}
+	if err := c.post(ctx, "sendMessage", req, &resp); err != nil {
+		return Message{}, err
+	}
+	if !resp.OK {
+		return Message{}, fmt.Errorf("telegram sendMessage returned ok=false")
+	}
+	return resp.Result, nil
+}
+
+// SendEphemeralMessage replies to a Bot API 10.2 ephemeral group command. The
+// response is visible only to the invoking user and must reference the
+// ephemeral command message Telegram delivered to the bot.
+func (c *Client) SendEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *InlineKeyboardMarkup) (Message, error) {
+	req := map[string]any{
+		"chat_id":                  chatID,
+		"receiver_user_id":         receiverUserID,
+		"text":                     text,
+		"parse_mode":               "HTML",
+		"disable_web_page_preview": true,
+		"reply_parameters": map[string]any{
+			"ephemeral_message_id": ephemeralMessageID,
+		},
 	}
 	if markup != nil {
 		req["reply_markup"] = markup

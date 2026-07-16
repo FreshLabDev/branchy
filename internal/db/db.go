@@ -462,11 +462,18 @@ func (s *Store) EnqueueNotificationJobs(ctx context.Context, deliveryID, event, 
 
 	insertedJobs := 0
 	for _, job := range jobs {
+		payloadFormat := job.PayloadFormat
+		if payloadFormat == "" {
+			payloadFormat = NotificationPayloadHTMLV1
+		}
 		tag, err := tx.Exec(ctx, `
-			INSERT INTO notification_jobs (delivery_id, subscription_id, destination_chat_id, text, max_attempts)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO notification_jobs (
+				delivery_id, subscription_id, destination_chat_id, text,
+				rich_text, payload_format, max_attempts
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (delivery_id, subscription_id) DO NOTHING
-		`, deliveryID, job.SubscriptionID, job.DestinationChatID, job.Text, maxAttempts)
+		`, deliveryID, job.SubscriptionID, job.DestinationChatID, job.Text, job.RichText, payloadFormat, maxAttempts)
 		if err != nil {
 			return 0, false, err
 		}
@@ -495,7 +502,8 @@ func (s *Store) ClaimPendingNotificationJobs(ctx context.Context, limit int, lea
 	}()
 
 	rows, err := tx.Query(ctx, `
-		SELECT id::text, delivery_id, COALESCE(subscription_id::text, ''), destination_chat_id, text, attempts, max_attempts, status
+		SELECT id::text, delivery_id, COALESCE(subscription_id::text, ''), destination_chat_id,
+		       text, COALESCE(rich_text, ''), payload_format, attempts, max_attempts, status
 		FROM notification_jobs
 		WHERE (
 			status = 'pending'
@@ -518,7 +526,11 @@ func (s *Store) ClaimPendingNotificationJobs(ctx context.Context, limit int, lea
 	var candidates []claimRow
 	for rows.Next() {
 		var row claimRow
-		if err := rows.Scan(&row.job.ID, &row.job.DeliveryID, &row.job.SubscriptionID, &row.job.DestinationChatID, &row.job.Text, &row.job.Attempts, &row.job.MaxAttempts, &row.status); err != nil {
+		if err := rows.Scan(
+			&row.job.ID, &row.job.DeliveryID, &row.job.SubscriptionID,
+			&row.job.DestinationChatID, &row.job.Text, &row.job.RichText,
+			&row.job.PayloadFormat, &row.job.Attempts, &row.job.MaxAttempts, &row.status,
+		); err != nil {
 			rows.Close()
 			return nil, err
 		}

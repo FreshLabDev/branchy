@@ -4,10 +4,15 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"branchy/internal/db"
 	"branchy/internal/github"
 )
 
@@ -24,6 +29,7 @@ func TestStartCommandTargetsBot(t *testing.T) {
 		{"/start@BranchyBot", self, true},       // case-insensitive
 		{"/start@branchybot extra", self, true}, // trailing args ignored
 		{"/start payload", self, true},          // deep-link payload
+		{"/start\tpayload", self, true},         // any Telegram whitespace separator
 		{"/start@quoto_bot", self, false},       // another bot
 		{"/start@quoto_bot extra", self, false}, // another bot + args
 		{"/start@branchybot", noSelf, false},    // own username unknown → ignore
@@ -37,6 +43,96 @@ func TestStartCommandTargetsBot(t *testing.T) {
 			t.Errorf("startCommandTargetsBot(%q) = %v, want %v", c.text, got, c.want)
 		}
 	}
+}
+
+func TestGroupStartRepliesOnlyThroughEphemeralMessage(t *testing.T) {
+	var calls int
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		raw, _ := io.ReadAll(r.Body)
+		body = string(raw)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"chat":{"id":-100,"type":"supergroup"}}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("token")
+	client.apiBase = server.URL
+	store := &touchStore{}
+	bot := &Bot{store: store, client: client}
+	message := Message{
+		From: User{ID: 42}, Chat: Chat{ID: -100, Type: "supergroup"}, Text: "/start",
+	}
+
+	if err := bot.handleMessage(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("ordinary group /start sent %d public messages, want 0", calls)
+	}
+
+	message.Text = "/start@branchybot"
+	message.EphemeralMessageID = 77
+	if err := bot.handleMessage(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("ephemeral group /start sent %d messages, want 1", calls)
+	}
+	for _, want := range []string{`"receiver_user_id":42`, `"ephemeral_message_id":77`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("ephemeral response missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestEphemeralStartRepliesBeforeCoreTouch(t *testing.T) {
+	requestSeen := make(chan struct{})
+	releaseTouch := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(requestSeen)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"chat":{"id":-100,"type":"supergroup"}}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("token")
+	client.apiBase = server.URL
+	store := &touchStore{touch: func(context.Context, db.TouchArgs) error {
+		<-releaseTouch
+		return errors.New("database unavailable")
+	}}
+	bot := &Bot{store: store, client: client}
+	done := make(chan error, 1)
+	go func() {
+		done <- bot.handleMessage(context.Background(), Message{
+			From: User{ID: 42}, Chat: Chat{ID: -100, Type: "supergroup"},
+			Text: "/start@branchybot", EphemeralMessageID: 77,
+		})
+	}()
+
+	select {
+	case <-requestSeen:
+	case <-time.After(time.Second):
+		t.Fatal("ephemeral response waited for core touch")
+	}
+	close(releaseTouch)
+	if err := <-done; err != nil {
+		t.Fatalf("post-response core touch failure should not retry the update: %v", err)
+	}
+}
+
+type touchStore struct {
+	Store
+	touched int
+	touch   func(context.Context, db.TouchArgs) error
+}
+
+func (s *touchStore) TouchCore(ctx context.Context, args db.TouchArgs) error {
+	s.touched++
+	if s.touch != nil {
+		return s.touch(ctx, args)
+	}
+	return nil
 }
 
 func TestBranchModeLabelReadsAsAction(t *testing.T) {

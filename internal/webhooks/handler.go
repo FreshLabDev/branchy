@@ -130,7 +130,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	text := notify.GitHubEvent(event)
+	notification := notify.GitHubNotification(event)
 	var jobs []db.NotificationJobInsert
 	for _, sub := range subs {
 		filter := SubscriptionFilter{
@@ -146,7 +146,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jobs = append(jobs, db.NotificationJobInsert{
 			SubscriptionID:    sub.ID,
 			DestinationChatID: sub.DestinationChatID,
-			Text:              text,
+			Text:              notification.FallbackHTML,
+			RichText:          notification.RichHTML,
+			PayloadFormat:     db.NotificationPayloadRichHTMLV1,
 		})
 	}
 

@@ -43,11 +43,13 @@ handlers do not send Telegram messages directly; they create durable
 6. Branchy creates or reuses one repository webhook for the selected repository.
 7. GitHub posts events to `/webhooks/github`.
 8. Branchy validates the signature, dedupes the GitHub delivery, parses the
-    event, applies event-specific subscription filters, formats Rich Markdown text,
-   creates `notification_jobs`, and returns `200`.
+   event, applies event-specific subscription filters, renders allowlisted Rich
+   HTML plus a classic HTML fallback, creates `notification_jobs`, and returns
+   `200`.
 9. The outbox worker locks pending jobs with `FOR UPDATE SKIP LOCKED`, sends
-   Telegram messages, marks successes as `sent`, retries temporary failures,
-   and marks permanent failures as `failed`.
+   Telegram messages, falls back through media-free Rich HTML, classic HTML, and
+   plain text when Telegram rejects content, marks successes as `sent`, retries
+   temporary failures, and marks permanent failures as `failed`.
 
 ## Decisions
 
@@ -69,7 +71,10 @@ handlers do not send Telegram messages directly; they create durable
   durable notification jobs, and return `200` without waiting for Telegram.
 - The notification worker retries Telegram `429` and temporary failures using
   `retry_at` and `attempts` (jittered backoff); permanent Telegram API errors are
-  marked failed.
+  marked failed. Content, permission, size, and method-availability errors step
+  through media-free Rich HTML, persisted classic HTML, and plain text. Each
+  stage has a fresh timeout, while ambiguous transport failures never fall
+  through and risk duplicate delivery.
 - When a destination becomes permanently unreachable (bot blocked, kicked, or
   chat deleted), the worker auto-pauses the owning subscription
   (`pause_reason = 'telegram_blocked'`) so it stops queuing jobs that can only
@@ -85,8 +90,17 @@ handlers do not send Telegram messages directly; they create durable
 - SQL migrations run at startup by default and are recorded in
   `schema_migrations`.
 - Telegram update offset is persisted in `runtime_state`.
+- Notification payloads are versioned in the outbox. Existing
+  `rich_markdown_v1` rows from `v1.1.0-alpha.1/alpha.2` are converted through
+  the current Rich HTML sanitizer at delivery time; new `rich_html_v1` rows
+  store Rich HTML separately while the legacy `text` column remains a
+  rollback-safe classic HTML payload.
 - Group delivery is configured only in DM. Candidate groups are learned from
   `my_chat_member` updates when the bot is added to a group.
+- The group-scoped `/start` command is ephemeral under Bot API 10.2. Its DM
+  prompt targets only the invoking user and Branchy does not emit a public
+  group fallback. Command registration retries independently after transient
+  failures, and the reply precedes the best-effort `core.touch` presence write.
 - Before saving a group destination, Branchy checks `getChatMember` and requires
   `creator` or `administrator`.
 - Telegram callback data uses short tokens stored in PostgreSQL for dynamic

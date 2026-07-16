@@ -61,6 +61,10 @@ func NewBot(store Store, client *Client, oauthSvc OAuthService, githubClient *gi
 }
 
 func (b *Bot) Run(ctx context.Context) error {
+	// Username resolution is useful for the DM button but must not delay polling.
+	// Retry it independently so a transient getMe failure heals without restart.
+	go b.warmBotUsername(ctx)
+
 	offset, err := b.loadOffset(ctx)
 	if err != nil {
 		slog.Warn("telegram offset load failed", "error", err)
@@ -205,10 +209,7 @@ func (b *Bot) handleUpdate(ctx context.Context, update Update) error {
 // form (so the common path makes no extra call); an empty self never matches a
 // suffixed start.
 func startCommandTargetsBot(text string, self func() string) bool {
-	text = strings.TrimSpace(text)
-	if i := strings.IndexByte(text, ' '); i >= 0 {
-		text = text[:i]
-	}
+	text = commandToken(text)
 	if text == "/start" {
 		return true
 	}
@@ -219,20 +220,38 @@ func startCommandTargetsBot(text string, self func() string) bool {
 	return false
 }
 
+func commandToken(text string) string {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+// Telegram delivers an ephemeral command only to its target bot, so the
+// suffixed form is safe to accept even while getMe username resolution is down.
+func isEphemeralStartCommand(text string) bool {
+	token := commandToken(text)
+	return token == "/start" || (strings.HasPrefix(token, "/start@") && len(token) > len("/start@"))
+}
+
 func (b *Bot) handleMessage(ctx context.Context, msg Message) error {
+	if msg.Chat.Type != "private" && msg.EphemeralMessageID != 0 && isEphemeralStartCommand(msg.Text) {
+		return b.handleEphemeralStart(ctx, msg)
+	}
 	if err := b.upsertUser(ctx, msg.From, &msg.Chat); err != nil {
 		return err
 	}
-	if startCommandTargetsBot(msg.Text, func() string { return b.botUsername(ctx) }) {
+	resolveSelf := func() string { return b.botUsername(ctx) }
+	if msg.Chat.Type != "private" {
+		resolveSelf = b.cachedBotUsername
+	}
+	if startCommandTargetsBot(msg.Text, resolveSelf) {
 		if msg.Chat.Type != "private" {
-			var markup *InlineKeyboardMarkup
-			if username := b.botUsername(ctx); username != "" {
-				markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{
-					{{Text: "Open Branchy in DM", URL: "https://t.me/" + username}},
-				}}
-			}
-			_, err := b.client.SendMessage(ctx, msg.Chat.ID, "Open a direct message with Branchy to configure notifications.", markup)
-			return err
+			// Bot API 10.2 group /start is registered as ephemeral. Never emit a
+			// public fallback for an ordinary group message: settings belong in DM,
+			// and the prompt must remain visible only to the invoking user.
+			return nil
 		}
 		text, markup, err := b.mainMenu(ctx, msg.From.ID)
 		if err != nil {
@@ -246,6 +265,39 @@ func (b *Bot) handleMessage(ctx context.Context, msg Message) error {
 	if msg.Chat.Type == "private" && strings.TrimSpace(msg.Text) != "" {
 		_, err := b.client.SendMessage(ctx, msg.Chat.ID, "Send /start to open the Branchy menu.", nil)
 		return err
+	}
+	return nil
+}
+
+func (b *Bot) handleEphemeralStart(ctx context.Context, msg Message) error {
+	var markup *InlineKeyboardMarkup
+	if username := b.cachedBotUsername(); username != "" {
+		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{
+			{{Text: "Open Branchy in DM", URL: "https://t.me/" + username}},
+		}}
+	}
+	replyCtx, cancelReply := context.WithTimeout(ctx, 10*time.Second)
+	_, err := b.client.SendEphemeralMessage(
+		replyCtx,
+		msg.Chat.ID,
+		msg.From.ID,
+		msg.EphemeralMessageID,
+		"Open a direct message with Branchy to configure notifications.",
+		markup,
+	)
+	cancelReply()
+	if err != nil {
+		return err
+	}
+
+	// The private response has already been delivered. Presence persistence is
+	// best effort here so a slow or unavailable database cannot cause a duplicate
+	// reply or consume Telegram's 15-second ephemeral response window.
+	touchCtx, cancelTouch := context.WithTimeout(ctx, 2*time.Second)
+	err = b.upsertUser(touchCtx, msg.From, &msg.Chat)
+	cancelTouch()
+	if err != nil && ctx.Err() == nil {
+		slog.Warn("core touch failed after ephemeral start response", "user_id", msg.From.ID, "chat_id", msg.Chat.ID, "error", err)
 	}
 	return nil
 }
@@ -1852,7 +1904,7 @@ func releaseModeLabel(mode string) string {
 // botUsername returns the bot's @username, fetched lazily and cached, for
 // building t.me deep links. Returns "" if it cannot be resolved.
 func (b *Bot) botUsername(ctx context.Context) string {
-	if cached, ok := b.username.Load().(string); ok && cached != "" {
+	if cached := b.cachedBotUsername(); cached != "" {
 		return cached
 	}
 	me, err := b.client.GetMe(ctx)
@@ -1862,6 +1914,32 @@ func (b *Bot) botUsername(ctx context.Context) string {
 	}
 	b.username.Store(me.Username)
 	return me.Username
+}
+
+func (b *Bot) warmBotUsername(ctx context.Context) {
+	delay := 30 * time.Second
+	for {
+		warmCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		username := b.botUsername(warmCtx)
+		cancel()
+		if username != "" || ctx.Err() != nil {
+			return
+		}
+		if sleep(ctx, delay) != nil {
+			return
+		}
+		if delay < 5*time.Minute {
+			delay *= 2
+			if delay > 5*time.Minute {
+				delay = 5 * time.Minute
+			}
+		}
+	}
+}
+
+func (b *Bot) cachedBotUsername() string {
+	cached, _ := b.username.Load().(string)
+	return cached
 }
 
 // userMessage maps an error to text safe to show the user: validation errors

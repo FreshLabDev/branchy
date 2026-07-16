@@ -8,7 +8,56 @@ GitHub Releases.
 
 ## Unreleased
 
-Use this section for changes that are merged but not released yet.
+## v1.1.0-alpha.3 - 2026-07-16
+
+### Added
+
+- **Private group `/start`.** The group-scoped command now uses Bot API 10.2
+  ephemeral commands and replies only to the invoking user with the DM prompt.
+  Branchy no longer posts a public group fallback for `/start`. Command scope
+  registration and bot username discovery retry after transient Telegram
+  failures without delaying HTTP startup or long polling.
+
+### Changed
+
+- **GitHub bodies are rendered to safe Rich HTML inside Branchy.** GFM
+  headings, lists, tables, quotes, links, code, task lists, and media remain
+  available. Safe inline GFM HTML such as underline, superscript, and subscript
+  is retained, while unsafe or Telegram-specific tags, attributes, and URL
+  schemes are removed before Telegram sees the payload.
+- Up to 50 valid HTTP(S) images, videos, or audio items remain visible as Rich
+  Message blocks, including linked Markdown images and supported raw
+  `<img>`/`<video>`/`<audio>` media. Media beyond the Telegram limit remains
+  available as links.
+
+### Fixed
+
+- Rich content is truncated structurally with balanced HTML and explicit caps
+  for message size, block count, nesting depth, media, and table columns.
+- A final HTML5 bounds pass no longer leaks implicit `<tbody>`, `<thead>`, or
+  `<tfoot>` tags that Telegram Rich HTML does not support.
+- Telegram content or method errors now fall back through Rich HTML without
+  media, bounded classic HTML, and plain text. Every stage receives a fresh
+  timeout; rate limits and temporary transport/server failures still retry
+  without risking duplicate fallback sends.
+- Ephemeral group `/start` replies are sent before the best-effort `core.touch`,
+  so a slow or unavailable database cannot consume Telegram's 15-second reply
+  window or trigger duplicate private replies.
+
+### Security
+
+- PR authors and release body contributors can no longer inject
+  Telegram-specific rich tags, unsafe links, mentions, or malformed structures
+  through webhook body Markdown.
+- Build and CI toolchains now require Go 1.26.5, which includes the standard
+  library fix for `GO-2026-5856` in `crypto/tls`.
+
+### Migrations
+
+- `008_notification_job_payload_format.sql` adds versioned payload metadata and
+  `rich_text`. Existing `v1.1.0-alpha.1/alpha.2` rows remain identifiable as
+  Rich Markdown but are converted through the safe Rich HTML sanitizer before
+  delivery. New jobs keep classic HTML in `text` for fallback and rollback.
 
 ## v1.1.0-alpha.2 - 2026-07-16
 

@@ -204,6 +204,9 @@ func TestHandlerEnqueuesMatchingSubscription(t *testing.T) {
 	if !strings.Contains(job.Text, "acme/repo") || !strings.Contains(job.Text, "new commit") {
 		t.Fatalf("job text did not include formatted notification: %q", job.Text)
 	}
+	if job.PayloadFormat != db.NotificationPayloadRichHTMLV1 || job.RichText == "" {
+		t.Fatalf("job did not persist versioned rich payload plus fallback: %+v", job)
+	}
 }
 
 func TestHandlerReconcilesRenamedRepo(t *testing.T) {

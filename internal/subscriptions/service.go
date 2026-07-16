@@ -76,7 +76,7 @@ type Store interface {
 }
 
 type Sender interface {
-	SendRichMarkdown(ctx context.Context, chatID int64, markdown string) error
+	SendHTML(ctx context.Context, chatID int64, text string) error
 }
 
 type Config struct {
@@ -220,7 +220,7 @@ func (s *Service) SendTest(ctx context.Context, sender Sender, telegramUserID in
 	if err != nil {
 		return err
 	}
-	return sender.SendRichMarkdown(ctx, sub.DestinationChatID, notify.TestMessage(sub.RepoFullName))
+	return sender.SendHTML(ctx, sub.DestinationChatID, notify.TestMessage(sub.RepoFullName))
 }
 
 func (s *Service) EnsureWebhook(ctx context.Context, telegramUserID, repoID int64, repoFullName string) error {

@@ -33,9 +33,11 @@ This file is for coding agents working on Branchy. Keep the project minimal, sec
 - OAuth state must be single-use and expire.
 - Escape user-controlled header fields before embedding them in Telegram HTML tags.
 - GitHub notification delivery uses Bot API Rich Messages (`sendRichMessage` /
-  Rich Markdown). Bot UI (`/start`, settings) keeps classic HTML parse mode.
-- Pass PR/release bodies as GFM for Telegram's native renderer; do not log body
-  text. Soft-cap body size so group notifications stay scannable.
+  allowlisted Rich HTML). Bot UI (`/start`, settings) keeps classic HTML parse
+  mode.
+- Parse PR/release bodies as GFM inside Branchy, sanitize the generated HTML,
+  preserve valid media within Telegram limits, and do not log body text.
+  Soft-cap body size so group notifications stay scannable.
 
 ## Webhook And Outbox Flow
 
@@ -51,8 +53,9 @@ The worker should do this:
 poll pending jobs with FOR UPDATE SKIP LOCKED -> sendRichMessage -> mark sent, retry, or failed
 ```
 
-Outbox `notification_jobs.text` stores Rich Markdown for notifications (hard
-cutover from classic HTML when that delivery path changed).
+Outbox payloads are versioned. New jobs keep classic HTML in
+`notification_jobs.text` as a rollback-safe fallback and Rich HTML in
+`rich_text`; existing alpha jobs may remain `rich_markdown_v1`.
 
 Temporary Telegram/GitHub failures should retry with `retry_at` and `attempts`. Permanent delivery failures should be marked `failed`.
 
@@ -99,13 +102,13 @@ Temporary Telegram/GitHub failures should retry with `retry_at` and `attempts`. 
 The local machine may not have `go` in `PATH`. Use Docker for verification:
 
 ```sh
-/Applications/Docker.app/Contents/Resources/bin/docker run --rm -v "$PWD":/src -w /src golang:1.26-alpine go test ./...
+/Applications/Docker.app/Contents/Resources/bin/docker run --rm -v "$PWD":/src -w /src golang:1.26.5-alpine go test ./...
 ```
 
 Run vet when changing service logic:
 
 ```sh
-/Applications/Docker.app/Contents/Resources/bin/docker run --rm -v "$PWD":/src -w /src golang:1.26-alpine go vet ./...
+/Applications/Docker.app/Contents/Resources/bin/docker run --rm -v "$PWD":/src -w /src golang:1.26.5-alpine go vet ./...
 ```
 
 For Docker changes, also run:

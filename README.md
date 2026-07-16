@@ -35,7 +35,7 @@ Branchy keeps the MVP deliberately narrow:
 | Telegram-first setup | Uses `/start` plus inline buttons, with settings in DM |
 | Safe group delivery | Enables groups only after admin or creator verification |
 | Reliable sending | Stores notification jobs in PostgreSQL before delivery |
-| Clean messages | Sends compact Rich Markdown notifications with escaped headers |
+| Clean messages | Renders compact, sanitized Rich HTML with bounded GitHub media |
 
 > **Result:** one small service that turns GitHub activity into readable
 > Telegram updates without expanding beyond the MVP.
@@ -46,12 +46,12 @@ Branchy keeps the MVP deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v1.0.0-alpha.1` | Pre-release hardening the MVP for production: CI/CD, metrics, and automatic recovery |
-| Stable | `v0.2.0` | Latest non-prerelease tag |
+| Latest | `v1.1.0-alpha.3` | Pre-release evaluating Telegram Rich Messages |
+| Stable | `v1.0.3` | Latest non-prerelease tag |
 
-The MVP has been live-tested with Telegram and GitHub. `v0.2.0` is the current
-stable release; `v1.0.0-alpha.1` opens the `v1.0.0` line, which is reserved for a
-mature production contract.
+The MVP has been live-tested with Telegram and GitHub. `v1.0.3` is the current
+stable release; the `v1.1.0` alpha line evaluates the richer Telegram delivery
+path before it is promoted to stable.
 
 ---
 
@@ -142,6 +142,10 @@ Groups become available only after Branchy has seen the group. Before group
 delivery is enabled, Branchy verifies that the Telegram user is a group
 `creator` or `administrator`.
 
+In groups, `/start` is registered as a Bot API 10.2 ephemeral command. Its DM
+prompt is visible only to the user who invoked it; Branchy never posts a public
+fallback into the group.
+
 ---
 
 ## How It Works
@@ -228,8 +232,10 @@ visibility and repository webhook management through the OAuth App flow.
 - GitHub webhook signatures are verified over the raw body before JSON parsing.
 - GitHub delivery IDs are treated as idempotency keys.
 - OAuth state is single-use and expires.
-- GitHub notifications use Telegram Rich Messages (`sendRichMessage`); bot UI
-  keeps HTML parse mode with escaped user-controlled content.
+- GitHub notifications use Telegram Rich Messages (`sendRichMessage`). Branchy
+  renders GitHub Markdown to allowlisted Rich HTML and strips unsafe or
+  Telegram-specific tags, attributes, and URL schemes before delivery; bot UI
+  keeps classic HTML parse mode.
 - Notification links are restricted to `http(s)` URLs.
 - Logs avoid Telegram bot tokens, GitHub tokens, webhook secrets, OAuth client
   secrets, raw authorization headers, and full Telegram Bot API URLs.
@@ -259,8 +265,8 @@ only; restrict them at your reverse proxy if you do not want them public.
 ## Testing
 
 ```sh
-docker run --rm -v "$PWD":/src -w /src golang:1.26-alpine go test ./...
-docker run --rm -v "$PWD":/src -w /src golang:1.26-alpine go vet ./...
+docker run --rm -v "$PWD":/src -w /src golang:1.26.5-alpine go test ./...
+docker run --rm -v "$PWD":/src -w /src golang:1.26.5-alpine go vet ./...
 docker compose config
 ```
 

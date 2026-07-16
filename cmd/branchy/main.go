@@ -95,16 +95,6 @@ func run() error {
 		Burst:         cfg.WebhookRateBurst,
 	})
 
-	// Register the bot's command menu so /start is discoverable in Telegram's
-	// "/" UI. Best effort: a transient failure must not block startup.
-	setCmdCtx, cancelSetCmd := context.WithTimeout(ctx, 10*time.Second)
-	if err := tg.SetMyCommands(setCmdCtx, []telegram.BotCommand{
-		{Command: "start", Description: "Open the Branchy menu"},
-	}); err != nil {
-		slog.Warn("set telegram commands failed", "error", err)
-	}
-	cancelSetCmd()
-
 	startedAt := time.Now()
 
 	mux := http.NewServeMux()
@@ -158,6 +148,11 @@ func run() error {
 		slog.Info("maintenance cleaner starting", "retention", cfg.OutboxRetention)
 		runCleaner(ctx, store, cfg.OutboxRetention)
 	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ensureTelegramCommands(ctx, tg, 30*time.Second)
+	}()
 
 	var runErr error
 	select {
@@ -184,6 +179,74 @@ func run() error {
 	cancel()
 	wg.Wait()
 	return runErr
+}
+
+type commandRegistrar interface {
+	SetMyCommandsForScope(ctx context.Context, commands []telegram.BotCommand, scope *telegram.BotCommandScope) error
+}
+
+// ensureTelegramCommands runs independently from HTTP serving and polling.
+// Each scope is retried until it succeeds, so a transient first-deploy failure
+// cannot leave group /start public or unavailable until the next restart.
+func ensureTelegramCommands(ctx context.Context, registrar commandRegistrar, retryBase time.Duration) {
+	if retryBase <= 0 {
+		retryBase = 30 * time.Second
+	}
+	privateReady := false
+	groupReady := false
+	delay := retryBase
+	for !privateReady || !groupReady {
+		if ctx.Err() != nil {
+			return
+		}
+		if !privateReady {
+			commands := []telegram.BotCommand{{Command: "start", Description: "Open the Branchy menu"}}
+			attemptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			err := registrar.SetMyCommandsForScope(attemptCtx, commands, &telegram.BotCommandScope{Type: "all_private_chats"})
+			cancel()
+			if err != nil {
+				slog.Warn("set private telegram commands failed; will retry", "error", err, "retry_in", delay)
+			} else {
+				privateReady = true
+			}
+		}
+		if !groupReady {
+			commands := []telegram.BotCommand{{
+				Command: "start", Description: "Open Branchy privately", IsEphemeral: true,
+			}}
+			attemptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			err := registrar.SetMyCommandsForScope(attemptCtx, commands, &telegram.BotCommandScope{Type: "all_group_chats"})
+			cancel()
+			if err != nil {
+				slog.Warn("set group telegram commands failed; will retry", "error", err, "retry_in", delay)
+			} else {
+				groupReady = true
+			}
+		}
+		if privateReady && groupReady {
+			return
+		}
+		if err := sleepContext(ctx, delay); err != nil {
+			return
+		}
+		if delay < 5*time.Minute {
+			delay *= 2
+			if delay > 5*time.Minute {
+				delay = 5 * time.Minute
+			}
+		}
+	}
+}
+
+func sleepContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // runCleaner periodically removes expired and terminal state so a long-running

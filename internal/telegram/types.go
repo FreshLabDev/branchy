@@ -17,10 +17,12 @@ type Chat struct {
 }
 
 type Message struct {
-	MessageID int64  `json:"message_id"`
-	From      User   `json:"from"`
-	Chat      Chat   `json:"chat"`
-	Text      string `json:"text"`
+	MessageID          int64  `json:"message_id"`
+	EphemeralMessageID int64  `json:"ephemeral_message_id"`
+	From               User   `json:"from"`
+	ReceiverUser       *User  `json:"receiver_user"`
+	Chat               Chat   `json:"chat"`
+	Text               string `json:"text"`
 }
 
 type CallbackQuery struct {

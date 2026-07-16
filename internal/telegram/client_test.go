@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestSendRichMarkdownPostsRichMessage(t *testing.T) {
+func TestSendRichHTMLPostsRichMessage(t *testing.T) {
 	var gotPath string
 	var gotBody string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -25,13 +25,78 @@ func TestSendRichMarkdownPostsRichMessage(t *testing.T) {
 
 	client := NewClient("token")
 	client.apiBase = server.URL
-	if err := client.SendRichMarkdown(context.Background(), 123, "**hello**"); err != nil {
+	if err := client.SendRichHTML(context.Background(), 123, "<b>hello</b>"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasSuffix(gotPath, "/sendRichMessage") {
 		t.Fatalf("path = %q, want sendRichMessage", gotPath)
 	}
-	for _, want := range []string{`"chat_id":123`, `"markdown":"**hello**"`, `"skip_entity_detection":true`} {
+	for _, want := range []string{`"chat_id":123`, `"html":"\u003cb\u003ehello\u003c/b\u003e"`, `"skip_entity_detection":true`} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("request body missing %q:\n%s", want, gotBody)
+		}
+	}
+}
+
+func TestSendTextOmitsParseMode(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"chat":{"id":123,"type":"private"}}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("token")
+	client.apiBase = server.URL
+	if err := client.SendText(context.Background(), 123, "<not markup>"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(gotBody, "parse_mode") || !strings.Contains(gotBody, `"text":"\u003cnot markup\u003e"`) {
+		t.Fatalf("plain text request unexpectedly enabled parsing:\n%s", gotBody)
+	}
+}
+
+func TestSetMyCommandsSupportsEphemeralGroupScope(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("token")
+	client.apiBase = server.URL
+	err := client.SetMyCommandsForScope(context.Background(), []BotCommand{{
+		Command: "start", Description: "Open privately", IsEphemeral: true,
+	}}, &BotCommandScope{Type: "all_group_chats"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"is_ephemeral":true`, `"type":"all_group_chats"`, `"command":"start"`} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("request body missing %q:\n%s", want, gotBody)
+		}
+	}
+}
+
+func TestSendEphemeralMessageTargetsInvokingUser(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"chat":{"id":-100,"type":"supergroup"}}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("token")
+	client.apiBase = server.URL
+	_, err := client.SendEphemeralMessage(context.Background(), -100, 42, 77, "Open in DM", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"chat_id":-100`, `"receiver_user_id":42`, `"ephemeral_message_id":77`} {
 		if !strings.Contains(gotBody, want) {
 			t.Fatalf("request body missing %q:\n%s", want, gotBody)
 		}

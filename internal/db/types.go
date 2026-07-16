@@ -72,6 +72,8 @@ type NotificationJobInsert struct {
 	SubscriptionID    string
 	DestinationChatID int64
 	Text              string
+	RichText          string
+	PayloadFormat     string
 }
 
 type NotificationJob struct {
@@ -80,9 +82,17 @@ type NotificationJob struct {
 	SubscriptionID    string
 	DestinationChatID int64
 	Text              string
+	RichText          string
+	PayloadFormat     string
 	Attempts          int
 	MaxAttempts       int
 }
+
+const (
+	NotificationPayloadHTMLV1         = "html_v1"
+	NotificationPayloadRichMarkdownV1 = "rich_markdown_v1"
+	NotificationPayloadRichHTMLV1     = "rich_html_v1"
+)
 
 type NotificationJobResult struct {
 	Success   bool
