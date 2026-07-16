@@ -31,8 +31,11 @@ This file is for coding agents working on Branchy. Keep the project minimal, sec
 - Verify `X-Hub-Signature-256` over the raw GitHub webhook body before JSON parsing.
 - Treat GitHub delivery IDs as idempotency keys.
 - OAuth state must be single-use and expire.
-- Escape user-controlled text before Telegram HTML formatting.
-- Keep Telegram parse mode as HTML and avoid noisy formatting.
+- Escape user-controlled header fields before embedding them in Telegram HTML tags.
+- GitHub notification delivery uses Bot API Rich Messages (`sendRichMessage` /
+  Rich Markdown). Bot UI (`/start`, settings) keeps classic HTML parse mode.
+- Pass PR/release bodies as GFM for Telegram's native renderer; do not log body
+  text. Soft-cap body size so group notifications stay scannable.
 
 ## Webhook And Outbox Flow
 
@@ -45,8 +48,11 @@ verify signature -> dedupe GitHub delivery -> create notification_jobs -> return
 The worker should do this:
 
 ```text
-poll pending jobs with FOR UPDATE SKIP LOCKED -> send Telegram -> mark sent, retry, or failed
+poll pending jobs with FOR UPDATE SKIP LOCKED -> sendRichMessage -> mark sent, retry, or failed
 ```
+
+Outbox `notification_jobs.text` stores Rich Markdown for notifications (hard
+cutover from classic HTML when that delivery path changed).
 
 Temporary Telegram/GitHub failures should retry with `retry_at` and `attempts`. Permanent delivery failures should be marked `failed`.
 

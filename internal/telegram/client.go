@@ -160,6 +160,29 @@ func (c *Client) SendHTML(ctx context.Context, chatID int64, text string) error 
 	return err
 }
 
+// SendRichMarkdown sends a Bot API 10.1+ rich message. The payload is Telegram
+// Rich Markdown (GFM-compatible, may include supported HTML tags). Used for
+// GitHub notification delivery; bot UI keeps classic HTML parse_mode.
+func (c *Client) SendRichMarkdown(ctx context.Context, chatID int64, markdown string) error {
+	req := map[string]any{
+		"chat_id": chatID,
+		"rich_message": map[string]any{
+			"markdown":              markdown,
+			"skip_entity_detection": true,
+		},
+	}
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	if err := c.post(ctx, "sendRichMessage", req, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("telegram sendRichMessage returned ok=false")
+	}
+	return nil
+}
+
 // SendHTMLWithButton sends an HTML message with a single inline button bound to
 // a static callback action. It is used by decoupled callers (e.g. the OAuth
 // flow) that need to drop the user into a bot menu without importing the

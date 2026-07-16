@@ -43,7 +43,7 @@ handlers do not send Telegram messages directly; they create durable
 6. Branchy creates or reuses one repository webhook for the selected repository.
 7. GitHub posts events to `/webhooks/github`.
 8. Branchy validates the signature, dedupes the GitHub delivery, parses the
-   event, applies event-specific subscription filters, formats HTML-safe text,
+    event, applies event-specific subscription filters, formats Rich Markdown text,
    creates `notification_jobs`, and returns `200`.
 9. The outbox worker locks pending jobs with `FOR UPDATE SKIP LOCKED`, sends
    Telegram messages, marks successes as `sent`, retries temporary failures,

@@ -44,6 +44,9 @@ type Commit struct {
 	Author  string
 }
 
+// GitHubEvent builds a Telegram Rich Markdown notification string for
+// sendRichMessage. Header/meta fields use HTML tags with escaped user text;
+// GitHub bodies are passed as GFM for Telegram's native Rich Markdown engine.
 func GitHubEvent(event Event) string {
 	switch event.Type {
 	case "push":
@@ -91,12 +94,9 @@ func eventTitle(eventType string) string {
 }
 
 // Commit-list sizing: show as many commits as comfortably fit in one message
-// instead of a fixed handful. The list is budgeted by visible text length
-// (maxCommitListRunes) — well under Telegram's 4096-char limit — so a busy push
-// is not hidden behind "+N more" when it would have fit, while a pathologically
-// long list still collapses to a remainder line rather than an unwieldy wall.
-// GitHub caps a push payload at ~20 commits, so in practice every commit shows;
-// maxCommitLines is only a high safety bound against crafted input.
+// instead of a fixed handful. Budgeted by approximate visible text length.
+// GitHub caps a push payload at ~20 commits; maxCommitLines is a high safety
+// bound against crafted input.
 const (
 	maxCommitLines     = 50
 	maxCommitListRunes = 2400
@@ -169,11 +169,11 @@ func pullRequestEvent(event Event) string {
 
 	var body string
 	if showsPRBody(action) {
-		rendered, truncated := bodyBlock(event.Body, 700)
-		body = rendered
+		prepared, truncated := prepareGitHubBody(event.Body, maxPRBodyRunes)
+		body = wrapBody(prepared, "Description", truncated)
 		if truncated {
 			if link := safeURL(event.URL); link != "" {
-				body += fmt.Sprintf("\n"+`<a href="%s">Read more</a>`, escAttr(link))
+				body += fmt.Sprintf("\n\n"+`<a href="%s">Read more</a>`, escAttr(link))
 			}
 		}
 	}
@@ -197,16 +197,15 @@ func showsPRBody(action string) bool {
 	}
 }
 
-// maxReleaseBodyRunes caps how much of a release's notes we render. Telegram
-// allows 4096 visible characters per message; bodyBlock holds the rendered body
-// to this many *visible* characters and the header/footer/title are bounded, so
-// the whole message stays under the limit while no longer cutting typical
-// release notes off mid-sentence.
-const maxReleaseBodyRunes = 3500
-
-// maxTitleRunes bounds an attacker-influenced release/PR title in the header so
-// it cannot, together with the body, push the message past Telegram's limit.
-const maxTitleRunes = 200
+// Soft body caps stay well under Telegram Rich Message's 32_768 UTF-8 limit so
+// group chats stay scannable even when release notes include media and tables.
+const (
+	maxPRBodyRunes      = 2500
+	maxReleaseBodyRunes = 10000
+	maxTitleRunes       = 200
+	// Absolute guard for the whole notification payload.
+	maxRichMessageBytes = 32768
+)
 
 func releaseEvent(event Event) string {
 	label := "Release"
@@ -228,7 +227,8 @@ func releaseEvent(event Event) string {
 		meta = "by <b>" + esc(event.Actor) + "</b>"
 	}
 
-	body, truncated := bodyBlock(event.Body, maxReleaseBodyRunes)
+	prepared, truncated := prepareGitHubBody(event.Body, maxReleaseBodyRunes)
+	body := wrapBody(prepared, "Release notes", truncated)
 	result := joinSections(header, meta, body)
 	if truncated {
 		if link := safeURL(event.URL); link != "" {
@@ -239,8 +239,7 @@ func releaseEvent(event Event) string {
 }
 
 // formatCommitLine renders one commit row and returns its approximate visible
-// length (sha + space + subject) so commitEvent can budget the list — Telegram
-// counts visible text, not the surrounding <a>/<code> tags, against its limit.
+// length (sha + space + subject) so commitEvent can budget the list.
 func formatCommitLine(commit Commit) (string, int) {
 	sha := shortSHA(commit.SHA)
 	if sha == "" {
@@ -269,74 +268,21 @@ func joinSections(sections ...string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// Body collapse thresholds: a rendered body is folded into an *expandable*
-// (collapsed) Telegram quote only when it is genuinely long — past either limit,
-// or already truncated. Short and medium notes read better shown in full, so
-// they get a plain blockquote. Telegram itself previews an expandable quote at
-// ~3 lines, so these sit deliberately higher to avoid collapsing modest bodies.
-// Raise to collapse less, lower to collapse more.
+// Body collapse thresholds: long notes fold into <details>; short notes use a
+// plain Markdown blockquote. Raise to collapse less, lower to collapse more.
 const (
 	collapseBodyRuneThreshold = 600
 	collapseBodyLineThreshold = 10
 )
 
-// bodyBlock renders a Markdown body and, when it has no block-level elements,
-// wraps it in a Telegram quote — expandable (collapsed) only when long, plain
-// otherwise. Telegram forbids nesting blockquote/pre, so bodies that already
-// contain them are shown as-is.
-func bodyBlock(raw string, maxRunes int) (string, bool) {
-	rendered, truncated := renderGitHubMarkdown(raw, maxRunes)
-	// Rendering can make the visible text LONGER than the raw slice — a Markdown
-	// image becomes an "Image: " prefix — so a raw-rune cap alone can overshoot
-	// Telegram's 4096 visible-char limit and get the whole message rejected.
-	// Shrink the raw cap and re-render until the visible body fits its budget.
-	for rawCap := maxRunes; rawCap > 64 && visibleRuneCount(rendered) > maxRunes; {
-		rawCap = rawCap * 3 / 4
-		rendered, _ = renderGitHubMarkdown(raw, rawCap)
-		truncated = true
-	}
-	if rendered == "" {
-		return "", false
-	}
-	if !strings.Contains(rendered, "<pre") && !strings.Contains(rendered, "<blockquote") {
-		open := "<blockquote>"
-		if shouldCollapseBody(rendered, truncated) {
-			open = "<blockquote expandable>"
-		}
-		rendered = open + rendered + "</blockquote>"
-	}
-	return rendered, truncated
-}
-
-// shouldCollapseBody reports whether a rendered body is long enough to fold into
-// an expandable quote: a truncated body is always long, otherwise it is judged
-// by line count (tall) or visible length (wordy).
-func shouldCollapseBody(rendered string, truncated bool) bool {
+func shouldCollapseBody(body string, truncated bool) bool {
 	if truncated {
 		return true
 	}
-	if strings.Count(rendered, "\n")+1 > collapseBodyLineThreshold {
+	if strings.Count(body, "\n")+1 > collapseBodyLineThreshold {
 		return true
 	}
-	return visibleRuneCount(rendered) > collapseBodyRuneThreshold
-}
-
-// visibleRuneCount approximates the user-visible length of rendered HTML by
-// skipping tag spans — Telegram counts entity text, not the <a>/<b>/<code> tags,
-// so this reflects how long the message actually reads.
-func visibleRuneCount(s string) int {
-	n, inTag := 0, false
-	for _, r := range s {
-		switch {
-		case r == '<':
-			inTag = true
-		case r == '>':
-			inTag = false
-		case !inTag:
-			n++
-		}
-	}
-	return n
+	return len([]rune(body)) > collapseBodyRuneThreshold
 }
 
 func truncateText(value string, maxRunes int) string {

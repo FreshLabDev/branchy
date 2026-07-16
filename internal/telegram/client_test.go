@@ -4,12 +4,39 @@ package telegram
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestSendRichMarkdownPostsRichMessage(t *testing.T) {
+	var gotPath string
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"chat":{"id":123,"type":"private"}}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("token")
+	client.apiBase = server.URL
+	if err := client.SendRichMarkdown(context.Background(), 123, "**hello**"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(gotPath, "/sendRichMessage") {
+		t.Fatalf("path = %q, want sendRichMessage", gotPath)
+	}
+	for _, want := range []string{`"chat_id":123`, `"markdown":"**hello**"`, `"skip_entity_detection":true`} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("request body missing %q:\n%s", want, gotBody)
+		}
+	}
+}
 
 func TestTelegramErrorDoesNotExposeBotToken(t *testing.T) {
 	const token = "123456:secret-token"

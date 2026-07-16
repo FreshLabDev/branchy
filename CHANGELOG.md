@@ -10,6 +10,35 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.1.0-alpha.1 - 2026-07-16
+
+### Changed
+
+- **GitHub notifications use Telegram Rich Messages.** Delivery switched from
+  classic HTML `sendMessage` to Bot API `sendRichMessage` (Rich Markdown).
+  Headers still use escaped HTML tags; PR and release bodies are passed as
+  GitHub Flavored Markdown so Telegram natively renders headings, lists, tables,
+  quotes, code, and media (`![](url)`).
+- **Long bodies use `<details>`.** Short notes stay Markdown blockquotes; long
+  or truncated notes collapse under a collapsible details summary instead of
+  classic `<blockquote expandable>`.
+- Soft body caps raised for the rich-message limit (PR ~2500 runes, release
+  ~10000 runes) while keeping group notifications scannable.
+- Bot UI (`/start`, settings, OAuth replies) is unchanged and still uses HTML
+  parse mode.
+
+### Breaking
+
+- **Hard cutover for the outbox payload format.** `notification_jobs.text` is
+  now Rich Markdown. Pending jobs enqueued as classic HTML before this deploy
+  can fail permanently; drain or fail pending rows before upgrading.
+
+### Operations
+
+- No database migration.
+- Ensure the bot can send media in destination groups if release notes include
+  remote images (Telegram may embed media blocks from Markdown).
+
 ## v1.0.3 - 2026-07-01
 
 ### Fixed

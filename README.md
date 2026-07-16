@@ -35,7 +35,7 @@ Branchy keeps the MVP deliberately narrow:
 | Telegram-first setup | Uses `/start` plus inline buttons, with settings in DM |
 | Safe group delivery | Enables groups only after admin or creator verification |
 | Reliable sending | Stores notification jobs in PostgreSQL before delivery |
-| Clean messages | Sends compact Telegram HTML with escaped user content |
+| Clean messages | Sends compact Rich Markdown notifications with escaped headers |
 
 > **Result:** one small service that turns GitHub activity into readable
 > Telegram updates without expanding beyond the MVP.
@@ -228,7 +228,8 @@ visibility and repository webhook management through the OAuth App flow.
 - GitHub webhook signatures are verified over the raw body before JSON parsing.
 - GitHub delivery IDs are treated as idempotency keys.
 - OAuth state is single-use and expires.
-- Telegram messages use HTML parse mode with escaped user-controlled content.
+- GitHub notifications use Telegram Rich Messages (`sendRichMessage`); bot UI
+  keeps HTML parse mode with escaped user-controlled content.
 - Notification links are restricted to `http(s)` URLs.
 - Logs avoid Telegram bot tokens, GitHub tokens, webhook secrets, OAuth client
   secrets, raw authorization headers, and full Telegram Bot API URLs.

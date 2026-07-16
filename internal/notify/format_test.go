@@ -61,7 +61,6 @@ func TestGitHubEventFormatsSingleCommit(t *testing.T) {
 			t.Fatalf("formatted commit notification missing %q:\n%s", want, text)
 		}
 	}
-	// The author appears once (footer), not under every commit.
 	if strings.Count(text, "amtiYo") != 1 {
 		t.Fatalf("author should appear once:\n%s", text)
 	}
@@ -92,8 +91,6 @@ func TestGitHubEventFormatsMultipleCommits(t *testing.T) {
 }
 
 func TestGitHubEventShowsAllCommitsThatFit(t *testing.T) {
-	// 15 short commits all fit well within the text budget, so none are hidden
-	// behind a "+N more" line (the old fixed cap of 10 would have hidden 5).
 	var commits []Commit
 	for i := 0; i < 15; i++ {
 		commits = append(commits, Commit{
@@ -112,8 +109,6 @@ func TestGitHubEventShowsAllCommitsThatFit(t *testing.T) {
 }
 
 func TestGitHubEventTrimsOverlongCommitListToRemainder(t *testing.T) {
-	// A pathologically long list of long-subject commits exceeds the text budget,
-	// so it is trimmed and the overflow is summarized as "+N more commits".
 	var commits []Commit
 	for i := 0; i < 60; i++ {
 		commits = append(commits, Commit{
@@ -132,12 +127,10 @@ func TestGitHubEventTrimsOverlongCommitListToRemainder(t *testing.T) {
 	}
 }
 
-func TestGitHubEventBodyStaysUnderTelegramLimit(t *testing.T) {
-	// Markdown-image bomb: rendering expands each "![](x)" into an "Image: "
-	// prefix, so a raw-rune cap alone would overshoot Telegram's 4096 visible
-	// limit and get the whole message rejected. With an overlong title too, the
-	// full message must still fit.
-	body := strings.Repeat("![](x) ", 800)
+func TestGitHubEventBodyStaysUnderSoftCap(t *testing.T) {
+	// Overlong body must truncate with a full-notes link rather than shipping
+	// an unbounded payload to Telegram.
+	body := strings.Repeat("All the release notes go here. ", 800)
 	text := GitHubEvent(Event{
 		Type:         "release",
 		RepoFullName: "acme/repo",
@@ -146,11 +139,14 @@ func TestGitHubEventBodyStaysUnderTelegramLimit(t *testing.T) {
 		URL:          "https://github.com/acme/repo/releases/tag/v1",
 		Body:         body,
 	})
-	if got := visibleRuneCount(text); got > 4096 {
-		t.Fatalf("message visible length = %d, exceeds Telegram's 4096-char limit", got)
+	if len(text) > maxRichMessageBytes {
+		t.Fatalf("message length = %d, exceeds Telegram rich limit %d", len(text), maxRichMessageBytes)
 	}
 	if !strings.Contains(text, "Full release notes") {
 		t.Fatalf("a body trimmed to fit should still link to the full notes:\n%s", text)
+	}
+	if !strings.Contains(text, "<details>") {
+		t.Fatalf("a truncated body should collapse into details:\n%s", text)
 	}
 }
 
@@ -160,33 +156,30 @@ func TestGitHubEventCollapsesOnlyLongBodies(t *testing.T) {
 	}
 
 	short := mk("A quick one-line release note.")
-	if strings.Contains(short, "expandable") {
+	if strings.Contains(short, "<details>") {
 		t.Fatalf("a short body must not be collapsed:\n%s", short)
 	}
-	if !strings.Contains(short, "<blockquote>") {
-		t.Fatalf("a short body should still render in a plain quote:\n%s", short)
+	if !strings.Contains(short, "> A quick one-line release note.") {
+		t.Fatalf("a short body should render as a Markdown quote:\n%s", short)
 	}
 
-	// Wordy (~1100 visible chars) crosses the rune threshold.
 	wordy := mk(strings.Repeat("This release changes a lot of things. ", 30))
-	if !strings.Contains(wordy, "<blockquote expandable>") {
-		t.Fatalf("a long body should collapse into an expandable quote:\n%s", wordy)
+	if !strings.Contains(wordy, "<details>") || !strings.Contains(wordy, "<summary>Release notes</summary>") {
+		t.Fatalf("a long body should collapse into details:\n%s", wordy)
 	}
 
-	// Tall (15 short lines) crosses the line threshold despite low char count.
 	var lines []string
 	for i := 0; i < 15; i++ {
 		lines = append(lines, fmt.Sprintf("- item %d", i))
 	}
 	tall := mk(strings.Join(lines, "\n"))
-	if !strings.Contains(tall, "<blockquote expandable>") {
-		t.Fatalf("a tall body should collapse into an expandable quote:\n%s", tall)
+	if !strings.Contains(tall, "<details>") {
+		t.Fatalf("a tall body should collapse into details:\n%s", tall)
 	}
 }
 
-func TestGitHubEventRendersMarkdownInsideBlockquote(t *testing.T) {
-	// Inline Markdown inside a GitHub blockquote (the common callout region of
-	// release notes) must render as entities, not raw source.
+func TestGitHubEventKeepsRawMarkdownInBody(t *testing.T) {
+	// Body is Rich Markdown source for Telegram — do not convert GFM to HTML.
 	text := GitHubEvent(Event{
 		Type:         "release",
 		RepoFullName: "acme/repo",
@@ -194,14 +187,14 @@ func TestGitHubEventRendersMarkdownInsideBlockquote(t *testing.T) {
 		URL:          "https://github.com/acme/repo/releases/tag/v1.2.3",
 		Body:         "> See the [migration guide](https://github.com/acme/repo/wiki) and **back up** first",
 	})
-	if !strings.Contains(text, `<a href="https://github.com/acme/repo/wiki">migration guide</a>`) {
-		t.Fatalf("blockquote link should render as an anchor:\n%s", text)
+	if !strings.Contains(text, "[migration guide](https://github.com/acme/repo/wiki)") {
+		t.Fatalf("body link markdown should be preserved:\n%s", text)
 	}
-	if !strings.Contains(text, "<b>back up</b>") {
-		t.Fatalf("blockquote bold should render as <b>:\n%s", text)
+	if !strings.Contains(text, "**back up**") {
+		t.Fatalf("body bold markdown should be preserved:\n%s", text)
 	}
-	if strings.Contains(text, "[migration guide]") || strings.Contains(text, "**back up**") {
-		t.Fatalf("raw markdown leaked from the blockquote:\n%s", text)
+	if strings.Contains(text, "<b>back up</b>") {
+		t.Fatalf("body must not be pre-converted to HTML entities:\n%s", text)
 	}
 }
 
@@ -222,11 +215,8 @@ func TestGitHubEventFormatsPullRequest(t *testing.T) {
 		"Pull request opened",
 		"into <code>main</code> · by <b>amtiYo</b>",
 		`<a href="https://github.com/FreshLabDev/branchy/pull/7">#7 Fix &lt;format&gt; &amp; &#34;escape&#34;</a>`,
-		// A short PR description renders (Markdown) inside a plain, non-collapsed
-		// quote — only long bodies get the expandable (collapsed) variant.
-		"<blockquote>",
-		"<b>improves</b>",
-		"<code>notify</code>",
+		"> This PR **improves** things.",
+		"> See `notify` for details.",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("formatted PR notification missing %q:\n%s", want, text)
@@ -279,20 +269,22 @@ func TestGitHubEventFormatsRelease(t *testing.T) {
 	for _, want := range []string{
 		iconRelease + " <b>FreshLabDev/branchy</b>",
 		`<b>Pre-release</b> · <a href="https://github.com/FreshLabDev/branchy/releases/tag/v0.1.0-alpha.1">v0.1.0-alpha.1 &lt;format&gt; &amp; &#34;escape&#34;</a>`,
-		"<b>Added</b>",
-		`- <b>Commit notifications</b> with <a href="https://github.com/FreshLabDev/branchy/compare/a...b">compare links</a>`,
-		"- <i>Release notes</i> with <code>code</code> and <s>old wording</s>",
-		"<blockquote>Keep it concise</blockquote>",
-		`Image: <a href="https://github.com/FreshLabDev/branchy/assets/release.png">Screenshot</a>`,
-		"<u>Underlined bit</u>",
+		"> ## Added",
+		"> - **Commit notifications** with [compare links](https://github.com/FreshLabDev/branchy/compare/a...b)",
+		"> - _Release notes_ with `code` and ~~old wording~~",
+		"> > Keep it concise",
+		"> ![Screenshot](https://github.com/FreshLabDev/branchy/assets/release.png)",
+		"> <ins>Underlined bit</ins>",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("formatted release notification missing %q:\n%s", want, text)
 		}
 	}
-	// The tag/target plumbing, the "Release notes" label, and the redundant
-	// "published" wording are gone (the words may still appear in body text).
-	for _, unwanted := range []string{"Tag: <code>", "Target: <code>", "<b>Release notes</b>", "Pre-release published"} {
+	// Short multi-line body stays a quote, not details.
+	if strings.Contains(text, "<details>") {
+		t.Fatalf("short release body should not use details:\n%s", text)
+	}
+	for _, unwanted := range []string{"Tag: <code>", "Target: <code>", "Pre-release published"} {
 		if strings.Contains(text, unwanted) {
 			t.Fatalf("release notification should not contain %q:\n%s", unwanted, text)
 		}
@@ -300,12 +292,10 @@ func TestGitHubEventFormatsRelease(t *testing.T) {
 }
 
 func TestGitHubEventReleaseBodyCapFitsLongNotes(t *testing.T) {
-	// ~2880 runes: above the old 1800 cap but within Telegram's 4096-char
-	// limit, so the full notes must render without truncation or a
-	// "Full release notes" fallback link.
+	// Within the soft release body cap: no Full release notes link.
 	body := strings.Repeat("All the release notes go here. ", 96)
-	if len([]rune(body)) <= 1800 || len([]rune(body)) >= maxReleaseBodyRunes {
-		t.Fatalf("test body should sit between the old and new caps, got %d runes", len([]rune(body)))
+	if len([]rune(body)) >= maxReleaseBodyRunes {
+		t.Fatalf("test body should sit under the release cap, got %d runes", len([]rune(body)))
 	}
 	text := GitHubEvent(Event{
 		Type:         "release",
@@ -334,33 +324,25 @@ func TestGitHubEventDropsUnsafeURL(t *testing.T) {
 	}
 }
 
-func TestRenderGitHubMarkdownDropsUnsafeLinksAndComments(t *testing.T) {
-	text, truncated := renderGitHubMarkdown(`<!-- hidden -->
-[safe](https://github.com/FreshLabDev/branchy) [bad](javascript:alert(1))
-https://github.com/FreshLabDev/branchy.`, 1000)
-	if truncated {
-		t.Fatal("short markdown should not be truncated")
-	}
-	if strings.Contains(text, "hidden") || strings.Contains(text, "javascript:") {
-		t.Fatalf("unsafe markdown leaked into output:\n%s", text)
-	}
-	for _, want := range []string{
-		`<a href="https://github.com/FreshLabDev/branchy">safe</a>`,
-		"bad",
-		`<a href="https://github.com/FreshLabDev/branchy">https://github.com/FreshLabDev/branchy</a>.`,
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("markdown output missing %q:\n%s", want, text)
-		}
-	}
-}
-
-func TestRenderGitHubMarkdownTruncates(t *testing.T) {
-	text, truncated := renderGitHubMarkdown("abcdef", 3)
+func TestPrepareGitHubBodyStripsCommentsAndTruncates(t *testing.T) {
+	body, truncated := prepareGitHubBody("<!-- hidden -->hello world", 5)
 	if !truncated {
 		t.Fatal("expected truncation")
 	}
-	if text != "abc\n..." {
-		t.Fatalf("unexpected truncated text: %q", text)
+	if strings.Contains(body, "hidden") {
+		t.Fatalf("HTML comment leaked:\n%s", body)
+	}
+	if !strings.HasPrefix(body, "hello") || !strings.Contains(body, "...") {
+		t.Fatalf("unexpected truncated body: %q", body)
+	}
+}
+
+func TestPrepareGitHubBodyPreservesMarkdown(t *testing.T) {
+	body, truncated := prepareGitHubBody("**bold** and [x](https://example.com)", 1000)
+	if truncated {
+		t.Fatal("short body should not truncate")
+	}
+	if body != "**bold** and [x](https://example.com)" {
+		t.Fatalf("unexpected body: %q", body)
 	}
 }

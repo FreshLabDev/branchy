@@ -163,7 +163,7 @@ type fakeSender struct {
 	sent int
 }
 
-func (f *fakeSender) SendHTML(context.Context, int64, string) error {
+func (f *fakeSender) SendRichMarkdown(context.Context, int64, string) error {
 	f.sent++
 	return nil
 }

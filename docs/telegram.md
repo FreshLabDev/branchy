@@ -22,8 +22,14 @@ destination.
 
 ## Notifications
 
-Notifications use Telegram HTML parse mode. User-controlled GitHub fields are
-escaped before sending.
+GitHub notifications use Telegram Bot API **Rich Messages**
+(`sendRichMessage`) with Rich Markdown. Header and meta fields use HTML tags
+with escaped user-controlled text; PR and release bodies are passed as GitHub
+Flavored Markdown so Telegram renders tables, quotes, code, and media natively.
+
+Short bodies are shown as Markdown blockquotes. Long or truncated bodies use a
+collapsible `<details>` block. Bot UI (`/start`, settings, OAuth replies) still
+uses classic HTML `sendMessage` / `editMessageText`.
 
 Message content stays concise and includes:
 
@@ -33,6 +39,7 @@ Message content stays concise and includes:
 - branch
 - title or summary
 - GitHub link
+- optional PR/release body
 
 ## Subscription Settings
 

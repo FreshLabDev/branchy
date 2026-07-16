@@ -30,7 +30,7 @@ type Store interface {
 }
 
 type Sender interface {
-	SendHTML(ctx context.Context, chatID int64, text string) error
+	SendRichMarkdown(ctx context.Context, chatID int64, markdown string) error
 }
 
 type Worker struct {
@@ -132,7 +132,7 @@ func (w *Worker) send(ctx context.Context, job db.NotificationJob) db.Notificati
 	sendCtx, cancel := context.WithTimeout(ctx, w.sendTimeout)
 	defer cancel()
 
-	err := w.sender.SendHTML(sendCtx, job.DestinationChatID, job.Text)
+	err := w.sender.SendRichMarkdown(sendCtx, job.DestinationChatID, job.Text)
 	if err == nil {
 		return db.NotificationJobResult{Success: true}
 	}

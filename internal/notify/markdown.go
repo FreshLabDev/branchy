@@ -2,100 +2,53 @@
 package notify
 
 import (
-	"fmt"
-	"strconv"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 )
 
-func renderGitHubMarkdown(markdown string, maxRunes int) (string, bool) {
-	markdown = normalizeMarkdown(markdown)
-	markdown, truncated := truncateRunes(markdown, maxRunes)
-	if strings.TrimSpace(markdown) == "" {
+// prepareGitHubBody normalizes and truncates a GitHub Markdown body for Telegram
+// Rich Markdown (sendRichMessage). Telegram renders GFM natively, so Branchy
+// does not convert Markdown to HTML — only light cleanup and size limits.
+func prepareGitHubBody(raw string, maxRunes int) (string, bool) {
+	body := normalizeMarkdown(raw)
+	body, truncated := truncateRunes(body, maxRunes)
+	body = strings.TrimSpace(body)
+	if body == "" {
 		return "", false
 	}
-
-	var out []string
-	var quote []string
-	var code []string
-	inCode := false
-
-	flushQuote := func() {
-		if len(quote) == 0 {
-			return
-		}
-		// Render each quoted line as inline Markdown (links, emphasis, code)
-		// rather than escaping it raw: blockquotes are the most common rich-text
-		// region of release notes and PR bodies, and inline entities are valid
-		// inside a Telegram <blockquote>.
-		rendered := make([]string, len(quote))
-		for i, line := range quote {
-			rendered[i] = renderMarkdownInline(line)
-		}
-		out = append(out, "<blockquote>"+strings.Join(rendered, "\n")+"</blockquote>")
-		quote = nil
+	if truncated {
+		body += "\n\n..."
 	}
-	flushCode := func() {
-		if len(code) == 0 {
-			out = append(out, "<pre></pre>")
-		} else {
-			out = append(out, "<pre>"+esc(strings.Join(code, "\n"))+"</pre>")
-		}
-		code = nil
-	}
+	return body, truncated
+}
 
-	for _, line := range strings.Split(markdown, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
-			flushQuote()
-			if inCode {
-				flushCode()
-				inCode = false
-			} else {
-				inCode = true
-			}
+// wrapBody wraps a prepared body for scannable group delivery:
+// short notes become a Markdown blockquote; long or truncated notes use a
+// collapsible <details> block (Rich Markdown / Rich HTML hybrid).
+func wrapBody(body, summary string, truncated bool) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+	if summary == "" {
+		summary = "Notes"
+	}
+	if shouldCollapseBody(body, truncated) {
+		return "<details>\n<summary>" + esc(summary) + "</summary>\n\n" + body + "\n\n</details>"
+	}
+	return quoteMarkdown(body)
+}
+
+func quoteMarkdown(body string) string {
+	lines := strings.Split(body, "\n")
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			out[i] = ">"
 			continue
 		}
-		if inCode {
-			code = append(code, strings.TrimRight(line, "\r"))
-			continue
-		}
-		if trimmed == "" {
-			flushQuote()
-			appendBlankLine(&out)
-			continue
-		}
-		if strings.HasPrefix(trimmed, ">") {
-			quote = append(quote, strings.TrimSpace(strings.TrimPrefix(trimmed, ">")))
-			continue
-		}
-
-		flushQuote()
-		switch {
-		case isRule(trimmed):
-			appendBlankLine(&out)
-		case markdownHeading(trimmed) != "":
-			out = append(out, "<b>"+renderMarkdownInline(markdownHeading(trimmed))+"</b>")
-		case unorderedListItem(trimmed) != "":
-			out = append(out, "- "+renderMarkdownInline(stripTaskMarker(unorderedListItem(trimmed))))
-		case orderedListItem(trimmed) != "":
-			number, item := parseOrderedListItem(trimmed)
-			out = append(out, fmt.Sprintf("%d. %s", number, renderMarkdownInline(stripTaskMarker(item))))
-		default:
-			out = append(out, renderMarkdownInline(trimmed))
-		}
+		out[i] = "> " + line
 	}
-	flushQuote()
-	if inCode {
-		flushCode()
-	}
-
-	rendered := strings.TrimSpace(compactBlankLines(out))
-	if truncated && rendered != "" {
-		rendered += "\n..."
-	}
-	return rendered, truncated
+	return strings.Join(out, "\n")
 }
 
 func normalizeMarkdown(value string) string {
@@ -130,312 +83,4 @@ func truncateRunes(value string, maxRunes int) (string, bool) {
 		return value, false
 	}
 	return strings.TrimSpace(string(runes[:maxRunes])), true
-}
-
-func appendBlankLine(lines *[]string) {
-	if len(*lines) == 0 || (*lines)[len(*lines)-1] == "" {
-		return
-	}
-	*lines = append(*lines, "")
-}
-
-func compactBlankLines(lines []string) string {
-	var compact []string
-	blank := false
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			if !blank && len(compact) > 0 {
-				compact = append(compact, "")
-			}
-			blank = true
-			continue
-		}
-		compact = append(compact, line)
-		blank = false
-	}
-	return strings.Join(compact, "\n")
-}
-
-func isRule(line string) bool {
-	if len(line) < 3 {
-		return false
-	}
-	first := line[0]
-	if first != '-' && first != '*' && first != '_' {
-		return false
-	}
-	for _, r := range line {
-		if r != rune(first) && !unicode.IsSpace(r) {
-			return false
-		}
-	}
-	return true
-}
-
-func markdownHeading(line string) string {
-	level := 0
-	for level < len(line) && line[level] == '#' {
-		level++
-	}
-	if level == 0 || level > 6 || level >= len(line) || line[level] != ' ' {
-		return ""
-	}
-	return strings.TrimSpace(line[level+1:])
-}
-
-func unorderedListItem(line string) string {
-	if len(line) < 3 {
-		return ""
-	}
-	if (line[0] == '-' || line[0] == '*' || line[0] == '+') && unicode.IsSpace(rune(line[1])) {
-		return strings.TrimSpace(line[2:])
-	}
-	return ""
-}
-
-func orderedListItem(line string) string {
-	_, item := parseOrderedListItem(line)
-	return item
-}
-
-func parseOrderedListItem(line string) (int, string) {
-	i := 0
-	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
-		i++
-	}
-	if i == 0 || i >= len(line) || (line[i] != '.' && line[i] != ')') {
-		return 0, ""
-	}
-	if i+1 >= len(line) || !unicode.IsSpace(rune(line[i+1])) {
-		return 0, ""
-	}
-	number, err := strconv.Atoi(line[:i])
-	if err != nil {
-		return 0, ""
-	}
-	return number, strings.TrimSpace(line[i+2:])
-}
-
-func stripTaskMarker(item string) string {
-	trimmed := strings.TrimSpace(item)
-	lower := strings.ToLower(trimmed)
-	switch {
-	case strings.HasPrefix(lower, "[x] "):
-		return "[x] " + strings.TrimSpace(trimmed[4:])
-	case strings.HasPrefix(lower, "[ ] "):
-		return "[ ] " + strings.TrimSpace(trimmed[4:])
-	default:
-		return item
-	}
-}
-
-func renderMarkdownInline(value string) string {
-	return renderMarkdownInlineDepth(value, 0)
-}
-
-func renderMarkdownInlineDepth(value string, depth int) string {
-	if depth > 4 || value == "" {
-		return esc(value)
-	}
-	var b strings.Builder
-	for i := 0; i < len(value); {
-		lower := strings.ToLower(value[i:])
-		switch {
-		case strings.HasPrefix(value[i:], "!["):
-			if alt, link, end, ok := parseMarkdownLink(value, i+1); ok {
-				if safe := safeURL(link); safe != "" {
-					b.WriteString(`Image: <a href="`)
-					b.WriteString(escAttr(safe))
-					b.WriteString(`">`)
-					b.WriteString(esc(alt))
-					b.WriteString("</a>")
-				} else {
-					b.WriteString("Image: ")
-					b.WriteString(esc(alt))
-				}
-				i = end
-				continue
-			}
-		case strings.HasPrefix(value[i:], "["):
-			if label, link, end, ok := parseMarkdownLink(value, i); ok {
-				if safe := safeURL(link); safe != "" {
-					b.WriteString(`<a href="`)
-					b.WriteString(escAttr(safe))
-					b.WriteString(`">`)
-					b.WriteString(esc(label))
-					b.WriteString("</a>")
-				} else {
-					b.WriteString(esc(label))
-				}
-				i = end
-				continue
-			}
-		case strings.HasPrefix(value[i:], "`"):
-			if inner, end, ok := parseDelimited(value, i, "`"); ok {
-				b.WriteString("<code>")
-				b.WriteString(esc(inner))
-				b.WriteString("</code>")
-				i = end
-				continue
-			}
-		case strings.HasPrefix(value[i:], "***"):
-			if inner, end, ok := parseDelimited(value, i, "***"); ok {
-				b.WriteString("<b><i>")
-				b.WriteString(renderMarkdownInlineDepth(inner, depth+1))
-				b.WriteString("</i></b>")
-				i = end
-				continue
-			}
-		case strings.HasPrefix(value[i:], "**"):
-			if inner, end, ok := parseDelimited(value, i, "**"); ok {
-				b.WriteString("<b>")
-				b.WriteString(renderMarkdownInlineDepth(inner, depth+1))
-				b.WriteString("</b>")
-				i = end
-				continue
-			}
-		case strings.HasPrefix(value[i:], "__"):
-			if inner, end, ok := parseDelimited(value, i, "__"); ok {
-				b.WriteString("<b>")
-				b.WriteString(renderMarkdownInlineDepth(inner, depth+1))
-				b.WriteString("</b>")
-				i = end
-				continue
-			}
-		case strings.HasPrefix(value[i:], "~~"):
-			if inner, end, ok := parseDelimited(value, i, "~~"); ok {
-				b.WriteString("<s>")
-				b.WriteString(renderMarkdownInlineDepth(inner, depth+1))
-				b.WriteString("</s>")
-				i = end
-				continue
-			}
-		case strings.HasPrefix(lower, "<ins>"):
-			if inner, end, ok := parseHTMLPair(value, i, "ins"); ok {
-				b.WriteString("<u>")
-				b.WriteString(renderMarkdownInlineDepth(inner, depth+1))
-				b.WriteString("</u>")
-				i = end
-				continue
-			}
-		case strings.HasPrefix(lower, "<u>"):
-			if inner, end, ok := parseHTMLPair(value, i, "u"); ok {
-				b.WriteString("<u>")
-				b.WriteString(renderMarkdownInlineDepth(inner, depth+1))
-				b.WriteString("</u>")
-				i = end
-				continue
-			}
-		case strings.HasPrefix(value[i:], "*"):
-			if inner, end, ok := parseDelimited(value, i, "*"); ok {
-				b.WriteString("<i>")
-				b.WriteString(renderMarkdownInlineDepth(inner, depth+1))
-				b.WriteString("</i>")
-				i = end
-				continue
-			}
-		case strings.HasPrefix(value[i:], "_") && delimiterBoundary(value, i):
-			if inner, end, ok := parseDelimited(value, i, "_"); ok && delimiterBoundary(value, end-1) {
-				b.WriteString("<i>")
-				b.WriteString(renderMarkdownInlineDepth(inner, depth+1))
-				b.WriteString("</i>")
-				i = end
-				continue
-			}
-		case strings.HasPrefix(value[i:], "https://") || strings.HasPrefix(value[i:], "http://"):
-			if link, end := parseAutoURL(value, i); link != "" {
-				b.WriteString(`<a href="`)
-				b.WriteString(escAttr(link))
-				b.WriteString(`">`)
-				b.WriteString(esc(link))
-				b.WriteString("</a>")
-				i = end
-				continue
-			}
-		}
-
-		r, size := utf8.DecodeRuneInString(value[i:])
-		if r == utf8.RuneError && size == 0 {
-			break
-		}
-		b.WriteString(esc(string(r)))
-		i += size
-	}
-	return b.String()
-}
-
-func parseMarkdownLink(value string, start int) (string, string, int, bool) {
-	closeLabel := strings.Index(value[start:], "]")
-	if closeLabel < 0 {
-		return "", "", start, false
-	}
-	closeLabel += start
-	if closeLabel+1 >= len(value) || value[closeLabel+1] != '(' {
-		return "", "", start, false
-	}
-	closeURL := strings.Index(value[closeLabel+2:], ")")
-	if closeURL < 0 {
-		return "", "", start, false
-	}
-	closeURL += closeLabel + 2
-	label := value[start+1 : closeLabel]
-	link := strings.TrimSpace(value[closeLabel+2 : closeURL])
-	return label, link, closeURL + 1, true
-}
-
-func parseDelimited(value string, start int, delimiter string) (string, int, bool) {
-	contentStart := start + len(delimiter)
-	close := strings.Index(value[contentStart:], delimiter)
-	if close < 0 {
-		return "", start, false
-	}
-	close += contentStart
-	if close == contentStart {
-		return "", start, false
-	}
-	return value[contentStart:close], close + len(delimiter), true
-}
-
-func parseHTMLPair(value string, start int, tag string) (string, int, bool) {
-	open := "<" + tag + ">"
-	close := "</" + tag + ">"
-	lower := strings.ToLower(value)
-	if !strings.HasPrefix(lower[start:], open) {
-		return "", start, false
-	}
-	contentStart := start + len(open)
-	closeStart := strings.Index(lower[contentStart:], close)
-	if closeStart < 0 {
-		return "", start, false
-	}
-	closeStart += contentStart
-	return value[contentStart:closeStart], closeStart + len(close), true
-}
-
-func parseAutoURL(value string, start int) (string, int) {
-	end := start
-	for end < len(value) && !unicode.IsSpace(rune(value[end])) {
-		end++
-	}
-	link := strings.TrimRight(value[start:end], ".,;:!?)]}")
-	if safeURL(link) == "" {
-		return "", start
-	}
-	return link, start + len(link)
-}
-
-func delimiterBoundary(value string, idx int) bool {
-	before := rune(0)
-	after := rune(0)
-	if idx > 0 {
-		before, _ = utf8.DecodeLastRuneInString(value[:idx])
-	}
-	if idx+1 < len(value) {
-		after, _ = utf8.DecodeRuneInString(value[idx+1:])
-	}
-	return !(isWordRune(before) && isWordRune(after))
-}
-
-func isWordRune(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }
