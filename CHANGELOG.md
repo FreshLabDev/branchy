@@ -8,6 +8,10 @@ GitHub Releases.
 
 ## Unreleased
 
+Use this section for changes that are merged but not released yet.
+
+## v1.1.0-alpha.2 - 2026-07-16
+
 ### Fixed
 
 - **Notification headers keep a line break under the repo name.** Rich Markdown
