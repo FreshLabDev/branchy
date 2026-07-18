@@ -46,12 +46,12 @@ Branchy keeps the MVP deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v1.1.0-alpha.3` | Pre-release evaluating Telegram Rich Messages |
-| Stable | `v1.0.3` | Latest non-prerelease tag |
+| Latest | `v1.1.0` | Stable Telegram Rich Messages release |
+| Previous | `v1.0.3` | Previous stable release using classic HTML delivery |
 
-The MVP has been live-tested with Telegram and GitHub. `v1.0.3` is the current
-stable release; the `v1.1.0` alpha line evaluates the richer Telegram delivery
-path before it is promoted to stable.
+The MVP has been live-tested with Telegram and GitHub. `v1.1.0` is the current
+stable release and promotes the richer Telegram delivery path after a clean
+production soak and adversarial media/fallback testing.
 
 ---
 

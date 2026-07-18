@@ -8,6 +8,62 @@ GitHub Releases.
 
 ## Unreleased
 
+## v1.1.0 - 2026-07-18
+
+Stable Telegram Bot API 10.2 release. Promoted from `v1.1.0-alpha.3` after a
+40-hour error-free production soak and live release-notification tests covering
+mixed media, the 50-media boundary, unsafe input sanitizing, and rejected-media
+fallback.
+
+### Added
+
+- **Private group `/start`.** The group-scoped command is ephemeral: Branchy's
+  DM prompt is visible only to the invoking user. Registration retries after
+  transient Telegram failures without delaying HTTP startup or long polling.
+
+### Changed
+
+- GitHub PR and release bodies are rendered as sanitized Bot API Rich HTML.
+  GFM headings, lists, tables, quotes, links, code, task lists, and safe inline
+  HTML remain available.
+- Up to 50 valid HTTP(S) images, videos, or audio items remain visible as Rich
+  Message blocks. Overflow media remains reachable as links.
+- New outbox jobs retain both preferred Rich HTML and bounded classic HTML, so
+  content failures and rollback paths do not lose the notification.
+
+### Fixed
+
+- Rich output is structurally bounded by message size, block count, nesting
+  depth, media count, and table width, with balanced HTML after truncation.
+- Telegram content or method errors fall back through Rich HTML without media,
+  classic HTML, and plain text. Temporary transport, server, and rate-limit
+  failures keep normal retry behavior without risking duplicate fallback sends.
+- Notification headers preserve the visual line break between repository name
+  and event details.
+- Ephemeral group replies are sent before the best-effort `core.touch`, so a
+  slow database cannot consume Telegram's reply window or cause duplicates.
+
+### Security
+
+- Unsafe tags, Telegram-specific tags, event attributes, mentions, malformed
+  structures, and non-HTTP(S) URL schemes are removed before delivery.
+- Build and CI toolchains require Go 1.26.5, including the standard-library fix
+  for `GO-2026-5856` in `crypto/tls`.
+
+### Migrations
+
+- `008_notification_job_payload_format.sql` adds `rich_text` and versioned
+  payload metadata. Existing alpha jobs remain identifiable and are sanitized
+  before delivery; rollback-era workers continue using classic `text`.
+
+### Operations
+
+- No new environment variables, OAuth scopes, or webhook-event requirements.
+- `AUTO_MIGRATE=true` applies migration `008` during upgrade from `v1.0.3`.
+- WS04 production Compose no longer declares the retired standalone
+  `branchy-postgres` service; shared `core-postgres` remains the only durable
+  store. Historical volume data was preserved for rollback.
+
 ## v1.1.0-alpha.3 - 2026-07-16
 
 ### Added
