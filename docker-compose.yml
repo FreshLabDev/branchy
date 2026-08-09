@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Local development only. Production uses /opt/stacks/branchy and shared core-postgres.
 services:
   postgres:
     image: postgres:17-alpine

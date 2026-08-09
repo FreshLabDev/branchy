@@ -8,6 +8,29 @@ GitHub Releases.
 
 ## Unreleased
 
+## v1.1.1 - 2026-08-09
+
+Patch release for subscription webhook consistency and safer OAuth failure
+handling.
+
+### Fixed
+
+- Subscription create, pause, edit, and delete operations now compensate the
+  database mutation when GitHub webhook synchronization fails, then attempt to
+  restore the previous repository hook configuration.
+- Repository webhook event unions and synchronization locks now use the stable
+  GitHub repository id, so repository renames cannot split hook state.
+
+### Security
+
+- OAuth callback failures are logged server-side and no longer expose internal
+  provider or transport error details in the browser response.
+
+### Operations
+
+- Production deployment documentation now distinguishes the local Compose
+  stack from the shared `core-postgres` WS04 deployment.
+
 ## v1.1.0 - 2026-07-18
 
 Stable Telegram Bot API 10.2 release. Promoted from `v1.1.0-alpha.3` after a

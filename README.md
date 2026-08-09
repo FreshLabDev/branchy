@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/FreshLabDev/branchy/releases"><img src="https://img.shields.io/github/v/release/FreshLabDev/branchy?include_prereleases&sort=semver&style=for-the-badge&label=latest&labelColor=0f172a&color=4c8c4a" alt="latest version"></a>
-  <a href="docs/versioning.md"><img src="https://img.shields.io/badge/stable-v0.2.0-4c8c4a?style=for-the-badge&labelColor=0f172a" alt="stable version"></a>
+  <a href="docs/versioning.md"><img src="https://img.shields.io/badge/stable-v1.1.1-4c8c4a?style=for-the-badge&labelColor=0f172a" alt="stable version"></a>
   <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/FreshLabDev/branchy?style=for-the-badge&logo=go&logoColor=white&label=go&labelColor=0f172a&color=00ADD8" alt="go version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-334155?style=for-the-badge&labelColor=0f172a" alt="license"></a>
   <a href="https://t.me/branchy_bot"><img src="https://img.shields.io/badge/telegram-%40branchy__bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0f172a" alt="telegram bot"></a>
@@ -46,12 +46,13 @@ Branchy keeps the MVP deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v1.1.0` | Stable Telegram Rich Messages release |
-| Previous | `v1.0.3` | Previous stable release using classic HTML delivery |
+| Latest | `v1.1.1` | Stable Telegram Rich Messages release with webhook consistency fixes |
+| Previous | `v1.1.0` | Stable Telegram Rich Messages release |
 
-The MVP has been live-tested with Telegram and GitHub. `v1.1.0` is the current
-stable release and promotes the richer Telegram delivery path after a clean
-production soak and adversarial media/fallback testing.
+The MVP has been live-tested with Telegram and GitHub. `v1.1.1` is the current
+stable release. It keeps the richer Telegram delivery path and hardens
+subscription changes so a failed GitHub webhook sync does not leave a user
+operation half-applied.
 
 ---
 
@@ -119,10 +120,12 @@ Branchy runs startup migrations from `migrations/` and records completed
 versions in `schema_migrations`. Keep `AUTO_MIGRATE=true` for local
 development.
 
-The bundled `docker compose` runs a local PostgreSQL and seeds a minimal shared
-`core` schema (`deploy/core-init.sql`) so migrations that reference
-`core.person` / `core.chat` boot cleanly. In the shared production deployment
-Branchy instead connects to the existing `core-postgres`.
+The bundled `docker compose` is for local development only. It runs a local
+PostgreSQL and seeds a minimal shared `core` schema (`deploy/core-init.sql`) so
+migrations that reference `core.person` / `core.chat` boot cleanly. In the
+shared production deployment Branchy instead connects to the existing
+`core-postgres`; use the production deployment procedure in
+[`docs/releases.md`](docs/releases.md).
 
 ---
 
@@ -179,7 +182,9 @@ poll pending jobs with FOR UPDATE SKIP LOCKED
 ```
 
 Temporary Telegram or GitHub failures retry with `retry_at` and `attempts`.
-Permanent delivery failures are marked `failed`.
+Permanent delivery failures are marked `failed`. Subscription changes that
+cannot synchronize the repository webhook are compensated back to their prior
+database state, followed by a best-effort restoration of the prior hook.
 
 ---
 

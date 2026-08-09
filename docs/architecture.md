@@ -67,6 +67,11 @@ handlers do not send Telegram messages directly; they create durable
 - GitHub webhooks are owned per repository, not per subscription. Active
   subscription events are unioned into the repository hook configuration. When
   the active event union becomes empty, Branchy deletes its matching hook.
+  The union and in-process lock are keyed by the stable GitHub repository id,
+  so repository renames do not split synchronization state. If a subscription
+  mutation cannot synchronize GitHub, Branchy compensates the database change
+  and best-effort restores the previous hook configuration before returning the
+  error to Telegram.
 - GitHub webhook requests validate signature, dedupe delivery IDs, create
   durable notification jobs, and return `200` without waiting for Telegram.
 - The notification worker retries Telegram `429` and temporary failures using

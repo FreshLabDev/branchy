@@ -106,11 +106,19 @@ func (failingStore) CreateSubscription(context.Context, db.Subscription) (string
 	return "", false, errors.New("store should not be called")
 }
 
+func (failingStore) FindSubscriptionByConfig(context.Context, db.Subscription) (db.Subscription, error) {
+	return db.Subscription{}, errors.New("store should not be called")
+}
+
 func (failingStore) GetSubscriptionForUser(context.Context, int64, string) (db.Subscription, error) {
 	return db.Subscription{}, errors.New("store should not be called")
 }
 
 func (failingStore) UpdateSubscriptionStatus(context.Context, int64, string, string) error {
+	return errors.New("store should not be called")
+}
+
+func (failingStore) RestoreSubscriptionStatus(context.Context, int64, string, string, string) error {
 	return errors.New("store should not be called")
 }
 
@@ -138,7 +146,11 @@ func (failingStore) DeleteSubscription(context.Context, int64, string) error {
 	return errors.New("store should not be called")
 }
 
-func (failingStore) ListActiveEventsForRepo(context.Context, string) ([]string, error) {
+func (failingStore) RestoreSubscription(context.Context, db.Subscription) error {
+	return errors.New("store should not be called")
+}
+
+func (failingStore) ListActiveEventsForRepo(context.Context, int64) ([]string, error) {
 	return nil, errors.New("store should not be called")
 }
 

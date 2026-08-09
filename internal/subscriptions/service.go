@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -62,15 +63,18 @@ type Store interface {
 	GetGitHubConnection(ctx context.Context, telegramUserID int64) (db.GitHubConnection, error)
 	UpsertRepository(ctx context.Context, repo db.Repository) error
 	CreateSubscription(ctx context.Context, sub db.Subscription) (string, bool, error)
+	FindSubscriptionByConfig(ctx context.Context, sub db.Subscription) (db.Subscription, error)
 	GetSubscriptionForUser(ctx context.Context, telegramUserID int64, id string) (db.Subscription, error)
 	UpdateSubscriptionStatus(ctx context.Context, telegramUserID int64, id, status string) error
+	RestoreSubscriptionStatus(ctx context.Context, telegramUserID int64, id, status, pauseReason string) error
 	UpdateSubscriptionEventsAndSettings(ctx context.Context, telegramUserID int64, id string, events []string, branchMode string, branchNames []string, pullRequestActions []string, releaseMode string) error
 	UpdateSubscriptionBranch(ctx context.Context, telegramUserID int64, id, mode string, branchNames []string) error
 	UpdateSubscriptionPullRequestActions(ctx context.Context, telegramUserID int64, id string, actions []string) error
 	UpdateSubscriptionReleaseMode(ctx context.Context, telegramUserID int64, id, releaseMode string) error
 	UpdateSubscriptionDestination(ctx context.Context, telegramUserID int64, id, destinationType string, chatID int64) error
 	DeleteSubscription(ctx context.Context, telegramUserID int64, id string) error
-	ListActiveEventsForRepo(ctx context.Context, repoFullName string) ([]string, error)
+	RestoreSubscription(ctx context.Context, sub db.Subscription) error
+	ListActiveEventsForRepo(ctx context.Context, repoID int64) ([]string, error)
 	UpsertRepoHook(ctx context.Context, repoID int64, fullName string, hookID int64, events []string, payloadURL string) error
 	DeleteRepoHook(ctx context.Context, repoID int64) error
 }
@@ -89,7 +93,7 @@ type Service struct {
 	store     Store
 	github    *github.Client
 	sealer    *oauth.TokenSealer
-	repoLocks sync.Map // repoFullName -> *sync.Mutex
+	repoLocks sync.Map // githubRepoID -> *sync.Mutex
 }
 
 func NewService(cfg Config, store Store, githubClient *github.Client, sealer *oauth.TokenSealer) *Service {
@@ -101,8 +105,8 @@ func NewService(cfg Config, store Store, githubClient *github.Client, sealer *oa
 // so an in-process lock is sufficient and avoids pinning a database connection
 // across the GitHub HTTP call. Running multiple instances would require a
 // cross-process lock instead.
-func (s *Service) repoMutex(repoFullName string) *sync.Mutex {
-	actual, _ := s.repoLocks.LoadOrStore(repoFullName, &sync.Mutex{})
+func (s *Service) repoMutex(repoID int64) *sync.Mutex {
+	actual, _ := s.repoLocks.LoadOrStore(strconv.FormatInt(repoID, 10), &sync.Mutex{})
 	return actual.(*sync.Mutex)
 }
 
@@ -118,7 +122,7 @@ func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.
 	if err := s.store.UpsertRepository(ctx, storedRepo); err != nil {
 		return "", err
 	}
-	id, created, err := s.store.CreateSubscription(ctx, db.Subscription{
+	requested := db.Subscription{
 		TelegramUserID:     telegramUserID,
 		DestinationType:    destinationType,
 		DestinationChatID:  destinationChatID,
@@ -129,17 +133,24 @@ func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.
 		BranchNames:        settings.BranchNames,
 		PullRequestActions: settings.PullRequestActions,
 		ReleaseMode:        settings.ReleaseMode,
-	})
+	}
+	existing, lookupErr := s.store.FindSubscriptionByConfig(ctx, requested)
+	if lookupErr != nil && !errors.Is(lookupErr, db.ErrNotFound) {
+		return "", lookupErr
+	}
+	id, created, err := s.store.CreateSubscription(ctx, requested)
 	if err != nil {
 		return "", err
 	}
-	if err := s.EnsureWebhook(ctx, telegramUserID, storedRepo.GitHubRepoID, storedRepo.FullName); err != nil {
-		// Only roll back a subscription we actually inserted. If an identical
-		// subscription already existed and was reactivated, deleting it here
-		// would destroy configuration the user already had.
+	if err := s.syncWebhookWithRollback(ctx, telegramUserID, storedRepo.GitHubRepoID, storedRepo.FullName, func() error {
 		if created {
-			_ = s.store.DeleteSubscription(ctx, telegramUserID, id)
+			return s.store.DeleteSubscription(ctx, telegramUserID, id)
 		}
+		if lookupErr == nil {
+			return s.store.RestoreSubscriptionStatus(ctx, telegramUserID, id, existing.Status, existing.PauseReason)
+		}
+		return nil
+	}); err != nil {
 		return "", err
 	}
 	slog.Info("subscription created", "telegram_user_id", telegramUserID, "repo", storedRepo.FullName, "events", settings.Events)
@@ -157,7 +168,9 @@ func (s *Service) SetStatus(ctx context.Context, telegramUserID int64, id, statu
 	if err := s.store.UpdateSubscriptionStatus(ctx, telegramUserID, id, status); err != nil {
 		return err
 	}
-	return s.EnsureWebhook(ctx, telegramUserID, sub.GitHubRepoID, sub.RepoFullName)
+	return s.syncWebhookWithRollback(ctx, telegramUserID, sub.GitHubRepoID, sub.RepoFullName, func() error {
+		return s.store.RestoreSubscriptionStatus(ctx, telegramUserID, id, sub.Status, sub.PauseReason)
+	})
 }
 
 func (s *Service) SetEvents(ctx context.Context, telegramUserID int64, id string, events []string) error {
@@ -172,7 +185,10 @@ func (s *Service) SetEvents(ctx context.Context, telegramUserID int64, id string
 	if err := s.store.UpdateSubscriptionEventsAndSettings(ctx, telegramUserID, id, settings.Events, settings.BranchMode, settings.BranchNames, settings.PullRequestActions, settings.ReleaseMode); err != nil {
 		return translateWriteErr(err)
 	}
-	return s.EnsureWebhook(ctx, telegramUserID, sub.GitHubRepoID, sub.RepoFullName)
+	return s.syncWebhookWithRollback(ctx, telegramUserID, sub.GitHubRepoID, sub.RepoFullName, func() error {
+		return s.store.UpdateSubscriptionEventsAndSettings(ctx, telegramUserID, id,
+			sub.Events, sub.BranchMode, sub.BranchNames, sub.PullRequestActions, sub.ReleaseMode)
+	})
 }
 
 func (s *Service) SetBranch(ctx context.Context, telegramUserID int64, id, mode string, branchNames []string) error {
@@ -212,7 +228,9 @@ func (s *Service) Delete(ctx context.Context, telegramUserID int64, id string) e
 	if err := s.store.DeleteSubscription(ctx, telegramUserID, id); err != nil {
 		return err
 	}
-	return s.EnsureWebhook(ctx, telegramUserID, sub.GitHubRepoID, sub.RepoFullName)
+	return s.syncWebhookWithRollback(ctx, telegramUserID, sub.GitHubRepoID, sub.RepoFullName, func() error {
+		return s.store.RestoreSubscription(ctx, sub)
+	})
 }
 
 func (s *Service) SendTest(ctx context.Context, sender Sender, telegramUserID int64, id string) error {
@@ -226,11 +244,12 @@ func (s *Service) SendTest(ctx context.Context, sender Sender, telegramUserID in
 func (s *Service) EnsureWebhook(ctx context.Context, telegramUserID, repoID int64, repoFullName string) error {
 	// Serialize per repository so concurrent subscription edits cannot push a
 	// stale event union to GitHub and leave the hook diverged from the database.
-	mu := s.repoMutex(repoFullName)
+	// The stable GitHub repository id keeps this lock valid across renames.
+	mu := s.repoMutex(repoID)
 	mu.Lock()
 	defer mu.Unlock()
 
-	events, err := s.store.ListActiveEventsForRepo(ctx, repoFullName)
+	events, err := s.store.ListActiveEventsForRepo(ctx, repoID)
 	if err != nil {
 		return err
 	}
@@ -257,6 +276,30 @@ func (s *Service) EnsureWebhook(ctx context.Context, telegramUserID, repoID int6
 	}
 	slog.Info("repo webhook synced", "repo", repoFullName, "events", events)
 	return s.store.UpsertRepoHook(ctx, repoID, repoFullName, hook.ID, events, payloadURL)
+}
+
+// syncWebhookWithRollback keeps a subscription mutation and the external
+// GitHub hook aligned when hook management fails. The database mutation is
+// compensated first, then the previous hook configuration is restored on a
+// best-effort basis. A durable webhook reconciler would be needed to remove
+// the unavoidable crash window between the database and GitHub calls; this
+// compensation closes the normal error path without leaving a user-facing
+// operation half-applied.
+func (s *Service) syncWebhookWithRollback(ctx context.Context, telegramUserID, repoID int64, repoFullName string, rollback func() error) error {
+	if err := s.EnsureWebhook(ctx, telegramUserID, repoID, repoFullName); err == nil {
+		return nil
+	} else {
+		if rollbackErr := rollback(); rollbackErr != nil {
+			slog.Error("subscription webhook sync rollback failed",
+				"repo", repoFullName, "repo_id", repoID, "error", rollbackErr)
+			return err
+		}
+		if restoreErr := s.EnsureWebhook(ctx, telegramUserID, repoID, repoFullName); restoreErr != nil {
+			slog.Warn("previous repository webhook restore failed",
+				"repo", repoFullName, "repo_id", repoID, "error", restoreErr)
+		}
+		return err
+	}
 }
 
 func toDBRepo(repo github.Repository) db.Repository {

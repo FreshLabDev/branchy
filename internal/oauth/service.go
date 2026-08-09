@@ -86,9 +86,10 @@ func (s *Service) CreateAuthURL(ctx context.Context, telegramUserID int64) (stri
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := s.handleCallback(r.Context(), r); err != nil {
+		slog.Warn("github oauth callback failed", "error", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = fmt.Fprintf(w, "<!doctype html><title>Branchy</title><p>GitHub connection failed: %s</p>", html.EscapeString(err.Error()))
+		_, _ = fmt.Fprint(w, "<!doctype html><title>Branchy</title><p>GitHub connection failed. Return to Telegram and try again.</p>")
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

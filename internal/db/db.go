@@ -237,6 +237,40 @@ func (s *Store) CreateSubscription(ctx context.Context, sub Subscription) (strin
 	return id, inserted, err
 }
 
+// FindSubscriptionByConfig returns the existing row that CreateSubscription
+// would reactivate. Callers use it to restore the prior status if webhook
+// synchronization fails after the upsert.
+func (s *Store) FindSubscriptionByConfig(ctx context.Context, sub Subscription) (Subscription, error) {
+	var existing Subscription
+	err := s.pool.QueryRow(ctx, `
+		SELECT s.id::text, s.telegram_user_id, s.destination_type, s.destination_chat_id,
+		       s.github_repo_id, s.repo_full_name, s.events, s.branch_mode, s.branch_name,
+		       s.branch_names, s.pull_request_actions, s.release_mode,
+		       s.status, s.pause_reason, r.default_branch, r.html_url
+		FROM subscriptions s
+		JOIN repositories r ON r.github_repo_id = s.github_repo_id
+		WHERE s.telegram_user_id = $1
+		  AND s.destination_type = $2
+		  AND s.destination_chat_id = $3
+		  AND s.github_repo_id = $4
+		  AND s.events = $5
+		  AND s.branch_mode = $6
+		  AND s.branch_names = $7
+		  AND s.pull_request_actions = $8
+		  AND s.release_mode = $9
+	`, sub.TelegramUserID, sub.DestinationType, sub.DestinationChatID, sub.GitHubRepoID,
+		sub.Events, sub.BranchMode, sub.BranchNames, sub.PullRequestActions, sub.ReleaseMode).Scan(
+		&existing.ID, &existing.TelegramUserID, &existing.DestinationType, &existing.DestinationChatID,
+		&existing.GitHubRepoID, &existing.RepoFullName, &existing.Events, &existing.BranchMode,
+		&existing.BranchName, &existing.BranchNames, &existing.PullRequestActions,
+		&existing.ReleaseMode, &existing.Status, &existing.PauseReason, &existing.DefaultBranch, &existing.HTMLURL,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Subscription{}, ErrNotFound
+	}
+	return existing, err
+}
+
 func (s *Store) ListSubscriptionsByUser(ctx context.Context, telegramUserID int64) ([]Subscription, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT s.id::text, s.telegram_user_id, s.destination_type, s.destination_chat_id,
@@ -312,13 +346,13 @@ func (s *Store) ReconcileSubscriptionRepoName(ctx context.Context, repoID int64,
 	return err
 }
 
-func (s *Store) ListActiveEventsForRepo(ctx context.Context, repoFullName string) ([]string, error) {
+func (s *Store) ListActiveEventsForRepo(ctx context.Context, repoID int64) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT unnest(events)
 		FROM subscriptions
-		WHERE repo_full_name = $1 AND status = 'active'
+		WHERE github_repo_id = $1 AND status = 'active'
 		ORDER BY 1
-	`, repoFullName)
+	`, repoID)
 	if err != nil {
 		return nil, err
 	}
@@ -344,6 +378,18 @@ func (s *Store) UpdateSubscriptionStatus(ctx context.Context, telegramUserID int
 		SET status = $3, pause_reason = '', updated_at = now()
 		WHERE telegram_user_id = $1 AND id = $2
 	`, telegramUserID, id, status)
+	return requireAffected(tag, err)
+}
+
+// RestoreSubscriptionStatus is used by the subscription service's
+// compensating rollback. Unlike a user-driven status update it preserves the
+// automatic pause reason exactly as it was before the failed webhook sync.
+func (s *Store) RestoreSubscriptionStatus(ctx context.Context, telegramUserID int64, id, status, pauseReason string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE subscriptions
+		SET status = $3, pause_reason = $4, updated_at = now()
+		WHERE telegram_user_id = $1 AND id = $2
+	`, telegramUserID, id, status, pauseReason)
 	return requireAffected(tag, err)
 }
 
@@ -404,6 +450,22 @@ func (s *Store) DeleteSubscription(ctx context.Context, telegramUserID int64, id
 		WHERE telegram_user_id = $1 AND id = $2
 	`, telegramUserID, id)
 	return requireAffected(tag, err)
+}
+
+// RestoreSubscription reinstates a deleted row with its original id and
+// settings when the corresponding GitHub webhook mutation cannot be completed.
+func (s *Store) RestoreSubscription(ctx context.Context, sub Subscription) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO subscriptions (
+			id, telegram_user_id, destination_type, destination_chat_id,
+			github_repo_id, repo_full_name, events, branch_mode, branch_name,
+			branch_names, pull_request_actions, release_mode, status, pause_reason
+		)
+		VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+	`, sub.ID, sub.TelegramUserID, sub.DestinationType, sub.DestinationChatID,
+		sub.GitHubRepoID, sub.RepoFullName, sub.Events, sub.BranchMode, sub.BranchName,
+		sub.BranchNames, sub.PullRequestActions, sub.ReleaseMode, sub.Status, sub.PauseReason)
+	return err
 }
 
 func (s *Store) UpsertRepoHook(ctx context.Context, repoID int64, fullName string, hookID int64, events []string, payloadURL string) error {

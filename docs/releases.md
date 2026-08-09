@@ -56,7 +56,7 @@ Use this shape for release notes (same sections as `CHANGELOG.md`):
 - Migration notes, env, or deploy notes when relevant.
 ```
 
-GitHub Release **title** is the version only (`v1.1.0-alpha.1`), not
+GitHub Release **title** is the version only (`v1.1.1`), not
 `Branchy v…`. Copy the matching `CHANGELOG.md` version section into the release
 body (skip the `## vX.Y.Z` heading).
 
@@ -80,13 +80,34 @@ gh release create v0.1.0-alpha.1 \
 Create a stable release:
 
 ```sh
-git tag -a v0.1.0 -m "v0.1.0"
+git tag -a v1.1.1 -m "v1.1.1"
 git push origin main
-git push origin v0.1.0
-gh release create v0.1.0 \
-  --title "v0.1.0" \
+git push origin v1.1.1
+gh release create v1.1.1 \
+  --title "v1.1.1" \
   --notes-file /tmp/branchy-release-notes.md
 ```
 
 Do not publish a release before the release notes, tag, and verification status
 all match.
+
+## Production Deployment
+
+Production runs the `branchy` service from `/opt/stacks/branchy` and uses the
+shared `core-postgres`. The root `docker-compose.yml` is local-development
+configuration and must not be used as a production deployment source.
+
+After the commit and tag are published, deploy only the Branchy stack with the
+WS04 deployment workflow. The deploy command snapshots the current compose,
+environment, and image ids, waits for health, and rolls back automatically on a
+failed health check:
+
+```sh
+WS04_HOST=ssh.amdumo.fun ws04 deploy branchy --yes --health-timeout 120
+WS04_HOST=ssh.amdumo.fun ws04 stack status branchy
+WS04_HOST=ssh.amdumo.fun ws04 audit --stack branchy --since 1h
+```
+
+The final check must confirm the released version in `/healthz`, a healthy
+container with no restart, fresh Telegram polling and outbox worker timestamps,
+and zero pending, processing, or failed notification jobs.
