@@ -33,8 +33,9 @@ This file is for coding agents working on Branchy. Keep the project minimal, sec
 - OAuth state must be single-use and expire.
 - Escape user-controlled header fields before embedding them in Telegram HTML tags.
 - GitHub notification delivery uses Bot API Rich Messages (`sendRichMessage` /
-  allowlisted Rich HTML). Bot UI (`/start`, settings) keeps classic HTML parse
-  mode.
+  allowlisted Rich HTML, including 10.3 in-message buttons that Branchy
+  generates). Bot UI (`/start`, settings) keeps classic HTML parse mode. Settings
+  keyboards may use Bot API 10.3 `disabled` buttons.
 - Parse PR/release bodies as GFM inside Branchy, sanitize the generated HTML,
   preserve valid media within Telegram limits, and do not log body text.
   Soft-cap body size so group notifications stay scannable.

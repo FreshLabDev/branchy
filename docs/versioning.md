@@ -27,6 +27,7 @@ v0.2.0          notable UX, operations, or MVP-compatible feature improvements
 v1.0.0          first stable production contract
 v1.1.0          Telegram Rich Messages and Bot API 10.2 delivery
 v1.1.1          webhook consistency and OAuth error-surface fixes
+v1.2.0-alpha.1  Bot API 10.3 notification cards and disabled settings
 ```
 
 Future releases:

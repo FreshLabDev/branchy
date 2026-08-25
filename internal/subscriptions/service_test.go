@@ -196,3 +196,25 @@ func TestTranslateGitHubErr(t *testing.T) {
 		t.Fatal("401 must remain an auth error after translation")
 	}
 }
+
+func TestIsContentSendErrorSkipsUnreachableChats(t *testing.T) {
+	blocked := stubAPIError{status: 403, unreachable: true}
+	if isContentSendError(blocked) {
+		t.Fatal("blocked-chat 403 must not fall back to a second send")
+	}
+	content := stubAPIError{status: 400, unreachable: false}
+	if !isContentSendError(content) {
+		t.Fatal("content 400 should fall back")
+	}
+}
+
+type stubAPIError struct {
+	status      int
+	unreachable bool
+}
+
+func (e stubAPIError) Error() string { return "telegram error" }
+
+func (e stubAPIError) HTTPStatus() int { return e.status }
+
+func (e stubAPIError) IsUnreachableDestination() bool { return e.unreachable }

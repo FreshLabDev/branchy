@@ -78,6 +78,40 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("telegram %s failed: %s", e.Method, description)
 }
 
+// HTTPStatus returns the HTTP status of a Telegram API error so callers can
+// classify content vs transport failures without importing this package's
+// concrete type.
+func (e *APIError) HTTPStatus() int { return e.StatusCode }
+
+// IsUnreachableDestination reports a permanent Telegram error that means the
+// chat can never receive messages again (blocked, kicked, deleted, deactivated).
+// Matched on the human description because Telegram overloads 400/403 across
+// many cases. Callers can duck-type this method without importing this package.
+func (e *APIError) IsUnreachableDestination() bool {
+	if e == nil || (e.StatusCode != 400 && e.StatusCode != 403) {
+		return false
+	}
+	if e.MigrateToChatID != 0 {
+		return true
+	}
+	desc := strings.ToLower(e.Description)
+	for _, marker := range []string{
+		"bot was blocked",
+		"user is deactivated",
+		"bot was kicked",
+		"bot is not a member",
+		"chat not found",
+		"group chat was deleted",
+		"group chat was upgraded to a supergroup",
+		"need administrator rights",
+	} {
+		if strings.Contains(desc, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // IsMessageNotModified reports whether err is Telegram's benign "message is not
 // modified" response, which happens whenever an inline-keyboard tap re-renders
 // identical text (a toggle that yields the same state, or a double tap). It
@@ -177,9 +211,9 @@ func (c *Client) SendHTML(ctx context.Context, chatID int64, text string) error 
 // parse_mode so malformed or newly unsupported HTML cannot prevent delivery.
 func (c *Client) SendText(ctx context.Context, chatID int64, text string) error {
 	req := map[string]any{
-		"chat_id":                  chatID,
-		"text":                     text,
-		"disable_web_page_preview": true,
+		"chat_id":              chatID,
+		"text":                 text,
+		"link_preview_options": map[string]any{"is_disabled": true},
 	}
 	var resp struct {
 		OK bool `json:"ok"`
@@ -253,10 +287,10 @@ func (c *Client) SendHTMLWithButton(ctx context.Context, chatID int64, text, but
 
 func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, markup *InlineKeyboardMarkup) (Message, error) {
 	req := map[string]any{
-		"chat_id":                  chatID,
-		"text":                     text,
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
+		"chat_id":              chatID,
+		"text":                 text,
+		"parse_mode":           "HTML",
+		"link_preview_options": map[string]any{"is_disabled": true},
 	}
 	if markup != nil {
 		req["reply_markup"] = markup
@@ -274,16 +308,18 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, mar
 	return resp.Result, nil
 }
 
-// SendEphemeralMessage replies to a Bot API 10.2 ephemeral group command. The
+// SendEphemeralMessage replies to a Bot API 10.2+ ephemeral group command. The
 // response is visible only to the invoking user and must reference the
 // ephemeral command message Telegram delivered to the bot.
 func (c *Client) SendEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *InlineKeyboardMarkup) (Message, error) {
 	req := map[string]any{
-		"chat_id":                  chatID,
-		"receiver_user_id":         receiverUserID,
-		"text":                     text,
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
+		"chat_id": chatID,
+		"ephemeral_message_parameters": map[string]any{
+			"receiver_user_id": receiverUserID,
+		},
+		"text":                 text,
+		"parse_mode":           "HTML",
+		"link_preview_options": map[string]any{"is_disabled": true},
 		"reply_parameters": map[string]any{
 			"ephemeral_message_id": ephemeralMessageID,
 		},
@@ -306,11 +342,11 @@ func (c *Client) SendEphemeralMessage(ctx context.Context, chatID, receiverUserI
 
 func (c *Client) EditMessageText(ctx context.Context, chatID int64, messageID int64, text string, markup *InlineKeyboardMarkup) error {
 	req := map[string]any{
-		"chat_id":                  chatID,
-		"message_id":               messageID,
-		"text":                     text,
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
+		"chat_id":              chatID,
+		"message_id":           messageID,
+		"text":                 text,
+		"parse_mode":           "HTML",
+		"link_preview_options": map[string]any{"is_disabled": true},
 	}
 	if markup != nil {
 		req["reply_markup"] = markup

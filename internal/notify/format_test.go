@@ -29,7 +29,7 @@ func TestGitHubEventEscapesHTML(t *testing.T) {
 	if !strings.Contains(text, "acme/&lt;repo&gt;") || !strings.Contains(text, "dev&amp;ops") {
 		t.Fatalf("expected fields to be escaped: %s", text)
 	}
-	if !strings.Contains(text, `href="https://github.com/acme/repo?x=1&amp;y=2"`) ||
+	if !strings.Contains(text, `url="https://github.com/acme/repo?x=1&amp;y=2"`) ||
 		!strings.Contains(text, `href="https://github.com/acme/repo/commit/1111111?x=1&amp;y=2"`) {
 		t.Fatalf("expected URL attribute to be escaped: %s", text)
 	}
@@ -51,15 +51,19 @@ func TestGitHubEventFormatsSingleCommit(t *testing.T) {
 		CommitCount: 1,
 	})
 	for _, want := range []string{
-		iconCommits + " <b>FreshLabDev/branchy</b>\n\n1 new commit · <code>main</code>",
-		"1 new commit · <code>main</code>",
-		"Pushed by <b>amtiYo</b>",
-		`<a href="https://github.com/FreshLabDev/branchy/compare/a...b">Compare changes</a>`,
+		"<h2>" + iconCommits + " FreshLabDev/branchy</h2>",
+		"<p>1 new commit · <code>main</code></p>",
+		"<footer>Pushed by <b>amtiYo</b></footer>",
+		`<tg-button type="url" style="primary" url="https://github.com/FreshLabDev/branchy/compare/a...b">Open compare</tg-button>`,
+		`<tg-button type="copy_text" text="9b0f75e340e43784ea868a51078b450d172e63d0">Copy SHA</tg-button>`,
 		`<a href="https://github.com/FreshLabDev/branchy/commit/9b0f75e340e43784ea868a51078b450d172e63d0">9b0f75e</a> fix: extract inline urls from text`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("formatted commit notification missing %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "Compare changes") {
+		t.Fatalf("rich commit notification should use action buttons, not compare links:\n%s", text)
 	}
 	if strings.Count(text, "amtiYo") != 1 {
 		t.Fatalf("author should appear once:\n%s", text)
@@ -82,6 +86,9 @@ func TestGitHubEventFormatsMultipleCommits(t *testing.T) {
 	})
 	if !strings.Contains(text, "3 new commits · <code>dev</code>") {
 		t.Fatalf("expected plural commit summary:\n%s", text)
+	}
+	if !strings.Contains(text, "<br>") {
+		t.Fatalf("commit lines should use rich line breaks:\n%s", text)
 	}
 	for _, sha := range []string{"cbfa266", "f58a526", "9580b30"} {
 		if !strings.Contains(text, ">"+sha+"</a>") {
@@ -156,7 +163,7 @@ func TestGitHubEventCollapsesOnlyLongBodies(t *testing.T) {
 	}
 
 	short := mk("A quick one-line release note.")
-	if strings.Contains(short, "<details>") {
+	if strings.Contains(short, "<details>") || strings.Contains(short, "expandable") {
 		t.Fatalf("a short body must not be collapsed:\n%s", short)
 	}
 	if !strings.Contains(short, "<blockquote><p>A quick one-line release note.</p></blockquote>") {
@@ -164,8 +171,11 @@ func TestGitHubEventCollapsesOnlyLongBodies(t *testing.T) {
 	}
 
 	wordy := mk(strings.Repeat("This release changes a lot of things. ", 30))
-	if !strings.Contains(wordy, "<details>") || !strings.Contains(wordy, "<summary>Release notes</summary>") {
-		t.Fatalf("a long body should collapse into details:\n%s", wordy)
+	if strings.Contains(wordy, "<details>") || !strings.Contains(wordy, "<blockquote expandable>") {
+		t.Fatalf("a long flat body should use an expandable quote:\n%s", wordy)
+	}
+	if strings.Contains(wordy, "<blockquote expandable><p>") || strings.Contains(wordy, "<blockquote expandable>\n<p>") {
+		t.Fatalf("expandable quotes must be flat RichText, not nested paragraphs:\n%s", wordy)
 	}
 
 	var lines []string
@@ -174,7 +184,7 @@ func TestGitHubEventCollapsesOnlyLongBodies(t *testing.T) {
 	}
 	tall := mk(strings.Join(lines, "\n"))
 	if !strings.Contains(tall, "<details>") {
-		t.Fatalf("a tall body should collapse into details:\n%s", tall)
+		t.Fatalf("a tall structured body should collapse into details:\n%s", tall)
 	}
 }
 
@@ -210,10 +220,12 @@ func TestGitHubEventFormatsPullRequest(t *testing.T) {
 		Body:         "This PR **improves** things.\n\nSee `notify` for details.",
 	})
 	for _, want := range []string{
-		iconPR + " <b>FreshLabDev/branchy</b>\n\nPull request opened",
-		"Pull request opened",
-		"into <code>main</code> · by <b>amtiYo</b>",
-		`<a href="https://github.com/FreshLabDev/branchy/pull/7">#7 Fix &lt;format&gt; &amp; &#34;escape&#34;</a>`,
+		"<h2>" + iconPR + " FreshLabDev/branchy</h2>",
+		"<p>Pull request opened</p>",
+		"<p>into <code>main</code> · by <b>amtiYo</b></p>",
+		"#7 Fix &lt;format&gt; &amp; &#34;escape&#34;",
+		`<tg-button type="url" style="primary" url="https://github.com/FreshLabDev/branchy/pull/7">Open pull request</tg-button>`,
+		`<tg-button type="copy_text" text="#7">Copy #7</tg-button>`,
 		"<p>This PR <b>improves</b> things.</p>",
 		"<p>See <code>notify</code> for details.</p>",
 	} {
@@ -221,8 +233,24 @@ func TestGitHubEventFormatsPullRequest(t *testing.T) {
 			t.Fatalf("formatted PR notification missing %q:\n%s", want, text)
 		}
 	}
-	if strings.Count(text, "#7") != 1 {
-		t.Fatalf("PR number should be shown once as the link label:\n%s", text)
+	if strings.Contains(text, `<a href="https://github.com/FreshLabDev/branchy/pull/7">#7`) {
+		t.Fatalf("rich PR title should not duplicate the Open button:\n%s", text)
+	}
+}
+
+func TestGitHubNotificationFallbackKeepsPRTitleLink(t *testing.T) {
+	got := GitHubNotification(Event{
+		Type:         "pull_request",
+		RepoFullName: "FreshLabDev/branchy",
+		Actor:        "amtiYo",
+		Branch:       "main",
+		Title:        `Fix <format> & "escape"`,
+		Action:       "opened",
+		Number:       7,
+		URL:          "https://github.com/FreshLabDev/branchy/pull/7",
+	})
+	if !strings.Contains(got.FallbackHTML, `<a href="https://github.com/FreshLabDev/branchy/pull/7">#7 Fix &lt;format&gt; &amp; &#34;escape&#34;</a>`) {
+		t.Fatalf("classic fallback should keep the title link:\n%s", got.FallbackHTML)
 	}
 }
 
@@ -266,8 +294,10 @@ func TestGitHubEventFormatsRelease(t *testing.T) {
 			"<ins>Underlined bit</ins>",
 	})
 	for _, want := range []string{
-		iconRelease + " <b>FreshLabDev/branchy</b>\n\n<b>Pre-release</b>",
-		`<b>Pre-release</b> · <a href="https://github.com/FreshLabDev/branchy/releases/tag/v0.1.0-alpha.1">v0.1.0-alpha.1 &lt;format&gt; &amp; &#34;escape&#34;</a>`,
+		"<h2>" + iconRelease + " FreshLabDev/branchy</h2>",
+		"<p><b>Pre-release</b> · v0.1.0-alpha.1 &lt;format&gt; &amp; &#34;escape&#34;</p>",
+		`<tg-button type="url" style="primary" url="https://github.com/FreshLabDev/branchy/releases/tag/v0.1.0-alpha.1">Open release</tg-button>`,
+		`<tg-button type="copy_text" text="v0.1.0-alpha.1">Copy tag</tg-button>`,
 		"<h2>Added</h2>",
 		`<li><b>Commit notifications</b> with <a href="https://github.com/FreshLabDev/branchy/compare/a...b">compare links</a></li>`,
 		"<li><i>Release notes</i> with <code>code</code> and <del>old wording</del></li>",
@@ -317,7 +347,7 @@ func TestGitHubEventDropsUnsafeURL(t *testing.T) {
 		"//github.com/x",
 	} {
 		text := GitHubEvent(Event{Type: "push", RepoFullName: "acme/repo", URL: raw})
-		if strings.Contains(text, "Open on GitHub") || strings.Contains(text, "<a href") {
+		if strings.Contains(text, "Open on GitHub") || strings.Contains(text, "<a href") || strings.Contains(text, "javascript:") || strings.Contains(text, "tg://") {
 			t.Fatalf("expected unsafe URL %q to be dropped: %s", raw, text)
 		}
 	}
@@ -352,15 +382,51 @@ func TestGitHubEventRejectsTelegramSpecificBodyInjection(t *testing.T) {
 		RepoFullName: "acme/repo",
 		TagName:      "v1",
 		Body: `<tg-emoji emoji-id="1">spoof</tg-emoji>
+<tg-button-row><tg-button type="url" url="https://evil.example">pwn</tg-button></tg-button-row>
 
 [mention](tg://user?id=42)
 
 <script>alert(1)</script>`,
 	})
-	for _, forbidden := range []string{"<tg-emoji", "tg://", "<script>"} {
+	for _, forbidden := range []string{"<tg-emoji", `url="https://evil.example"`, "tg://", "<script>"} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("untrusted body injected %q:\n%s", forbidden, text)
 		}
+	}
+}
+
+func TestGitHubEventKeepsContentAfterUnclosedTelegramTag(t *testing.T) {
+	text := GitHubEvent(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		TagName:      "v1",
+		Body:         `<p>before</p><tg-button type="url" url="https://evil.example" /><p>SAFE_CONTENT</p>`,
+	})
+	if !strings.Contains(text, "SAFE_CONTENT") || !strings.Contains(text, "before") {
+		t.Fatalf("unclosed tg-button swallowed the rest of the body:\n%s", text)
+	}
+	if strings.Contains(text, "evil.example") {
+		t.Fatalf("unclosed tg-button leaked its URL into the notification:\n%s", text)
+	}
+}
+
+func TestGitHubEventDoesNotTreatFallbackCutAsTruncation(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&b, "[l%d](https://example.com/path/to/a/pretty/long/link/%d)\n\n", i, i)
+	}
+	got := GitHubNotification(Event{
+		Type:         "release",
+		RepoFullName: "acme/repo",
+		TagName:      "v1",
+		URL:          "https://github.com/acme/repo/releases/tag/v1",
+		Body:         b.String(),
+	})
+	if !strings.Contains(got.RichHTML, "l79") {
+		t.Fatalf("rich body should keep the last link:\n%s", got.RichHTML)
+	}
+	if strings.Contains(got.RichHTML, "Full release notes") {
+		t.Fatalf("a complete rich body must not be marked truncated because classic fallback was cut:\n%s", got.RichHTML)
 	}
 }
 
@@ -475,6 +541,9 @@ func TestGitHubEventCapsTableColumns(t *testing.T) {
 	if got := strings.Count(text, "<th>"); got != maxRichTableColumns {
 		t.Fatalf("header columns = %d, want %d:\n%s", got, maxRichTableColumns, text)
 	}
+	if !strings.Contains(text, `<table bordered striped compact>`) {
+		t.Fatalf("release tables should be compact and bordered:\n%s", text)
+	}
 	if got := strings.Count(text, "<td>"); got != maxRichTableColumns {
 		t.Fatalf("body columns = %d, want %d:\n%s", got, maxRichTableColumns, text)
 	}
@@ -497,6 +566,43 @@ func TestRichHTMLWithoutMediaPreservesStructureAndLinksSources(t *testing.T) {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("media-free rich fallback kept %q:\n%s", unwanted, got)
 		}
+	}
+}
+
+func TestPlainTextFromHTMLKeepsButtonURL(t *testing.T) {
+	got := PlainTextFromHTML(`<h2>Repo</h2><tg-button-row><tg-button type="url" url="https://example.com/pr">Open pull request</tg-button></tg-button-row>`)
+	if strings.Contains(got, "<") || !strings.Contains(got, "Open pull request (https://example.com/pr)") {
+		t.Fatalf("unexpected plain text fallback: %q", got)
+	}
+}
+
+func TestGitHubNotificationFallbackKeepsClassicCompareLink(t *testing.T) {
+	notification := GitHubNotification(Event{
+		Type:         "push",
+		RepoFullName: "acme/repo",
+		Actor:        "dev",
+		CompareURL:   "https://github.com/acme/repo/compare/a...b",
+		Commits:      []Commit{{SHA: "abcdef1", Message: "fix", URL: "https://github.com/acme/repo/commit/abcdef1"}},
+		CommitCount:  1,
+	})
+	if strings.Contains(notification.FallbackHTML, "tg-button") {
+		t.Fatalf("classic fallback must not include rich buttons:\n%s", notification.FallbackHTML)
+	}
+	if !strings.Contains(notification.FallbackHTML, `<a href="https://github.com/acme/repo/compare/a...b">Compare changes</a>`) {
+		t.Fatalf("classic fallback should keep the compare link:\n%s", notification.FallbackHTML)
+	}
+}
+
+func TestTestNotificationUsesRichCard(t *testing.T) {
+	got := TestNotification("acme/repo")
+	if !strings.Contains(got.RichHTML, "<h2>acme/repo</h2>") || !strings.Contains(got.RichHTML, "<hr>") {
+		t.Fatalf("test notification should use the rich card chrome:\n%s", got.RichHTML)
+	}
+	if strings.Contains(got.RichHTML, "tg-button") {
+		t.Fatalf("test notification should not invent GitHub buttons:\n%s", got.RichHTML)
+	}
+	if got.FallbackHTML != TestMessage("acme/repo") {
+		t.Fatalf("classic test fallback = %q", got.FallbackHTML)
 	}
 }
 
@@ -525,7 +631,7 @@ func TestGitHubEventCapsRichBlocksAndNesting(t *testing.T) {
 		URL:          "https://github.com/acme/repo/releases/tag/v1",
 		Body:         strings.Repeat("paragraph\n\n", 600),
 	})
-	if got := strings.Count(text, "<p>"); got > maxRichBodyBlocks {
+	if got := strings.Count(text, "<p>"); got > maxRichBodyBlocks+1 {
 		t.Fatalf("paragraph blocks = %d, max %d", got, maxRichBodyBlocks)
 	}
 	if !strings.Contains(text, "Full release notes") {

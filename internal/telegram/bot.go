@@ -922,6 +922,8 @@ func (b *Bot) renderEventPicker(ctx context.Context, cq CallbackQuery, draft sub
 			return err
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: "Continue", CallbackData: callback, Style: stylePrimary}})
+	} else {
+		rows = append(rows, []InlineKeyboardButton{disabledButton("Continue")})
 	}
 	// Back returns to the destination step, preserving the draft.
 	backCB, err := b.token(ctx, cq.From.ID, "sub.repo", draft)
@@ -966,6 +968,8 @@ func (b *Bot) renderEventSettings(ctx context.Context, cq CallbackQuery, draft s
 			return err
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: "Create subscription", CallbackData: createCB, Style: styleSuccess}})
+	} else {
+		rows = append(rows, []InlineKeyboardButton{disabledButton("Create subscription")})
 	}
 	rows = append(rows, []InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
 	text := "<b>Event settings</b>\n" + settingsSummary(draft.Events, draft.BranchMode, draft.BranchNames, draft.PullRequestActions, draft.ReleaseMode)
@@ -975,8 +979,8 @@ func (b *Bot) renderEventSettings(ctx context.Context, cq CallbackQuery, draft s
 	return b.respond(ctx, cq, text, &InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-// settingsBlockingHint explains why "Create subscription" is not yet available,
-// so the missing button never looks like a dead end. Returns "" when ready.
+// settingsBlockingHint explains why "Create subscription" stays disabled,
+// so a greyed-out button never looks like a dead end. Returns "" when ready.
 func settingsBlockingHint(draft subDraft) string {
 	if settingsReady(draft) {
 		return ""
@@ -998,6 +1002,10 @@ func (b *Bot) renderBranchSettings(ctx context.Context, cq CallbackQuery, draft 
 		next.BranchMode = mode
 		if mode != "selected" {
 			next.BranchNames = nil
+		}
+		if draft.BranchMode == mode && mode != "selected" {
+			rows = append(rows, []InlineKeyboardButton{disabledButton(radio(true, branchModeLabel(mode, draft.BranchNames)))})
+			continue
 		}
 		action := "sub.settings.branch.mode"
 		callback, err := b.token(ctx, cq.From.ID, action, next)
@@ -1069,23 +1077,29 @@ func (b *Bot) renderBranchList(ctx context.Context, cq CallbackQuery, draft subD
 			return err
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: "Done", CallbackData: doneCB, Style: stylePrimary}})
+	} else {
+		rows = append(rows, []InlineKeyboardButton{disabledButton("Done")})
 	}
 	var nav []InlineKeyboardButton
-	if page > 0 {
-		button, err := b.branchNavButton(ctx, cq.From.ID, draft, "‹ Prev", page-1, "sub.settings.branch.list")
-		if err != nil {
-			return err
+	if pages > 1 {
+		if page > 0 {
+			button, err := b.branchNavButton(ctx, cq.From.ID, draft, "‹ Prev", page-1, "sub.settings.branch.list")
+			if err != nil {
+				return err
+			}
+			nav = append(nav, button)
+		} else {
+			nav = append(nav, disabledButton("‹ Prev"))
 		}
-		nav = append(nav, button)
-	}
-	if page < pages-1 {
-		button, err := b.branchNavButton(ctx, cq.From.ID, draft, "Next ›", page+1, "sub.settings.branch.list")
-		if err != nil {
-			return err
+		if page < pages-1 {
+			button, err := b.branchNavButton(ctx, cq.From.ID, draft, "Next ›", page+1, "sub.settings.branch.list")
+			if err != nil {
+				return err
+			}
+			nav = append(nav, button)
+		} else {
+			nav = append(nav, disabledButton("Next ›"))
 		}
-		nav = append(nav, button)
-	}
-	if len(nav) > 0 {
 		rows = append(rows, nav)
 	}
 	rows = append(rows, backRow)
@@ -1131,11 +1145,15 @@ func (b *Bot) renderReleaseSettings(ctx context.Context, cq CallbackQuery, draft
 	for _, mode := range releaseModeOrder() {
 		next := draft
 		next.ReleaseMode = mode
+		if draft.ReleaseMode == mode {
+			rows = append(rows, []InlineKeyboardButton{disabledButton(radio(true, releaseModeLabel(mode)))})
+			continue
+		}
 		callback, err := b.token(ctx, cq.From.ID, "sub.settings.release.mode", next)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: radio(draft.ReleaseMode == mode, releaseModeLabel(mode)), CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: radio(false, releaseModeLabel(mode)), CallbackData: callback}})
 	}
 	backCB, err := b.token(ctx, cq.From.ID, "sub.settings", draft)
 	if err != nil {
@@ -1299,6 +1317,8 @@ func (b *Bot) renderEditEvents(ctx context.Context, cq CallbackQuery, id string,
 			return err
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: "Save", CallbackData: callback, Style: stylePrimary}})
+	} else {
+		rows = append(rows, []InlineKeyboardButton{disabledButton("Save")})
 	}
 	backButton, err := b.editMenuButton(ctx, cq.From.ID, id)
 	if err != nil {
@@ -1359,6 +1379,10 @@ func (b *Bot) renderEditBranch(ctx context.Context, cq CallbackQuery, id string)
 		if mode == "selected" {
 			action = "sub.edit.branch.selected"
 			payload.BranchNames = currentBranches
+		}
+		if sub.BranchMode == mode && mode != "selected" {
+			rows = append(rows, []InlineKeyboardButton{disabledButton(radio(true, branchModeLabel(mode, currentBranches)))})
+			continue
 		}
 		callback, err := b.token(ctx, cq.From.ID, action, payload)
 		if err != nil {
@@ -1434,26 +1458,29 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq CallbackQuery, payloa
 			return err
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: "Save branches", CallbackData: saveCB, Style: stylePrimary}})
+	} else {
+		rows = append(rows, []InlineKeyboardButton{disabledButton("Save branches")})
 	}
 	var nav []InlineKeyboardButton
-	for _, step := range []struct {
-		text string
-		page int
-		show bool
-	}{
-		{"‹ Prev", page - 1, page > 0},
-		{"Next ›", page + 1, page < pages-1},
-	} {
-		if !step.show {
-			continue
+	if pages > 1 {
+		for _, step := range []struct {
+			text    string
+			page    int
+			enabled bool
+		}{
+			{"‹ Prev", page - 1, page > 0},
+			{"Next ›", page + 1, page < pages-1},
+		} {
+			if !step.enabled {
+				nav = append(nav, disabledButton(step.text))
+				continue
+			}
+			callback, err := b.token(ctx, cq.From.ID, "sub.edit.branch.selected", editBranchPayload{ID: payload.ID, BranchMode: "selected", BranchNames: selected, Page: step.page})
+			if err != nil {
+				return err
+			}
+			nav = append(nav, InlineKeyboardButton{Text: step.text, CallbackData: callback})
 		}
-		callback, err := b.token(ctx, cq.From.ID, "sub.edit.branch.selected", editBranchPayload{ID: payload.ID, BranchMode: "selected", BranchNames: selected, Page: step.page})
-		if err != nil {
-			return err
-		}
-		nav = append(nav, InlineKeyboardButton{Text: step.text, CallbackData: callback})
-	}
-	if len(nav) > 0 {
 		rows = append(rows, nav)
 	}
 	rows = append(rows, backRow)
@@ -1490,6 +1517,8 @@ func (b *Bot) renderEditPullRequestSettings(ctx context.Context, cq CallbackQuer
 			return err
 		}
 		rows = append(rows, []InlineKeyboardButton{{Text: "Save", CallbackData: callback, Style: stylePrimary}})
+	} else {
+		rows = append(rows, []InlineKeyboardButton{disabledButton("Save")})
 	}
 	backButton, err := b.advancedButton(ctx, cq.From.ID, id)
 	if err != nil {
@@ -1510,11 +1539,15 @@ func (b *Bot) renderEditReleaseSettings(ctx context.Context, cq CallbackQuery, i
 	rows := [][]InlineKeyboardButton{}
 	mode := normalizeReleaseMode(sub.ReleaseMode)
 	for _, candidate := range releaseModeOrder() {
+		if mode == candidate {
+			rows = append(rows, []InlineKeyboardButton{disabledButton(radio(true, releaseModeLabel(candidate)))})
+			continue
+		}
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.release.save", editReleasePayload{ID: id, ReleaseMode: candidate})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []InlineKeyboardButton{{Text: radio(mode == candidate, releaseModeLabel(candidate)), CallbackData: callback}})
+		rows = append(rows, []InlineKeyboardButton{{Text: radio(false, releaseModeLabel(candidate)), CallbackData: callback}})
 	}
 	backButton, err := b.advancedButton(ctx, cq.From.ID, id)
 	if err != nil {
@@ -2032,11 +2065,19 @@ func paginationRow(prefix string, page, pages int) []InlineKeyboardButton {
 	var row []InlineKeyboardButton
 	if page > 0 {
 		row = append(row, InlineKeyboardButton{Text: "‹ Prev", CallbackData: fmt.Sprintf("%s:%d", prefix, page-1)})
+	} else {
+		row = append(row, disabledButton("‹ Prev"))
 	}
 	if page < pages-1 {
 		row = append(row, InlineKeyboardButton{Text: "Next ›", CallbackData: fmt.Sprintf("%s:%d", prefix, page+1)})
+	} else {
+		row = append(row, disabledButton("Next ›"))
 	}
 	return row
+}
+
+func disabledButton(text string) InlineKeyboardButton {
+	return InlineKeyboardButton{Text: text, Disabled: &DisabledButton{}}
 }
 
 func clampPage(page, pages int) int {

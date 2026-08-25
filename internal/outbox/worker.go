@@ -207,7 +207,7 @@ func (w *Worker) sendAttempt(ctx context.Context, send func(context.Context) err
 // destinations retain normal retry/disable behavior instead of double-sending.
 func shouldFallbackContent(err error) bool {
 	var apiErr *telegram.APIError
-	if !errors.As(err, &apiErr) || isUnreachableDestination(apiErr) {
+	if !errors.As(err, &apiErr) || apiErr.IsUnreachableDestination() {
 		return false
 	}
 	return apiErr.StatusCode == 400 || apiErr.StatusCode == 403 || apiErr.StatusCode == 404 || apiErr.StatusCode == 413
@@ -236,7 +236,7 @@ func classifyError(err error, nextAttempt int) db.NotificationJobResult {
 		// A non-retryable Telegram error. If it says the destination is gone for
 		// good, flag the subscription for auto-pause so it stops queuing jobs
 		// that can only fail.
-		result.DisableSubscription = isUnreachableDestination(apiErr)
+		result.DisableSubscription = apiErr.IsUnreachableDestination()
 		return result
 	}
 
@@ -276,41 +276,6 @@ func jitter(d time.Duration) time.Duration {
 	}
 	half := int64(d / 2)
 	return d - time.Duration(half) + time.Duration(rand.Int63n(2*half+1))
-}
-
-// isUnreachableDestination reports whether a permanent Telegram error means the
-// chat can never receive messages again (blocked, kicked, deleted, deactivated),
-// as opposed to a transient or content error. Matched on the human description
-// because Telegram overloads 400/403 across many cases; these markers track the
-// Bot API wording and may need updating if Telegram changes it. The fallback is
-// safe: an unmatched permanent error just fails the job without auto-pausing.
-func isUnreachableDestination(apiErr *telegram.APIError) bool {
-	if apiErr.StatusCode != 400 && apiErr.StatusCode != 403 {
-		return false
-	}
-	// A group→supergroup upgrade also makes the old chat_id permanently dead
-	// (Telegram returns migrate_to_chat_id, not a fresh deliverable chat): treat
-	// it as unreachable so the subscription auto-pauses instead of enqueuing jobs
-	// to the dead id forever.
-	if apiErr.MigrateToChatID != 0 {
-		return true
-	}
-	desc := strings.ToLower(apiErr.Description)
-	for _, marker := range []string{
-		"bot was blocked",
-		"user is deactivated",
-		"bot was kicked",
-		"bot is not a member",
-		"chat not found",
-		"group chat was deleted",
-		"group chat was upgraded to a supergroup",
-		"need administrator rights",
-	} {
-		if strings.Contains(desc, marker) {
-			return true
-		}
-	}
-	return false
 }
 
 func recordOutcome(outcome db.JobOutcome, result db.NotificationJobResult) {

@@ -103,8 +103,9 @@ handlers do not send Telegram messages directly; they create durable
 - Group delivery is configured only in DM. Candidate groups are learned from
   `my_chat_member` updates when the bot is added to a group.
 - The group-scoped `/start` command is ephemeral under Bot API 10.2. Its DM
-  prompt targets only the invoking user and Branchy does not emit a public
-  group fallback. Command registration retries independently after transient
+  prompt targets only the invoking user via Bot API 10.3
+  `ephemeral_message_parameters` and Branchy does not emit a public group
+  fallback. Command registration retries independently after transient
   failures, and the reply precedes the best-effort `core.touch` presence write.
 - Before saving a group destination, Branchy checks `getChatMember` and requires
   `creator` or `administrator`.

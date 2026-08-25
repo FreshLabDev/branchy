@@ -102,12 +102,15 @@ func renderGitHubBody(raw string, maxRunes int) renderedGitHubBody {
 
 	rich, richCut := renderHTMLNodes(safeNodes, maxRichBodyHTMLRunes)
 	fallbackNodes := makeClassicNodes(safeNodes)
-	fallback, fallbackCut := renderHTMLNodes(fallbackNodes, maxFallbackBodyHTMLRunes)
+	fallback, _ := renderHTMLNodes(fallbackNodes, maxFallbackBodyHTMLRunes)
 	return renderedGitHubBody{
 		RichHTML:     strings.TrimSpace(rich),
 		FallbackHTML: strings.TrimSpace(fallback),
 		Source:       source,
-		Truncated:    truncated || richCut || fallbackCut,
+		// Classic HTML is a shorter rollback payload. Cutting it must not mark
+		// the preferred rich body as truncated (that would fold complete notes
+		// into <details> and append a "read more" link).
+		Truncated: truncated || richCut,
 	}
 }
 
@@ -164,8 +167,14 @@ func sanitizeRichNode(node *xhtml.Node, state *sanitizeState, depth int, mediaBl
 	if tag == "figure" {
 		return sanitizeFigure(node, state, depth, mediaBlock)
 	}
-	if isDroppedTag(tag) {
+	if isDroppedSubtreeTag(tag) {
 		return nil
+	}
+	if isTelegramDroppedTag(tag) {
+		// HTML5 treats unclosed/self-closing unknown tags as open elements, so
+		// later safe siblings can become children. Unwrap instead of dropping
+		// the subtree so injected tg-* chrome cannot hide the rest of the body.
+		return sanitizeRichChildren(node, state, depth, mediaBlock)
 	}
 	if mediaBlock && tag != "p" && tag != "li" {
 		if media, captionURL, ok := inlineMediaCandidate(node); ok {
@@ -238,6 +247,13 @@ func sanitizeRichNode(node *xhtml.Node, state *sanitizeState, depth int, mediaBl
 	out := elementNode(outTag)
 	if tag == "details" && hasAttr(node, "open") {
 		out.Attr = []xhtml.Attribute{{Key: "open", Val: ""}}
+	}
+	if tag == "table" {
+		out.Attr = []xhtml.Attribute{
+			{Key: "bordered", Val: ""},
+			{Key: "striped", Val: ""},
+			{Key: "compact", Val: ""},
+		}
 	}
 	if tag == "tr" {
 		columns := 0
@@ -355,7 +371,7 @@ func inlineMediaCandidate(node *xhtml.Node) (*xhtml.Node, string, bool) {
 		if current.Type != xhtml.ElementNode {
 			return
 		}
-		if isDroppedTag(strings.ToLower(current.Data)) {
+		if isDroppedSubtreeTag(strings.ToLower(current.Data)) || isTelegramDroppedTag(strings.ToLower(current.Data)) {
 			valid = false
 			return
 		}
@@ -495,13 +511,17 @@ func isMediaTag(tag string) bool {
 	return tag == "img" || tag == "video" || tag == "audio"
 }
 
-func isDroppedTag(tag string) bool {
+func isDroppedSubtreeTag(tag string) bool {
 	switch tag {
 	case "script", "style", "iframe", "object", "embed", "svg":
 		return true
 	default:
 		return false
 	}
+}
+
+func isTelegramDroppedTag(tag string) bool {
+	return strings.HasPrefix(tag, "tg-")
 }
 
 func mediaTagForURL(raw string) string {
@@ -841,6 +861,15 @@ func writePlainNode(b *strings.Builder, node *xhtml.Node) {
 			b.WriteString(")")
 		}
 	}
+	if tag == "tg-button" {
+		href := safeNodeURL(attrValue(node, "url"))
+		label := b.String()[before:]
+		if href != "" && !strings.Contains(label, href) {
+			b.WriteString(" (")
+			b.WriteString(href)
+			b.WriteString(")")
+		}
+	}
 	if block {
 		ensurePlainBreak(b)
 	}
@@ -850,7 +879,7 @@ func plainBlockTag(tag string) bool {
 	if richBlockTags[tag] || tag == "figcaption" || tag == "caption" || tag == "summary" {
 		return true
 	}
-	return tag == "td" || tag == "th"
+	return tag == "td" || tag == "th" || tag == "tg-button-row" || tag == "tg-button"
 }
 
 func ensurePlainBreak(b *strings.Builder) {
@@ -939,7 +968,7 @@ func hasAttr(node *xhtml.Node, key string) bool {
 
 func isVoidTag(tag string) bool {
 	switch tag {
-	case "hr", "img", "input":
+	case "hr", "img", "input", "br":
 		return true
 	default:
 		return false
@@ -988,10 +1017,120 @@ func wrapRenderedBody(body renderedGitHubBody, summary string) (string, string) 
 		summary = "Notes"
 	}
 	collapsed := shouldCollapseBody(body.Source, body.Truncated)
-	if collapsed {
+	if collapsed && (body.Truncated || bodyHasRichStructure(body.RichHTML)) {
 		rich := "<details><summary>" + esc(summary) + "</summary>" + body.RichHTML + "</details>"
 		fallback := "<b>" + esc(summary) + "</b>\n" + body.FallbackHTML
 		return rich, fallback
 	}
+	if collapsed {
+		// Expandable quotes are flat RichText (official sample uses <br>, not nested
+		// <p>). Wrapping Goldmark paragraphs as-is can 400 sendRichMessage.
+		return "<blockquote expandable>" + flattenHTMLForExpandableQuote(body.RichHTML) + "</blockquote>", "<blockquote>" + body.FallbackHTML + "</blockquote>"
+	}
 	return "<blockquote>" + body.RichHTML + "</blockquote>", body.FallbackHTML
+}
+
+func flattenHTMLForExpandableQuote(html string) string {
+	nodes, err := parseHTMLFragment(html)
+	if err != nil {
+		return html
+	}
+	var parts [][]*xhtml.Node
+	for _, node := range nodes {
+		flat := flattenNodeForExpandable(node)
+		if expandableNodesEmpty(flat) {
+			continue
+		}
+		parts = append(parts, flat)
+	}
+	var out []*xhtml.Node
+	for i, part := range parts {
+		if i > 0 {
+			out = append(out, elementNode("br"))
+		}
+		out = append(out, part...)
+	}
+	rendered, _ := renderHTMLNodes(out, maxRichBodyHTMLRunes)
+	return strings.TrimSpace(rendered)
+}
+
+func flattenNodeForExpandable(node *xhtml.Node) []*xhtml.Node {
+	if node.Type == xhtml.TextNode {
+		if node.Data == "" {
+			return nil
+		}
+		return []*xhtml.Node{{Type: xhtml.TextNode, Data: node.Data}}
+	}
+	if node.Type != xhtml.ElementNode {
+		return nil
+	}
+	tag := strings.ToLower(node.Data)
+	if tag == "br" {
+		return []*xhtml.Node{elementNode("br")}
+	}
+	if expandableInlineTag(tag) {
+		out := elementNode(tag)
+		if tag == "a" {
+			out.Attr = append([]xhtml.Attribute(nil), node.Attr...)
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			appendNodes(out, flattenNodeForExpandable(child))
+		}
+		return []*xhtml.Node{out}
+	}
+	var parts [][]*xhtml.Node
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		flat := flattenNodeForExpandable(child)
+		if expandableNodesEmpty(flat) {
+			continue
+		}
+		parts = append(parts, flat)
+	}
+	var out []*xhtml.Node
+	for i, part := range parts {
+		if i > 0 && expandableBlockTag(tag) {
+			out = append(out, elementNode("br"))
+		}
+		out = append(out, part...)
+	}
+	return out
+}
+
+func expandableInlineTag(tag string) bool {
+	switch tag {
+	case "a", "b", "strong", "i", "em", "u", "ins", "s", "strike", "del",
+		"code", "mark", "sub", "sup", "cite":
+		return true
+	default:
+		return false
+	}
+}
+
+func expandableBlockTag(tag string) bool {
+	return richBlockTags[tag] || tag == "div"
+}
+
+func expandableNodesEmpty(nodes []*xhtml.Node) bool {
+	for _, node := range nodes {
+		if node.Type == xhtml.TextNode && strings.TrimSpace(node.Data) != "" {
+			return false
+		}
+		if node.Type == xhtml.ElementNode && node.Data != "br" {
+			return false
+		}
+	}
+	return true
+}
+
+func bodyHasRichStructure(html string) bool {
+	lower := strings.ToLower(html)
+	for _, marker := range []string{
+		"<table", "<figure", "<h1", "<h2", "<h3", "<h4", "<h5", "<h6",
+		"<pre", "<details", "<ul", "<ol",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }

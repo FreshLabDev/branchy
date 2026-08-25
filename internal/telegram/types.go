@@ -62,7 +62,14 @@ type InlineKeyboardButton struct {
 	// or styleDanger; empty uses the default app style. Clients older than
 	// 2026-02-09 render it as a normal button, so it degrades gracefully.
 	Style string `json:"style,omitempty"`
+	// Disabled is the Bot API 10.3 action slot for an inert button. It cannot
+	// be combined with callback_data or url.
+	Disabled *DisabledButton `json:"disabled,omitempty"`
 }
+
+// DisabledButton is an empty Bot API 10.3 object. Presence of the field is
+// what disables the button.
+type DisabledButton struct{}
 
 // Inline button color styles (Bot API 9.4). Used sparingly: one accented call
 // to action per screen, plus danger for destructive actions.

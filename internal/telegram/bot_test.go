@@ -79,7 +79,7 @@ func TestGroupStartRepliesOnlyThroughEphemeralMessage(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("ephemeral group /start sent %d messages, want 1", calls)
 	}
-	for _, want := range []string{`"receiver_user_id":42`, `"ephemeral_message_id":77`} {
+	for _, want := range []string{`"ephemeral_message_parameters":{"receiver_user_id":42}`, `"reply_parameters":{"ephemeral_message_id":77}`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("ephemeral response missing %q:\n%s", want, body)
 		}
@@ -180,6 +180,41 @@ func TestCheckboxAndRadioUseDistinctGlyphs(t *testing.T) {
 	}
 	if checkbox(true, "x") == radio(true, "x") {
 		t.Fatal("single-select and multi-select markers must differ")
+	}
+}
+
+func TestDisabledButtonSerializesWithoutCallbackData(t *testing.T) {
+	raw, err := json.Marshal(disabledButton("Continue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	if !strings.Contains(got, `"disabled":{}`) {
+		t.Fatalf("disabled button missing empty object: %s", got)
+	}
+	if strings.Contains(got, "callback_data") || strings.Contains(got, `"url"`) {
+		t.Fatalf("disabled button must not include an action field: %s", got)
+	}
+}
+
+func TestPaginationRowDisablesUnavailableEdges(t *testing.T) {
+	first := paginationRow("repo:list", 0, 3)
+	if len(first) != 2 {
+		t.Fatalf("first page nav = %#v, want prev+next", first)
+	}
+	if first[0].Disabled == nil || first[0].CallbackData != "" {
+		t.Fatalf("prev on first page should be disabled: %#v", first[0])
+	}
+	if first[1].Disabled != nil || first[1].CallbackData != "repo:list:1" {
+		t.Fatalf("next on first page should stay active: %#v", first[1])
+	}
+
+	last := paginationRow("repo:list", 2, 3)
+	if last[1].Disabled == nil || last[1].CallbackData != "" {
+		t.Fatalf("next on last page should be disabled: %#v", last[1])
+	}
+	if last[0].CallbackData != "repo:list:1" {
+		t.Fatalf("prev on last page should stay active: %#v", last[0])
 	}
 }
 

@@ -46,13 +46,12 @@ Branchy keeps the MVP deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v1.1.1` | Stable Telegram Rich Messages release with webhook consistency fixes |
-| Previous | `v1.1.0` | Stable Telegram Rich Messages release |
+| Latest | `v1.2.0-alpha.1` | Pre-release evaluating Bot API 10.3 notification cards and settings |
+| Stable | `v1.1.1` | Latest non-prerelease tag |
 
 The MVP has been live-tested with Telegram and GitHub. `v1.1.1` is the current
-stable release. It keeps the richer Telegram delivery path and hardens
-subscription changes so a failed GitHub webhook sync does not leave a user
-operation half-applied.
+stable release; the `v1.2.0` alpha line evaluates Bot API 10.3 notification
+cards, in-message buttons, and disabled settings controls before promotion.
 
 ---
 

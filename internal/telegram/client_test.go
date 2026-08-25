@@ -96,10 +96,18 @@ func TestSendEphemeralMessageTargetsInvokingUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"chat_id":-100`, `"receiver_user_id":42`, `"ephemeral_message_id":77`} {
+	for _, want := range []string{
+		`"chat_id":-100`,
+		`"ephemeral_message_parameters":{"receiver_user_id":42}`,
+		`"reply_parameters":{"ephemeral_message_id":77}`,
+		`"link_preview_options":{"is_disabled":true}`,
+	} {
 		if !strings.Contains(gotBody, want) {
 			t.Fatalf("request body missing %q:\n%s", want, gotBody)
 		}
+	}
+	if strings.Count(gotBody, `"receiver_user_id":42`) != 1 {
+		t.Fatalf("receiver_user_id should live only inside ephemeral_message_parameters:\n%s", gotBody)
 	}
 }
 
@@ -260,5 +268,20 @@ func TestTelegramRateLimitSleepHonorsContext(t *testing.T) {
 	err := sleep(ctx, time.Second)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("sleep error = %v, want context.Canceled", err)
+	}
+}
+
+func TestAPIErrorDetectsUnreachableDestination(t *testing.T) {
+	blocked := &APIError{StatusCode: 403, Description: "Forbidden: bot was blocked by the user"}
+	if !blocked.IsUnreachableDestination() {
+		t.Fatal("blocked-chat 403 should be unreachable")
+	}
+	content := &APIError{StatusCode: 400, Description: "can't parse entities"}
+	if content.IsUnreachableDestination() {
+		t.Fatal("content 400 should not be treated as unreachable")
+	}
+	migrated := &APIError{StatusCode: 400, Description: "Bad Request", MigrateToChatID: 1}
+	if !migrated.IsUnreachableDestination() {
+		t.Fatal("migrate_to_chat_id should be unreachable")
 	}
 }

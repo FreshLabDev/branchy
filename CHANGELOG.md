@@ -8,6 +8,58 @@ GitHub Releases.
 
 ## Unreleased
 
+Use this section for changes that are merged but not released yet.
+
+## v1.2.0-alpha.1 - 2026-08-25
+
+First Bot API 10.3 alpha. Notification cards gain in-message Open/Copy buttons
+and richer HTML chrome; settings keep incomplete actions visible as disabled
+controls.
+
+### Added
+
+- GitHub notifications use Bot API 10.3 in-message action buttons (`<tg-button-row>`)
+  for Open compare / Open pull request / Open release and Copy SHA, PR number, or
+  tag. Classic HTML fallback still uses ordinary links.
+- Settings keyboards show disabled Continue, Create, Save, Done, pagination, and
+  the current all/default/release radio instead of hiding those controls
+  (Bot API 10.3 `disabled`). The selected-branch radio stays tappable.
+- Test notifications use the same Rich HTML card chrome as live events.
+
+### Changed
+
+- Notification cards use Rich HTML headings, dividers, and footers.
+- GFM tables are serialized with `bordered striped compact`.
+- Long flat PR/release notes fold into `<blockquote expandable>` using inline
+  text and `<br>`; truncated or structured bodies still use `<details>`.
+- Group `/start` replies send Bot API 10.3 `ephemeral_message_parameters`.
+- Classic `sendMessage` / `editMessageText` disable link previews via
+  `link_preview_options`.
+
+### Fixed
+
+- Rich bodies are no longer marked truncated just because the shorter classic
+  HTML fallback was cut, so complete release notes do not get a false
+  “Full release notes” link.
+- Unclosed `tg-*` tags in GitHub HTML no longer swallow the rest of the body.
+- PR titles in Rich HTML are plain text when an Open button is present, so the
+  card does not show two competing GitHub links.
+- Commit lists and PR subtitle lines use `<p>` / `<br>` instead of raw newlines.
+- Incomplete Done / Save branches controls stay visible as disabled buttons.
+- Test-notification fallback no longer retries classic HTML when the chat is
+  permanently unreachable.
+
+### Security
+
+- Untrusted GitHub HTML strips `tg-*` tags while keeping their inner text, so
+  injected in-message buttons cannot reach delivery and cannot hide later notes.
+
+### Operations
+
+- No database migration, new environment variables, or OAuth scope changes.
+- Outbox payload format remains `rich_html_v1`. Classic HTML stays in
+  `notification_jobs.text` as the rollback-safe fallback.
+
 ## v1.1.1 - 2026-08-09
 
 Patch release for subscription webhook consistency and safer OAuth failure

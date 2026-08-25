@@ -80,6 +80,7 @@ type Store interface {
 }
 
 type Sender interface {
+	SendRichHTML(ctx context.Context, chatID int64, text string) error
 	SendHTML(ctx context.Context, chatID int64, text string) error
 }
 
@@ -238,7 +239,31 @@ func (s *Service) SendTest(ctx context.Context, sender Sender, telegramUserID in
 	if err != nil {
 		return err
 	}
-	return sender.SendHTML(ctx, sub.DestinationChatID, notify.TestMessage(sub.RepoFullName))
+	notification := notify.TestNotification(sub.RepoFullName)
+	err = sender.SendRichHTML(ctx, sub.DestinationChatID, notification.RichHTML)
+	if err == nil || !isContentSendError(err) {
+		return err
+	}
+	return sender.SendHTML(ctx, sub.DestinationChatID, notification.FallbackHTML)
+}
+
+func isContentSendError(err error) bool {
+	var statusErr interface {
+		HTTPStatus() int
+		IsUnreachableDestination() bool
+	}
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+	if statusErr.IsUnreachableDestination() {
+		return false
+	}
+	switch statusErr.HTTPStatus() {
+	case 400, 403, 404, 413:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) EnsureWebhook(ctx context.Context, telegramUserID, repoID int64, repoFullName string) error {

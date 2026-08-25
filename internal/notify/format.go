@@ -63,37 +63,29 @@ func GitHubNotification(event Event) Notification {
 	var notification Notification
 	switch event.Type {
 	case "push":
-		text := commitEvent(event)
-		notification = Notification{RichHTML: text, FallbackHTML: text}
+		notification = commitNotification(event)
 	case "pull_request":
 		notification = pullRequestNotification(event)
 	case "release":
 		notification = releaseNotification(event)
 	default:
-		lines := []string{
-			fmt.Sprintf("<b>%s</b> %s", esc(event.RepoFullName), esc(eventTitle(event.Type))),
-			fmt.Sprintf("Actor: %s", esc(event.Actor)),
-		}
-		if event.Branch != "" {
-			lines = append(lines, fmt.Sprintf("Branch: %s", esc(event.Branch)))
-		}
-		if event.Title != "" {
-			lines = append(lines, esc(event.Title))
-		}
-		if event.Summary != "" {
-			lines = append(lines, esc(event.Summary))
-		}
-		if link := safeURL(event.URL); link != "" {
-			lines = append(lines, fmt.Sprintf(`<a href="%s">Open on GitHub</a>`, escAttr(link)))
-		}
-		text := strings.Join(lines, "\n")
-		notification = Notification{RichHTML: text, FallbackHTML: text}
+		notification = genericNotification(event)
 	}
 	return boundNotification(notification)
 }
 
 func TestMessage(repoFullName string) string {
 	return "<b>" + esc(repoFullName) + "</b>\n\nTest notification. Branchy can deliver notifications to this chat."
+}
+
+func TestNotification(repoFullName string) Notification {
+	return boundNotification(Notification{
+		RichHTML: joinSections(
+			richTitle("", repoFullName, "Test notification"),
+			"<p>Branchy can deliver notifications to this chat.</p>",
+		),
+		FallbackHTML: TestMessage(repoFullName),
+	})
 }
 
 func eventTitle(eventType string) string {
@@ -118,7 +110,7 @@ const (
 	maxCommitListRunes = 2400
 )
 
-func commitEvent(event Event) string {
+func commitNotification(event Event) Notification {
 	count := event.CommitCount
 	if count == 0 {
 		count = len(event.Commits)
@@ -127,16 +119,11 @@ func commitEvent(event Event) string {
 	if event.Branch != "" {
 		summary += fmt.Sprintf(" · <code>%s</code>", esc(event.Branch))
 	}
-	// Double newline keeps the title and event summary visually separate in
-	// Telegram Rich Messages.
-	header := fmt.Sprintf("%s <b>%s</b>\n\n%s", iconCommits, esc(event.RepoFullName), summary)
 
 	var list []string
 	used := 0
 	for _, commit := range event.Commits {
 		line, cost := formatCommitLine(commit)
-		// Always include the first commit; past that, stop once another line
-		// would push the visible list over the soft budget or the line ceiling.
 		if len(list) > 0 && (len(list) >= maxCommitLines || used+cost > maxCommitListRunes) {
 			break
 		}
@@ -146,32 +133,65 @@ func commitEvent(event Event) string {
 	if remaining := len(event.Commits) - len(list); remaining > 0 {
 		list = append(list, fmt.Sprintf("<i>+%s</i>", plural(remaining, "more commit", "more commits")))
 	}
+	richList := richLineList(list)
+	classicList := strings.Join(list, "\n")
 
-	var meta []string
+	var actor string
 	if event.Actor != "" {
-		meta = append(meta, "Pushed by <b>"+esc(event.Actor)+"</b>")
+		actor = "Pushed by <b>" + esc(event.Actor) + "</b>"
 	}
-	if link := safeURL(firstNonEmpty(event.CompareURL, event.URL)); link != "" {
-		meta = append(meta, fmt.Sprintf(`<a href="%s">Compare changes</a>`, escAttr(link)))
+	openURL := safeURL(firstNonEmpty(event.CompareURL, event.URL))
+	if openURL == "" && len(event.Commits) == 1 {
+		openURL = safeURL(event.Commits[0].URL)
+	}
+	var buttons []actionButton
+	if openURL != "" {
+		label := "Open compare"
+		if event.CompareURL == "" {
+			label = "Open on GitHub"
+		}
+		buttons = append(buttons, actionButton{Label: label, URL: openURL, Primary: true})
+	}
+	if len(event.Commits) == 1 {
+		if copy := copyableSHA(event.Commits[0].SHA); copy != "" {
+			buttons = append(buttons, actionButton{Label: "Copy SHA", CopyText: copy})
+		}
 	}
 
-	return joinSections(header, strings.Join(list, "\n"), strings.Join(meta, " · "))
+	classicMeta := actor
+	if link := safeURL(firstNonEmpty(event.CompareURL, event.URL)); link != "" {
+		classicMeta = joinInline(classicMeta, fmt.Sprintf(`<a href="%s">Compare changes</a>`, escAttr(link)))
+	}
+
+	return Notification{
+		RichHTML: joinSections(
+			richTitle(iconCommits, event.RepoFullName, summary),
+			richList,
+			richFooter(actor),
+			renderActionButtons(buttons),
+		),
+		FallbackHTML: joinSections(
+			classicTitle(iconCommits, event.RepoFullName, summary),
+			classicList,
+			classicMeta,
+		),
+	}
 }
 
 func pullRequestNotification(event Event) Notification {
 	action := humanizePRAction(event)
-	header := fmt.Sprintf("%s <b>%s</b>\n\nPull request %s", iconPR, esc(event.RepoFullName), esc(action))
+	summary := "Pull request " + esc(action)
 
-	var meta []string
+	var richTitleLine, classicTitleLine string
 	if title := truncateText(event.Title, maxTitleRunes); title != "" {
 		label := title
 		if event.Number > 0 {
 			label = fmt.Sprintf("#%d %s", event.Number, title)
 		}
+		richTitleLine = esc(label)
+		classicTitleLine = richTitleLine
 		if link := safeURL(event.URL); link != "" {
-			meta = append(meta, fmt.Sprintf(`<a href="%s">%s</a>`, escAttr(link), esc(label)))
-		} else {
-			meta = append(meta, esc(label))
+			classicTitleLine = fmt.Sprintf(`<a href="%s">%s</a>`, escAttr(link), esc(label))
 		}
 	}
 	var sub []string
@@ -181,9 +201,7 @@ func pullRequestNotification(event Event) Notification {
 	if event.Actor != "" {
 		sub = append(sub, "by <b>"+esc(event.Actor)+"</b>")
 	}
-	if len(sub) > 0 {
-		meta = append(meta, strings.Join(sub, " · "))
-	}
+	subLine := strings.Join(sub, " · ")
 
 	var richBody, fallbackBody string
 	if showsPRBody(action) {
@@ -198,9 +216,29 @@ func pullRequestNotification(event Event) Notification {
 		}
 	}
 
+	var buttons []actionButton
+	if link := safeURL(event.URL); link != "" {
+		buttons = append(buttons, actionButton{Label: "Open pull request", URL: link, Primary: true})
+	}
+	if event.Number > 0 {
+		copy := fmt.Sprintf("#%d", event.Number)
+		if len(copy) <= maxCopyTextRunes {
+			buttons = append(buttons, actionButton{Label: "Copy " + copy, CopyText: copy})
+		}
+	}
+
 	return Notification{
-		RichHTML:     joinSections(header, strings.Join(meta, "\n"), richBody),
-		FallbackHTML: joinSections(header, strings.Join(meta, "\n"), fallbackBody),
+		RichHTML: joinSections(
+			richTitle(iconPR, event.RepoFullName, summary),
+			richParagraphs(richTitleLine, subLine),
+			richBody,
+			renderActionButtons(buttons),
+		),
+		FallbackHTML: joinSections(
+			classicTitle(iconPR, event.RepoFullName, summary),
+			classicParagraphs(classicTitleLine, subLine),
+			fallbackBody,
+		),
 	}
 }
 
@@ -226,6 +264,7 @@ const (
 	maxPRBodyRunes      = 2500
 	maxReleaseBodyRunes = 10000
 	maxTitleRunes       = 200
+	maxCopyTextRunes    = 256
 	// Absolute guard for the whole notification payload.
 	maxRichMessageBytes = 32768
 )
@@ -235,15 +274,17 @@ func releaseNotification(event Event) Notification {
 	if event.Prerelease {
 		label = "Pre-release"
 	}
-	versionLine := fmt.Sprintf("<b>%s</b>", label)
-	if version := truncateText(firstNonEmpty(event.Title, event.TagName), maxTitleRunes); version != "" {
+	version := truncateText(firstNonEmpty(event.Title, event.TagName), maxTitleRunes)
+	richSummary := fmt.Sprintf("<b>%s</b>", label)
+	classicSummary := richSummary
+	if version != "" {
+		richSummary += " · " + esc(version)
 		if link := safeURL(event.URL); link != "" {
-			versionLine += fmt.Sprintf(` · <a href="%s">%s</a>`, escAttr(link), esc(version))
+			classicSummary += fmt.Sprintf(` · <a href="%s">%s</a>`, escAttr(link), esc(version))
 		} else {
-			versionLine += " · " + esc(version)
+			classicSummary += " · " + esc(version)
 		}
 	}
-	header := fmt.Sprintf("%s <b>%s</b>\n\n%s", iconRelease, esc(event.RepoFullName), versionLine)
 
 	var meta string
 	if event.Actor != "" {
@@ -252,20 +293,155 @@ func releaseNotification(event Event) Notification {
 
 	prepared := renderGitHubBody(event.Body, maxReleaseBodyRunes)
 	richBody, fallbackBody := wrapRenderedBody(prepared, "Release notes")
-	rich := joinSections(header, meta, richBody)
-	fallback := joinSections(header, meta, fallbackBody)
 	if prepared.Truncated {
 		if link := safeURL(event.URL); link != "" {
 			more := "\n\n" + fmt.Sprintf(`<a href="%s">Full release notes</a>`, escAttr(link))
-			rich += more
-			fallback += more
+			richBody += more
+			fallbackBody += more
 		}
 	}
-	return Notification{RichHTML: rich, FallbackHTML: fallback}
+
+	var buttons []actionButton
+	if link := safeURL(event.URL); link != "" {
+		buttons = append(buttons, actionButton{Label: "Open release", URL: link, Primary: true})
+	}
+	if copy := copyableText(strings.TrimSpace(event.TagName)); copy != "" {
+		buttons = append(buttons, actionButton{Label: "Copy tag", CopyText: copy})
+	}
+
+	return Notification{
+		RichHTML: joinSections(
+			richTitle(iconRelease, event.RepoFullName, richSummary),
+			richFooter(meta),
+			richBody,
+			renderActionButtons(buttons),
+		),
+		FallbackHTML: joinSections(
+			classicTitle(iconRelease, event.RepoFullName, classicSummary),
+			meta,
+			fallbackBody,
+		),
+	}
+}
+
+func genericNotification(event Event) Notification {
+	summary := esc(eventTitle(event.Type))
+	var details []string
+	if event.Actor != "" {
+		details = append(details, "Actor: "+esc(event.Actor))
+	}
+	if event.Branch != "" {
+		details = append(details, "Branch: "+esc(event.Branch))
+	}
+	if event.Title != "" {
+		details = append(details, esc(event.Title))
+	}
+	if event.Summary != "" {
+		details = append(details, esc(event.Summary))
+	}
+	detailHTML := strings.Join(details, "\n")
+	richDetails := richLineList(details)
+	open := safeURL(event.URL)
+	classic := detailHTML
+	if open != "" {
+		classic = joinSections(classic, fmt.Sprintf(`<a href="%s">Open on GitHub</a>`, escAttr(open)))
+	}
+	var buttons []actionButton
+	if open != "" {
+		buttons = append(buttons, actionButton{Label: "Open on GitHub", URL: open, Primary: true})
+	}
+	return Notification{
+		RichHTML: joinSections(
+			richTitle("", event.RepoFullName, summary),
+			richDetails,
+			renderActionButtons(buttons),
+		),
+		FallbackHTML: joinSections(
+			fmt.Sprintf("<b>%s</b> %s", esc(event.RepoFullName), summary),
+			classic,
+		),
+	}
+}
+
+type actionButton struct {
+	Label    string
+	URL      string
+	CopyText string
+	Primary  bool
+}
+
+func renderActionButtons(buttons []actionButton) string {
+	if len(buttons) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, button := range buttons {
+		label := html.EscapeString(button.Label)
+		switch {
+		case button.URL != "":
+			style := ""
+			if button.Primary {
+				style = ` style="primary"`
+			}
+			parts = append(parts, fmt.Sprintf(`<tg-button type="url"%s url="%s">%s</tg-button>`, style, escAttr(button.URL), label))
+		case button.CopyText != "":
+			parts = append(parts, fmt.Sprintf(`<tg-button type="copy_text" text="%s">%s</tg-button>`, escAttr(button.CopyText), label))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return `<tg-button-row align="left">` + strings.Join(parts, "") + `</tg-button-row>`
+}
+
+func richTitle(icon, repo, summaryHTML string) string {
+	heading := esc(repo)
+	if icon != "" {
+		heading = icon + " " + heading
+	}
+	return fmt.Sprintf("<h2>%s</h2>\n<p>%s</p>\n<hr>", heading, summaryHTML)
+}
+
+func classicTitle(icon, repo, summaryHTML string) string {
+	heading := esc(repo)
+	if icon != "" {
+		heading = icon + " <b>" + heading + "</b>"
+	} else {
+		heading = "<b>" + heading + "</b>"
+	}
+	return heading + "\n\n" + summaryHTML
+}
+
+func richFooter(text string) string {
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+	return "<footer>" + text + "</footer>"
+}
+
+func joinInline(parts ...string) string {
+	var out []string
+	for _, part := range parts {
+		if strings.TrimSpace(part) != "" {
+			out = append(out, part)
+		}
+	}
+	return strings.Join(out, " · ")
+}
+
+func copyableSHA(sha string) string {
+	return copyableText(strings.TrimSpace(sha))
+}
+
+func copyableText(value string) string {
+	if value == "" || len([]rune(value)) > maxCopyTextRunes {
+		return ""
+	}
+	return value
 }
 
 // formatCommitLine renders one commit row and returns its approximate visible
-// length (sha + space + subject) so commitEvent can budget the list.
+// length (sha + space + subject) so commitNotification can budget the list.
 func formatCommitLine(commit Commit) (string, int) {
 	sha := shortSHA(commit.SHA)
 	if sha == "" {
@@ -294,8 +470,35 @@ func joinSections(sections ...string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// Body collapse thresholds: long notes fold into <details>; short notes use a
-// plain Markdown blockquote. Raise to collapse less, lower to collapse more.
+func richParagraphs(lines ...string) string {
+	var parts []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			parts = append(parts, "<p>"+line+"</p>")
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func classicParagraphs(lines ...string) string {
+	var parts []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			parts = append(parts, line)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func richLineList(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	return "<p>" + strings.Join(lines, "<br>\n") + "</p>"
+}
+
+// Body collapse thresholds: long notes fold into expandable quotes or
+// <details>; short notes stay as a plain blockquote. Raise to collapse less.
 const (
 	collapseBodyRuneThreshold = 600
 	collapseBodyLineThreshold = 10
