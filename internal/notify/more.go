@@ -5,16 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
-	maxMoreNames = 12
+	maxMoreFileRows      = 30
+	maxMoreFilePathRunes = 40
 )
 
-// PRMoreSnapshot is the durable More overlay payload stored in
-// notification_jobs.more_json. It is the webhook snapshot, not a live GitHub
-// fetch. Do not log Body.
+// PRMoreSnapshot is the durable More overlay header stored in
+// notification_jobs.more_json. File rows are fetched live on tap, not stored
+// here. Do not log Body; new jobs omit it.
 type PRMoreSnapshot struct {
 	Number       int      `json:"number,omitempty"`
 	Title        string   `json:"title,omitempty"`
@@ -41,31 +44,34 @@ type PRMoreSnapshot struct {
 	Action       string   `json:"action,omitempty"`
 }
 
+// PRFile is one pull-request file row for the More overlay table.
+type PRFile struct {
+	Filename         string
+	PreviousFilename string
+	Status           string
+	Additions        int
+	Deletions        int
+	Changes          int
+}
+
 func PRMoreFromEvent(event Event) PRMoreSnapshot {
 	author := firstNonEmpty(event.Author, event.Actor)
 	return PRMoreSnapshot{
 		Number:       event.Number,
 		Title:        event.Title,
 		URL:          event.URL,
-		Body:         event.Body,
 		RepoFullName: event.RepoFullName,
 		HeadBranch:   event.HeadBranch,
 		BaseBranch:   event.Branch,
 		HeadSHA:      event.HeadSHA,
 		IsDraft:      event.IsDraft,
 		Author:       author,
-		Labels:       event.Labels,
-		Assignees:    event.Assignees,
-		Reviewers:    event.Reviewers,
 		Additions:    event.Additions,
 		Deletions:    event.Deletions,
 		ChangedFiles: event.ChangedFiles,
 		CommitCount:  event.CommitCount,
 		DiffURL:      event.DiffURL,
 		Merged:       event.Merged,
-		MergedBy:     event.MergedBy,
-		MergedAt:     event.MergedAt,
-		ClosedAt:     event.ClosedAt,
 		Action:       event.Action,
 	}
 }
@@ -81,17 +87,13 @@ func PRMoreJSON(event Event) (json.RawMessage, error) {
 	return raw, nil
 }
 
-// PRMoreHTML renders the ephemeral overlay. It is not a copy of the public
-// card: description is shown without a wrapping <details>, and the button row
-// is Open / Files / Commits / Checks.
-func PRMoreHTML(snapshot PRMoreSnapshot) string {
+// PRMoreHTML renders the ephemeral overlay: a thin PR header, diff stats, and
+// a file table. Description, labels, and people from more_json are ignored.
+func PRMoreHTML(snapshot PRMoreSnapshot, files []PRFile) string {
 	heading := prHeading(Event{Title: snapshot.Title, Number: snapshot.Number})
 	var meta []string
 	if span := prBranchSpan(snapshot.HeadBranch, snapshot.BaseBranch); span != "" {
 		meta = append(meta, span)
-	}
-	if sha := shortSHA(snapshot.HeadSHA); sha != "" {
-		meta = append(meta, "<code>"+htmlEscape(sha)+"</code>")
 	}
 	if snapshot.IsDraft {
 		meta = append(meta, "Draft")
@@ -99,49 +101,28 @@ func PRMoreHTML(snapshot PRMoreSnapshot) string {
 	if snapshot.Merged {
 		meta = append(meta, "merged")
 	}
-	if name := boldName(snapshot.Author); name != "" {
-		meta = append(meta, name)
-	}
 
+	additions, deletions, fileCount := moreDiffStats(snapshot, files)
 	var stats []string
-	if snapshot.Additions > 0 {
-		stats = append(stats, fmt.Sprintf("+%d", snapshot.Additions))
+	if additions > 0 {
+		stats = append(stats, fmt.Sprintf("+%d", additions))
 	}
-	if snapshot.Deletions > 0 {
-		stats = append(stats, fmt.Sprintf("−%d", snapshot.Deletions))
+	if deletions > 0 {
+		stats = append(stats, fmt.Sprintf("−%d", deletions))
 	}
-	if snapshot.ChangedFiles > 0 {
-		stats = append(stats, plural(snapshot.ChangedFiles, "file", "files"))
+	if fileCount > 0 {
+		stats = append(stats, plural(fileCount, "file", "files"))
 	}
 	if snapshot.CommitCount > 0 {
 		stats = append(stats, plural(snapshot.CommitCount, "commit", "commits"))
 	}
 
-	var people []string
-	if line := namedList("Labels", snapshot.Labels); line != "" {
-		people = append(people, line)
-	}
-	if line := namedList("Assignees", snapshot.Assignees); line != "" {
-		people = append(people, line)
-	}
-	if line := namedList("Reviewers", snapshot.Reviewers); line != "" {
-		people = append(people, line)
-	}
-	if snapshot.MergedBy != "" {
-		people = append(people, "Merged by "+boldName(snapshot.MergedBy))
-	}
-	if snapshot.ClosedAt != "" && !snapshot.Merged {
-		people = append(people, "Closed "+htmlEscape(snapshot.ClosedAt))
-	} else if snapshot.MergedAt != "" {
-		people = append(people, "Merged "+htmlEscape(snapshot.MergedAt))
-	}
-
-	prepared := renderGitHubBody(snapshot.Body, maxReleaseBodyRunes)
-	body := wrapOverlayBody(prepared)
-	if prepared.Truncated {
-		if link := safeURL(snapshot.URL); link != "" {
-			body += "\n\n" + fmt.Sprintf(`<a href="%s">Read more</a>`, escAttr(link))
-		}
+	var body string
+	switch {
+	case len(files) > 0:
+		body = renderMoreFileTable(files, fileCount)
+	case additions == 0 && deletions == 0 && fileCount == 0:
+		body = "<p><i>GitHub has not computed the diff yet.</i></p>"
 	}
 
 	open := safeURL(snapshot.URL)
@@ -149,14 +130,8 @@ func PRMoreHTML(snapshot PRMoreSnapshot) string {
 	if open != "" {
 		buttons = append(buttons, actionButton{Label: "Open", URL: open, Primary: true})
 	}
-	if files := prSubpageURL(snapshot.URL, "files"); files != "" {
-		buttons = append(buttons, actionButton{Label: "Files", URL: files})
-	}
-	if commits := prSubpageURL(snapshot.URL, "commits"); commits != "" {
-		buttons = append(buttons, actionButton{Label: "Commits", URL: commits})
-	}
-	if checks := prSubpageURL(snapshot.URL, "checks"); checks != "" {
-		buttons = append(buttons, actionButton{Label: "Checks", URL: checks})
+	if filesURL := prSubpageURL(snapshot.URL, "files"); filesURL != "" {
+		buttons = append(buttons, actionButton{Label: "Files", URL: filesURL})
 	}
 
 	return boundNotification(Notification{
@@ -164,60 +139,107 @@ func PRMoreHTML(snapshot PRMoreSnapshot) string {
 			richHeading(iconPR, heading),
 			quietLine(joinInline(meta...)),
 			quietLine(strings.Join(stats, " · ")),
-			richLineList(people),
 			body,
 			renderActionButtons(buttons),
 		),
 	}).RichHTML
 }
 
-func wrapOverlayBody(body renderedGitHubBody) string {
-	if strings.TrimSpace(body.RichHTML) == "" {
-		return ""
+func moreDiffStats(snapshot PRMoreSnapshot, files []PRFile) (additions, deletions, fileCount int) {
+	additions = snapshot.Additions
+	deletions = snapshot.Deletions
+	fileCount = snapshot.ChangedFiles
+	if len(files) == 0 {
+		return
 	}
-	if shouldCollapseBody(body.Source, body.Truncated) && !bodyHasRichStructure(body.RichHTML) {
-		return "<blockquote expandable>" + flattenHTMLForExpandableQuote(body.RichHTML) + "</blockquote>"
+	additions, deletions = 0, 0
+	for _, file := range files {
+		additions += file.Additions
+		deletions += file.Deletions
 	}
-	if shouldCollapseBody(body.Source, body.Truncated) {
-		return body.RichHTML
+	fileCount = len(files)
+	if snapshot.ChangedFiles > fileCount {
+		fileCount = snapshot.ChangedFiles
 	}
-	return "<blockquote>" + body.RichHTML + "</blockquote>"
+	return
 }
 
-func namedList(label string, names []string) string {
-	names = clipNames(names)
-	if len(names) == 0 {
-		return ""
+func renderMoreFileTable(files []PRFile, fileCount int) string {
+	sorted := sortedPRFiles(files)
+	shown := sorted
+	if len(shown) > maxMoreFileRows {
+		shown = shown[:maxMoreFileRows]
 	}
-	escaped := make([]string, 0, len(names))
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
+
+	var b strings.Builder
+	b.WriteString(`<table bordered striped compact><tr><th>File</th><th>+</th><th>−</th></tr>`)
+	for _, file := range shown {
+		b.WriteString("<tr><td><code>")
+		b.WriteString(htmlEscape(fileLabel(file)))
+		b.WriteString("</code></td><td>")
+		if file.Additions > 0 {
+			b.WriteString(fmt.Sprintf("+%d", file.Additions))
 		}
-		escaped = append(escaped, "<code>"+htmlEscape(name)+"</code>")
+		b.WriteString("</td><td>")
+		if file.Deletions > 0 {
+			b.WriteString(fmt.Sprintf("−%d", file.Deletions))
+		}
+		b.WriteString("</td></tr>")
 	}
-	if len(escaped) == 0 {
-		return ""
+	b.WriteString("</table>")
+
+	remaining := fileCount - len(shown)
+	if extra := len(sorted) - len(shown); extra > remaining {
+		remaining = extra
 	}
-	return htmlEscape(label) + ": " + strings.Join(escaped, " ")
+	if remaining > 0 {
+		b.WriteString(fmt.Sprintf("<p><i>and %d more</i></p>", remaining))
+	}
+	return b.String()
 }
 
-func clipNames(names []string) []string {
-	var out []string
-	seen := make(map[string]bool)
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if name == "" || seen[name] {
-			continue
+func sortedPRFiles(files []PRFile) []PRFile {
+	out := append([]PRFile(nil), files...)
+	sort.SliceStable(out, func(i, j int) bool {
+		ci, cj := fileChangeCount(out[i]), fileChangeCount(out[j])
+		if ci != cj {
+			return ci > cj
 		}
-		seen[name] = true
-		out = append(out, name)
-		if len(out) >= maxMoreNames {
-			break
-		}
-	}
+		return out[i].Filename < out[j].Filename
+	})
 	return out
+}
+
+func fileChangeCount(file PRFile) int {
+	if file.Changes > 0 {
+		return file.Changes
+	}
+	return file.Additions + file.Deletions
+}
+
+func fileLabel(file PRFile) string {
+	name := truncatePathLeft(file.Filename)
+	prev := strings.TrimSpace(file.PreviousFilename)
+	if prev == "" || strings.EqualFold(file.Status, "added") {
+		return name
+	}
+	if strings.EqualFold(file.Status, "renamed") || prev != strings.TrimSpace(file.Filename) {
+		return truncatePathLeft(prev) + " → " + name
+	}
+	return name
+}
+
+func truncatePathLeft(path string) string {
+	path = strings.TrimSpace(strings.ReplaceAll(path, "\n", " "))
+	if path == "" {
+		return path
+	}
+	if utf8.RuneCountInString(path) <= maxMoreFilePathRunes {
+		return path
+	}
+	runes := []rune(path)
+	keep := maxMoreFilePathRunes - 1
+	return "…" + string(runes[len(runes)-keep:])
 }
 
 func prSubpageURL(htmlURL, page string) string {

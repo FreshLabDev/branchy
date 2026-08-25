@@ -669,6 +669,7 @@ func TestPRMoreHTMLHidesZeroDiffAndAddsSubpages(t *testing.T) {
 		Body:         "A **short** description.",
 		HeadBranch:   "feat/cards",
 		BaseBranch:   "dev",
+		HeadSHA:      "abc1234def",
 		IsDraft:      true,
 		Author:       "amtiYo",
 		Labels:       []string{"ux"},
@@ -677,24 +678,24 @@ func TestPRMoreHTMLHidesZeroDiffAndAddsSubpages(t *testing.T) {
 		Deletions:    0,
 		ChangedFiles: 0,
 		CommitCount:  0,
-	})
+	}, nil)
 	for _, want := range []string{
 		"<h2>" + iconPR + " #7 Readable cards</h2>",
 		"<code>feat/cards → dev</code>",
 		"Draft",
-		"<code>ux</code>",
-		"<code>octocat</code>",
-		"<p>A <b>short</b> description.</p>",
+		"GitHub has not computed the diff yet.",
 		`<tg-button type="url" style="primary" url="https://github.com/FreshLabDev/branchy/pull/7">Open</tg-button>`,
 		`url="https://github.com/FreshLabDev/branchy/pull/7/files">Files</tg-button>`,
-		`url="https://github.com/FreshLabDev/branchy/pull/7/commits">Commits</tg-button>`,
-		`url="https://github.com/FreshLabDev/branchy/pull/7/checks">Checks</tg-button>`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("PR More overlay missing %q:\n%s", want, got)
 		}
 	}
-	for _, unwanted := range []string{"+0", "−0", "0 file", "0 commit", "<details>", "Copy "} {
+	for _, unwanted := range []string{
+		"+0", "−0", "0 file", "0 commit", "<details>", "Copy ",
+		"A <b>short</b> description", "<code>ux</code>", "<code>octocat</code>",
+		"<b>amtiYo</b>", "abc1234", "/commits", "/checks", "<table",
+	} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("PR More overlay should not contain %q:\n%s", unwanted, got)
 		}
@@ -710,9 +711,108 @@ func TestPRMoreHTMLShowsNonZeroDiff(t *testing.T) {
 		Deletions:    3,
 		ChangedFiles: 4,
 		CommitCount:  2,
-	})
+	}, nil)
 	if !strings.Contains(got, "+12 · −3 · 4 files · 2 commits") {
-		t.Fatalf("expected diff stats:\n%s", got)
+		t.Fatalf("expected snapshot diff stats:\n%s", got)
+	}
+	if strings.Contains(got, "<table") || strings.Contains(got, "computed the diff") {
+		t.Fatalf("snapshot-only stats should not invent a table or empty-diff note:\n%s", got)
+	}
+}
+
+func TestPRMoreHTMLRendersFileTable(t *testing.T) {
+	long := "internal/notify/format_helpers_with_a_very_long_filename.go"
+	got := PRMoreHTML(PRMoreSnapshot{
+		Number:       9,
+		Title:        "Files",
+		URL:          "https://github.com/acme/repo/pull/9",
+		HeadBranch:   "feat",
+		BaseBranch:   "main",
+		Additions:    1,
+		Deletions:    1,
+		ChangedFiles: 3,
+		CommitCount:  2,
+		Body:         "should not appear",
+	}, []PRFile{
+		{Filename: "tiny.md", Additions: 1, Deletions: 0, Changes: 1},
+		{Filename: "internal/notify/more.go", PreviousFilename: "internal/notify/old.go", Status: "renamed", Additions: 4, Deletions: 2, Changes: 6},
+		{Filename: long, Additions: 40, Deletions: 12, Changes: 52},
+	})
+	if !strings.Contains(got, `<table bordered striped compact>`) {
+		t.Fatalf("expected compact file table:\n%s", got)
+	}
+	if !strings.Contains(got, "<th>File</th><th>+</th><th>−</th>") {
+		t.Fatalf("expected File/+ /− headers:\n%s", got)
+	}
+	if !strings.Contains(got, "internal/notify/old.go → internal/notify/more.go") {
+		t.Fatalf("expected rename row:\n%s", got)
+	}
+	if !strings.Contains(got, "+40") || !strings.Contains(got, "−12") {
+		t.Fatalf("expected per-file diff counts:\n%s", got)
+	}
+	if !strings.Contains(got, "…") || strings.Contains(got, long) {
+		t.Fatalf("long paths should truncate from the left:\n%s", got)
+	}
+	if !strings.Contains(got, "very_long_filename.go") {
+		t.Fatalf("truncated path should keep the basename:\n%s", got)
+	}
+	if !strings.Contains(got, "+45 · −14 · 3 files · 2 commits") {
+		t.Fatalf("live file sums should win over snapshot totals:\n%s", got)
+	}
+	idxLong := strings.Index(got, "very_long_filename.go")
+	idxRename := strings.Index(got, "internal/notify/more.go")
+	if idxLong < 0 || idxRename < 0 || idxLong > idxRename {
+		t.Fatalf("largest diff should sort first:\n%s", got)
+	}
+	if strings.Contains(got, "should not appear") {
+		t.Fatalf("overlay must not repeat the description:\n%s", got)
+	}
+}
+
+func TestPRMoreHTMLCapsFileRows(t *testing.T) {
+	files := make([]PRFile, 35)
+	for i := range files {
+		files[i] = PRFile{Filename: fmt.Sprintf("f%02d.go", i), Additions: i + 1, Changes: i + 1}
+	}
+	got := PRMoreHTML(PRMoreSnapshot{Number: 1, Title: "Cap", ChangedFiles: 40}, files)
+	if got := strings.Count(got, "<tr>"); got != maxMoreFileRows+1 {
+		t.Fatalf("table rows = %d, want header + %d", got, maxMoreFileRows)
+	}
+	if !strings.Contains(got, "<i>and 10 more</i>") {
+		t.Fatalf("expected remaining-file footer:\n%s", got)
+	}
+}
+
+func TestPRMoreJSONOmitsDescription(t *testing.T) {
+	raw, err := PRMoreJSON(Event{
+		Type:         "pull_request",
+		Number:       7,
+		Title:        "Cards",
+		URL:          "https://github.com/acme/repo/pull/7",
+		Body:         "secret description",
+		RepoFullName: "acme/repo",
+		Author:       "mona",
+		HeadBranch:   "feat/x",
+		Branch:       "main",
+		Labels:       []string{"ux"},
+		Assignees:    []string{"octocat"},
+		Reviewers:    []string{"hubot"},
+		MergedBy:     "mona",
+		MergedAt:     "2026-08-25T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	for _, unwanted := range []string{
+		"secret description", `"body"`, `"labels"`, `"assignees"`, `"reviewers"`, `"merged_by"`, `"merged_at"`,
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("new more_json should omit %q: %s", unwanted, got)
+		}
+	}
+	if !strings.Contains(got, `"author":"mona"`) || !strings.Contains(got, `"head_branch":"feat/x"`) {
+		t.Fatalf("snapshot header missing: %s", got)
 	}
 }
 

@@ -118,5 +118,7 @@ handlers do not send Telegram messages directly; they create durable
   `notification_jobs` by id and `destination_chat_id`, then sends an extra
   ephemeral Rich Message to the tapping user. The public card is not replaced.
   Job ids are generated in Go so the More button can embed them before INSERT;
-  `more_json` holds the PR webhook snapshot (NULL for push/release and older
-  jobs).
+  `more_json` holds the PR webhook header snapshot (NULL for push/release and
+  older jobs). Tapping More loads the file list with the subscription owner's
+  GitHub token and does not persist patches. The webhook handler never calls
+  the files API.

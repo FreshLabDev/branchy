@@ -46,12 +46,13 @@ Branchy keeps the MVP deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v1.2.0-alpha.2` | Pre-release evaluating title-first cards and PR More overlays |
+| Latest | `v1.2.0-alpha.3` | Pre-release evaluating PR More file tables |
 | Stable | `v1.1.1` | Latest non-prerelease tag |
 
 The MVP has been live-tested with Telegram and GitHub. `v1.1.1` is the current
 stable release; the `v1.2.0` alpha line evaluates Bot API 10.3 notification
-cards, in-message buttons, and disabled settings controls before promotion.
+cards, in-message buttons, PR More overlays, and disabled settings controls
+before promotion.
 
 ---
 

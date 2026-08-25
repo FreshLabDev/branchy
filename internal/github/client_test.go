@@ -3,7 +3,9 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -137,4 +139,76 @@ func TestDeleteWebhookByURLNoopsWhenHookMissing(t *testing.T) {
 	if deleteCalls != 0 {
 		t.Fatalf("deleteCalls = %d, want 0", deleteCalls)
 	}
+}
+
+func TestListPullRequestFilesOmitsPatchAndStopsAfterTwoPages(t *testing.T) {
+	var pages []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer owner-token" {
+			t.Fatalf("unexpected auth header %q", r.Header.Get("Authorization"))
+		}
+		if r.URL.Path != "/repos/acme/repo/pulls/7/files" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		page := r.URL.Query().Get("page")
+		pages = append(pages, page)
+		switch page {
+		case "1":
+			_, _ = w.Write([]byte(pullRequestFilesPageJSON(100, "a.go", "SECRET_PATCH")))
+		case "2":
+			_, _ = w.Write([]byte(pullRequestFilesPageJSON(100, "b.go", "SECRET_PATCH")))
+		default:
+			t.Fatalf("unexpected extra page %q", page)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{UserAgent: "test", APIURL: server.URL})
+	files, err := client.ListPullRequestFiles(context.Background(), "owner-token", "acme/repo", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 200 {
+		t.Fatalf("files = %d, want 200", len(files))
+	}
+	if files[0].Filename != "a.go-000" || files[100].Filename != "b.go-000" {
+		t.Fatalf("unexpected filenames: %+v %+v", files[0], files[100])
+	}
+	if files[0].PreviousFilename != "old-a.go-000" || files[0].Status != "renamed" {
+		t.Fatalf("rename metadata dropped: %+v", files[0])
+	}
+	if len(pages) != 2 || pages[0] != "1" || pages[1] != "2" {
+		t.Fatalf("pages = %v, want [1 2]", pages)
+	}
+	raw, err := json.Marshal(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "SECRET_PATCH") || strings.Contains(string(raw), "patch") {
+		t.Fatalf("patch must not be retained: %s", raw)
+	}
+}
+
+func TestListPullRequestFilesRejectsInvalidInput(t *testing.T) {
+	client := NewClient(Config{UserAgent: "test"})
+	if _, err := client.ListPullRequestFiles(context.Background(), "token", "not-a-repo", 1); err == nil {
+		t.Fatal("expected invalid full name error")
+	}
+	if _, err := client.ListPullRequestFiles(context.Background(), "token", "acme/repo", 0); err == nil {
+		t.Fatal("expected invalid number error")
+	}
+}
+
+func pullRequestFilesPageJSON(n int, prefix, patch string) string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `{"filename":"%s-%03d","previous_filename":"old-%s-%03d","status":"renamed","additions":%d,"deletions":1,"changes":%d,"patch":%q}`,
+			prefix, i, prefix, i, i+1, i+2, patch)
+	}
+	b.WriteByte(']')
+	return b.String()
 }

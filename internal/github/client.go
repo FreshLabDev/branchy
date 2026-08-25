@@ -23,6 +23,8 @@ type Config struct {
 	UserAgent    string
 	// Timeout bounds each API request; zero falls back to 20s.
 	Timeout time.Duration
+	// APIURL overrides the GitHub API origin. Empty uses https://api.github.com.
+	APIURL string
 }
 
 type Client struct {
@@ -38,9 +40,13 @@ func NewClient(cfg Config) *Client {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 20 * time.Second
 	}
+	base := apiBase
+	if cfg.APIURL != "" {
+		base = cfg.APIURL
+	}
 	return &Client{
 		cfg:     cfg,
-		apiBase: apiBase,
+		apiBase: base,
 		http: &http.Client{
 			Timeout: cfg.Timeout,
 		},
@@ -73,6 +79,19 @@ type Repository struct {
 type Branch struct {
 	Name string `json:"name"`
 }
+
+// PullRequestFile is one changed path from the GitHub pulls files API.
+// Patch text is intentionally not mapped and must not be logged.
+type PullRequestFile struct {
+	Filename         string `json:"filename"`
+	PreviousFilename string `json:"previous_filename"`
+	Status           string `json:"status"`
+	Additions        int    `json:"additions"`
+	Deletions        int    `json:"deletions"`
+	Changes          int    `json:"changes"`
+}
+
+const maxPullRequestFilePages = 2
 
 type Hook struct {
 	ID     int64    `json:"id"`
@@ -198,6 +217,34 @@ func (c *Client) ListBranches(ctx context.Context, accessToken, fullName string)
 		}
 	}
 	return branches, nil
+}
+
+func (c *Client) ListPullRequestFiles(ctx context.Context, accessToken, fullName string, number int) ([]PullRequestFile, error) {
+	owner, repo, err := splitFullName(fullName)
+	if err != nil {
+		return nil, err
+	}
+	if number <= 0 {
+		return nil, fmt.Errorf("invalid pull request number %d", number)
+	}
+	var files []PullRequestFile
+	for page := 1; page <= maxPullRequestFilePages; page++ {
+		path := fmt.Sprintf("/repos/%s/%s/pulls/%d/files?per_page=100&page=%d",
+			url.PathEscape(owner), url.PathEscape(repo), number, page)
+		req, err := c.apiRequest(ctx, http.MethodGet, path, accessToken, nil)
+		if err != nil {
+			return nil, err
+		}
+		var batch []PullRequestFile
+		if err := c.doJSON(req, &batch); err != nil {
+			return nil, err
+		}
+		files = append(files, batch...)
+		if len(batch) < 100 {
+			break
+		}
+	}
+	return files, nil
 }
 
 func (c *Client) EnsureWebhook(ctx context.Context, accessToken, fullName, payloadURL, secret string, events []string) (Hook, error) {

@@ -54,13 +54,19 @@ headings, lists, media) use a collapsible `<details>` block.
 
 Tapping **More** on a pull request sends a separate ephemeral Rich Message to
 the tapping user (`ephemeral_message_parameters.receiver_user_id` plus
-`callback_query_id`). The public card is not replaced. The overlay is the
-webhook snapshot (title, `head → base`, draft, non-zero diff counts,
-labels/reviewers, full description) with URL buttons for Open, Files, Commits,
-and Checks. Callback data is `m:` plus the job UUID without hyphens (34
-bytes). Lookup is by job id and `destination_chat_id`; missing, foreign-chat,
-or retained-and-purged jobs toast `This snapshot expired.` Anyone who can see
-the card can open More. Test notifications stay a short card without More.
+`callback_query_id`). The public card is not replaced. The overlay is a thin
+header (`#N Title`, `head → base`, draft/merged) plus non-zero diff stats and
+a compact file table (`File` / `+` / `−`) loaded live from GitHub
+`GET /repos/{owner}/{repo}/pulls/{n}/files` using the **subscription owner's**
+OAuth token, not the tapping user. Description, labels, and reviewers are not
+repeated. URL buttons are Open and Files. If GitHub has not computed the
+diff yet, the overlay says so and still offers Files. A failed files fetch
+still sends the header and snapshot stats, and toasts `Could not load the
+file list.` (or `GitHub access expired.` on 401). Callback data is `m:` plus
+the job UUID without hyphens (34 bytes). Lookup is by job id and
+`destination_chat_id`; missing, foreign-chat, or retained-and-purged jobs
+toast `This snapshot expired.` Anyone who can see the card can open More.
+Test notifications stay a short card without More.
 
 The first 50 valid HTTP(S) media items remain visible Rich Message blocks,
 including linked Markdown images and supported raw image, video, and audio

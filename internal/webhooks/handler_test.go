@@ -258,6 +258,9 @@ func TestHandlerEnqueuesPullRequestMoreSnapshot(t *testing.T) {
 	if !strings.Contains(string(job.MoreJSON), `"author":"mona"`) || !strings.Contains(string(job.MoreJSON), `"head_branch":"feat/x"`) {
 		t.Fatalf("snapshot should use user.login and head.ref: %s", job.MoreJSON)
 	}
+	if strings.Contains(string(job.MoreJSON), `"body"`) {
+		t.Fatalf("new more_json should omit the PR description: %s", job.MoreJSON)
+	}
 }
 
 func TestHandlerReconcilesRenamedRepo(t *testing.T) {

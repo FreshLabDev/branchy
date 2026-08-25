@@ -10,6 +10,28 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.2.0-alpha.3 - 2026-08-25
+
+Third Bot API 10.3 alpha. Pull-request More shows a file diff table instead of
+repeating the description.
+
+### Changed
+
+- The More overlay is a thin `#N Title` header, non-zero diff stats (including
+  commit count), and a compact `File` / `+` / `−` table. Description, labels,
+  reviewers, Commits, and Checks are gone; Open and Files remain.
+- File rows are loaded live on tap from GitHub
+  `GET /repos/{owner}/{repo}/pulls/{n}/files` with the subscription owner's
+  OAuth token. The webhook handler still only enqueues the job. New `more_json`
+  rows omit the PR body. No new migration or OAuth scope.
+
+### Security
+
+- More lookup stays scoped to `destination_chat_id`. Patch text is not stored
+  or logged. A failed files fetch still sends the overlay header and toasts
+  `Could not load the file list.` (or `GitHub access expired.` on GitHub 401)
+  without opening settings.
+
 ## v1.2.0-alpha.2 - 2026-08-25
 
 Second Bot API 10.3 alpha. Notification cards become title-first, and pull

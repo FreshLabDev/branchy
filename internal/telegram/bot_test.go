@@ -14,6 +14,7 @@ import (
 
 	"branchy/internal/db"
 	"branchy/internal/github"
+	"branchy/internal/oauth"
 )
 
 func TestStartCommandTargetsBot(t *testing.T) {
@@ -439,11 +440,209 @@ func TestPRMoreCallbackDoesNotUseTokenAndScopesToChat(t *testing.T) {
 	}
 }
 
+func TestPRMoreCallbackFetchesFilesWithOwnerToken(t *testing.T) {
+	jobID := "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	snapshot, _ := json.Marshal(map[string]any{
+		"number": 7, "title": "More", "url": "https://github.com/acme/repo/pull/7",
+		"repo_full_name": "acme/repo", "head_branch": "feat", "base_branch": "main",
+	})
+	sealer := oauth.NewTokenSealer("test-secret")
+	sealed, err := sealer.Encrypt("owner-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &moreJobStore{
+		job: db.NotificationJob{
+			ID: jobID, SubscriptionID: "sub-owner", DestinationChatID: -100, MoreJSON: snapshot,
+		},
+		sub:  db.Subscription{ID: "sub-owner", TelegramUserID: 99},
+		conn: db.GitHubConnection{TelegramUserID: 99, EncryptedAccessToken: sealed},
+	}
+
+	var ghAuth string
+	var ghPath string
+	ghServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ghAuth = r.Header.Get("Authorization")
+		ghPath = r.URL.Path
+		_, _ = w.Write([]byte(`[{"filename":"internal/notify/more.go","status":"modified","additions":12,"deletions":3,"changes":15}]`))
+	}))
+	defer ghServer.Close()
+
+	var tgBodies []string
+	tgServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		tgBodies = append(tgBodies, string(raw))
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer tgServer.Close()
+
+	tg := NewClient("token")
+	tg.apiBase = tgServer.URL
+	bot := &Bot{
+		store:  store,
+		client: tg,
+		github: github.NewClient(github.Config{UserAgent: "test", APIURL: ghServer.URL}),
+		sealer: sealer,
+	}
+	cq := CallbackQuery{
+		ID:   "cq-more",
+		From: User{ID: 42},
+		Message: Message{Chat: Chat{ID: -100, Type: "supergroup"}},
+		Data: "m:" + db.CompactUUID(jobID),
+	}
+	if err := bot.handleCallback(context.Background(), cq); err != nil {
+		t.Fatal(err)
+	}
+	if store.connUserID != 99 {
+		t.Fatalf("GitHub connection looked up for %d, want owner 99", store.connUserID)
+	}
+	if ghAuth != "Bearer owner-token" || ghPath != "/repos/acme/repo/pulls/7/files" {
+		t.Fatalf("github call auth=%q path=%q", ghAuth, ghPath)
+	}
+	if len(tgBodies) < 1 || !strings.Contains(tgBodies[0], "internal/notify/more.go") || !strings.Contains(tgBodies[0], `\u003ctable`) {
+		t.Fatalf("overlay should include file table: %v", tgBodies)
+	}
+	if strings.Contains(strings.Join(tgBodies, "\n"), filesLoadFailedToast) || strings.Contains(strings.Join(tgBodies, "\n"), githubExpiredToast) {
+		t.Fatalf("successful fetch should not toast: %v", tgBodies)
+	}
+}
+
+func TestPRMoreCallbackSendsOverlayWhenFilesFetchFails(t *testing.T) {
+	jobID := "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	snapshot, _ := json.Marshal(map[string]any{
+		"number": 7, "title": "More", "url": "https://github.com/acme/repo/pull/7",
+		"repo_full_name": "acme/repo", "head_branch": "feat", "base_branch": "main",
+		"additions": 10, "deletions": 2, "changed_files": 3, "commit_count": 1,
+	})
+	sealer := oauth.NewTokenSealer("test-secret")
+	sealed, err := sealer.Encrypt("owner-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &moreJobStore{
+		job: db.NotificationJob{
+			ID: jobID, SubscriptionID: "sub-owner", DestinationChatID: -100, MoreJSON: snapshot,
+		},
+		sub:  db.Subscription{ID: "sub-owner", TelegramUserID: 99},
+		conn: db.GitHubConnection{TelegramUserID: 99, EncryptedAccessToken: sealed},
+	}
+	ghServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"boom"}`))
+	}))
+	defer ghServer.Close()
+	var tgBodies []string
+	var tgPaths []string
+	tgServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tgPaths = append(tgPaths, r.URL.Path)
+		raw, _ := io.ReadAll(r.Body)
+		tgBodies = append(tgBodies, string(raw))
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer tgServer.Close()
+
+	tg := NewClient("token")
+	tg.apiBase = tgServer.URL
+	bot := &Bot{
+		store:  store,
+		client: tg,
+		github: github.NewClient(github.Config{UserAgent: "test", APIURL: ghServer.URL}),
+		sealer: sealer,
+	}
+	if err := bot.handleCallback(context.Background(), CallbackQuery{
+		ID:   "cq-more",
+		From: User{ID: 42},
+		Message: Message{Chat: Chat{ID: -100, Type: "supergroup"}},
+		Data: "m:" + db.CompactUUID(jobID),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var sentOverlay, toasted bool
+	for i, path := range tgPaths {
+		if strings.HasSuffix(path, "/sendRichMessage") {
+			sentOverlay = true
+			if strings.Contains(tgBodies[i], `"callback_query_id"`) {
+				t.Fatalf("failed fetch should omit callback_query_id so the toast can answer: %s", tgBodies[i])
+			}
+			if !strings.Contains(tgBodies[i], "+10 · −2 · 3 files · 1 commit") {
+				t.Fatalf("failed fetch should still send snapshot stats:\n%s", tgBodies[i])
+			}
+			if strings.Contains(tgBodies[i], `\u003ctable`) {
+				t.Fatalf("failed fetch must not invent a file table:\n%s", tgBodies[i])
+			}
+		}
+		if strings.Contains(tgBodies[i], filesLoadFailedToast) {
+			toasted = true
+		}
+	}
+	if !sentOverlay || !toasted {
+		t.Fatalf("want overlay and toast, paths=%v bodies=%v", tgPaths, tgBodies)
+	}
+}
+
+func TestPRMoreCallbackToastsExpiredGitHubToken(t *testing.T) {
+	jobID := "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	snapshot, _ := json.Marshal(map[string]any{
+		"number": 7, "title": "More", "url": "https://github.com/acme/repo/pull/7",
+		"repo_full_name": "acme/repo",
+	})
+	sealer := oauth.NewTokenSealer("test-secret")
+	sealed, err := sealer.Encrypt("owner-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &moreJobStore{
+		job: db.NotificationJob{
+			ID: jobID, SubscriptionID: "sub-owner", DestinationChatID: -100, MoreJSON: snapshot,
+		},
+		sub:  db.Subscription{ID: "sub-owner", TelegramUserID: 99},
+		conn: db.GitHubConnection{TelegramUserID: 99, EncryptedAccessToken: sealed},
+	}
+	ghServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"Bad credentials"}`))
+	}))
+	defer ghServer.Close()
+	var tgBodies []string
+	tgServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		tgBodies = append(tgBodies, string(raw))
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer tgServer.Close()
+	tg := NewClient("token")
+	tg.apiBase = tgServer.URL
+	bot := &Bot{
+		store:  store,
+		client: tg,
+		github: github.NewClient(github.Config{UserAgent: "test", APIURL: ghServer.URL}),
+		sealer: sealer,
+	}
+	if err := bot.handleCallback(context.Background(), CallbackQuery{
+		ID:      "cq-more",
+		From:    User{ID: 42},
+		Message: Message{Chat: Chat{ID: -100, Type: "supergroup"}},
+		Data:    "m:" + db.CompactUUID(jobID),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(tgBodies, "\n")
+	if !strings.Contains(joined, githubExpiredToast) {
+		t.Fatalf("401 should toast expired GitHub access: %v", tgBodies)
+	}
+	if strings.Contains(joined, filesLoadFailedToast) {
+		t.Fatalf("401 should not use the generic files toast: %v", tgBodies)
+	}
+}
+
 type moreJobStore struct {
 	Store
 	job          db.NotificationJob
+	sub          db.Subscription
+	conn         db.GitHubConnection
 	lookups      int
 	tokenLookups int
+	connUserID   int64
 	lastID       string
 	lastChatID   int64
 }
@@ -458,6 +657,21 @@ func (s *moreJobStore) GetNotificationJobForChat(_ context.Context, id string, c
 		return db.NotificationJob{}, db.ErrNotFound
 	}
 	return s.job, nil
+}
+
+func (s *moreJobStore) GetSubscription(_ context.Context, id string) (db.Subscription, error) {
+	if id != s.sub.ID {
+		return db.Subscription{}, db.ErrNotFound
+	}
+	return s.sub, nil
+}
+
+func (s *moreJobStore) GetGitHubConnection(_ context.Context, telegramUserID int64) (db.GitHubConnection, error) {
+	s.connUserID = telegramUserID
+	if telegramUserID != s.conn.TelegramUserID {
+		return db.GitHubConnection{}, db.ErrNotFound
+	}
+	return s.conn, nil
 }
 
 func (s *moreJobStore) GetCallbackToken(context.Context, int64, string) (db.CallbackToken, error) {

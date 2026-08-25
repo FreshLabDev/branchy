@@ -311,6 +311,28 @@ func (s *Store) GetSubscriptionForUser(ctx context.Context, telegramUserID int64
 	return sub, err
 }
 
+func (s *Store) GetSubscription(ctx context.Context, id string) (Subscription, error) {
+	var sub Subscription
+	err := s.pool.QueryRow(ctx, `
+		SELECT s.id::text, s.telegram_user_id, s.destination_type, s.destination_chat_id,
+		       s.github_repo_id, s.repo_full_name, s.events, s.branch_mode, s.branch_name,
+		       s.branch_names, s.pull_request_actions, s.release_mode,
+		       s.status, s.pause_reason, r.default_branch, r.html_url
+		FROM subscriptions s
+		JOIN repositories r ON r.github_repo_id = s.github_repo_id
+		WHERE s.id = $1
+	`, id).Scan(
+		&sub.ID, &sub.TelegramUserID, &sub.DestinationType, &sub.DestinationChatID,
+		&sub.GitHubRepoID, &sub.RepoFullName, &sub.Events, &sub.BranchMode,
+		&sub.BranchName, &sub.BranchNames, &sub.PullRequestActions,
+		&sub.ReleaseMode, &sub.Status, &sub.PauseReason, &sub.DefaultBranch, &sub.HTMLURL,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Subscription{}, ErrNotFound
+	}
+	return sub, err
+}
+
 // ListActiveSubscriptionsForRepoEvent matches on the stable github_repo_id, not
 // the repo's full name, so a GitHub repo rename does not silently break delivery
 // (the webhook payload keeps firing under the same id with a new name).
@@ -564,10 +586,10 @@ func (s *Store) GetNotificationJobForChat(ctx context.Context, id string, chatID
 	var job NotificationJob
 	var more []byte
 	err := s.pool.QueryRow(ctx, `
-		SELECT id::text, destination_chat_id, more_json
+		SELECT id::text, COALESCE(subscription_id::text, ''), destination_chat_id, more_json
 		FROM notification_jobs
 		WHERE id = $1::uuid AND destination_chat_id = $2
-	`, id, chatID).Scan(&job.ID, &job.DestinationChatID, &more)
+	`, id, chatID).Scan(&job.ID, &job.SubscriptionID, &job.DestinationChatID, &more)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return NotificationJob{}, ErrNotFound
 	}

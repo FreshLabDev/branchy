@@ -30,6 +30,7 @@ type Store interface {
 	GetGitHubConnection(ctx context.Context, telegramUserID int64) (db.GitHubConnection, error)
 	ListSubscriptionsByUser(ctx context.Context, telegramUserID int64) ([]db.Subscription, error)
 	GetSubscriptionForUser(ctx context.Context, telegramUserID int64, id string) (db.Subscription, error)
+	GetSubscription(ctx context.Context, id string) (db.Subscription, error)
 	CreateCallbackToken(ctx context.Context, telegramUserID int64, token, action string, payload any, ttl time.Duration) error
 	GetCallbackToken(ctx context.Context, telegramUserID int64, token string) (db.CallbackToken, error)
 	ConsumeCallbackToken(ctx context.Context, telegramUserID int64, token string) (db.CallbackToken, error)
@@ -390,6 +391,9 @@ func parsePage(data, prefix string) (int, bool) {
 }
 
 const snapshotExpiredToast = "This snapshot expired."
+const filesLoadFailedToast = "Could not load the file list."
+const githubExpiredToast = "GitHub access expired."
+const moreFilesTimeout = 8 * time.Second
 
 func (b *Bot) handlePRMore(ctx context.Context, cq CallbackQuery) (string, error) {
 	compact := strings.TrimPrefix(cq.Data, "m:")
@@ -411,14 +415,67 @@ func (b *Bot) handlePRMore(ctx context.Context, cq CallbackQuery) (string, error
 	if err := json.Unmarshal(job.MoreJSON, &snapshot); err != nil {
 		return snapshotExpiredToast, nil
 	}
-	html := notify.PRMoreHTML(snapshot)
+
+	files, toast := b.loadPRMoreFiles(ctx, job, snapshot)
+	html := notify.PRMoreHTML(snapshot, files)
 	if strings.TrimSpace(html) == "" {
 		return snapshotExpiredToast, nil
 	}
-	if err := b.client.SendEphemeralRichHTML(ctx, cq.Message.Chat.ID, cq.From.ID, cq.ID, html); err != nil {
+	callbackID := cq.ID
+	if toast != "" {
+		callbackID = ""
+	}
+	if err := b.client.SendEphemeralRichHTML(ctx, cq.Message.Chat.ID, cq.From.ID, callbackID, html); err != nil {
 		return "", err
 	}
-	return "", nil
+	return toast, nil
+}
+
+func (b *Bot) loadPRMoreFiles(ctx context.Context, job db.NotificationJob, snapshot notify.PRMoreSnapshot) ([]notify.PRFile, string) {
+	if b.github == nil || b.sealer == nil || strings.TrimSpace(job.SubscriptionID) == "" {
+		return nil, ""
+	}
+	if strings.TrimSpace(snapshot.RepoFullName) == "" || snapshot.Number <= 0 {
+		return nil, filesLoadFailedToast
+	}
+
+	fetchCtx, cancel := context.WithTimeout(ctx, moreFilesTimeout)
+	defer cancel()
+
+	sub, err := b.store.GetSubscription(fetchCtx, job.SubscriptionID)
+	if err != nil {
+		slog.Warn("pr more subscription lookup failed", "error", err)
+		return nil, filesLoadFailedToast
+	}
+	token, err := b.accessToken(fetchCtx, sub.TelegramUserID)
+	if err != nil {
+		slog.Warn("pr more token decrypt failed", "error", err)
+		return nil, filesLoadFailedToast
+	}
+	raw, err := b.github.ListPullRequestFiles(fetchCtx, token, snapshot.RepoFullName, snapshot.Number)
+	if err != nil {
+		if github.IsAuthError(err) {
+			return nil, githubExpiredToast
+		}
+		slog.Warn("pr more files fetch failed", "error", err)
+		return nil, filesLoadFailedToast
+	}
+	return notifyPRFiles(raw), ""
+}
+
+func notifyPRFiles(files []github.PullRequestFile) []notify.PRFile {
+	out := make([]notify.PRFile, 0, len(files))
+	for _, file := range files {
+		out = append(out, notify.PRFile{
+			Filename:         file.Filename,
+			PreviousFilename: file.PreviousFilename,
+			Status:           file.Status,
+			Additions:        file.Additions,
+			Deletions:        file.Deletions,
+			Changes:          file.Changes,
+		})
+	}
+	return out
 }
 
 func (b *Bot) handleToken(ctx context.Context, cq CallbackQuery, token db.CallbackToken) (string, error) {
