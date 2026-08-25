@@ -175,18 +175,67 @@ func parsePullRequest(body []byte) (notify.Event, bool, error) {
 		Number      int    `json:"number"`
 		Repository  repo   `json:"repository"`
 		PullRequest struct {
-			Title   string `json:"title"`
-			HTMLURL string `json:"html_url"`
-			Body    string `json:"body"`
-			Merged  bool   `json:"merged"`
-			Base    struct {
+			Number       int    `json:"number"`
+			Title        string `json:"title"`
+			HTMLURL      string `json:"html_url"`
+			DiffURL      string `json:"diff_url"`
+			Body         string `json:"body"`
+			Merged       bool   `json:"merged"`
+			Draft        bool   `json:"draft"`
+			Additions    int    `json:"additions"`
+			Deletions    int    `json:"deletions"`
+			ChangedFiles int    `json:"changed_files"`
+			Commits      int    `json:"commits"`
+			MergedAt     string `json:"merged_at"`
+			ClosedAt     string `json:"closed_at"`
+			User         struct {
+				Login string `json:"login"`
+			} `json:"user"`
+			MergedBy *struct {
+				Login string `json:"login"`
+			} `json:"merged_by"`
+			Head struct {
+				Ref string `json:"ref"`
+				SHA string `json:"sha"`
+			} `json:"head"`
+			Base struct {
 				Ref string `json:"ref"`
 			} `json:"base"`
+			Labels []struct {
+				Name string `json:"name"`
+			} `json:"labels"`
+			Assignees []struct {
+				Login string `json:"login"`
+			} `json:"assignees"`
+			RequestedReviewers []struct {
+				Login string `json:"login"`
+			} `json:"requested_reviewers"`
 		} `json:"pull_request"`
 		Sender sender `json:"sender"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return notify.Event{}, true, err
+	}
+	pr := payload.PullRequest
+	number := payload.Number
+	if number == 0 {
+		number = pr.Number
+	}
+	var mergedBy string
+	if pr.MergedBy != nil {
+		mergedBy = pr.MergedBy.Login
+	}
+	var labels []string
+	for _, item := range pr.Labels {
+		labels = append(labels, item.Name)
+	}
+	var assignees []string
+	for _, item := range pr.Assignees {
+		assignees = append(assignees, item.Login)
+	}
+	var reviewers []string
+	for _, item := range pr.RequestedReviewers {
+		reviewers = append(reviewers, item.Login)
 	}
 	return notify.Event{
 		Type:          "pull_request",
@@ -194,15 +243,44 @@ func parsePullRequest(body []byte) (notify.Event, bool, error) {
 		RepoFullName:  payload.Repository.FullName,
 		DefaultBranch: payload.Repository.DefaultBranch,
 		Actor:         payload.Sender.Login,
-		Branch:        payload.PullRequest.Base.Ref,
-		Title:         payload.PullRequest.Title,
+		Author:        pr.User.Login,
+		Branch:        pr.Base.Ref,
+		HeadBranch:    pr.Head.Ref,
+		HeadSHA:       pr.Head.SHA,
+		Title:         pr.Title,
 		Summary:       payload.Action + " pull request",
-		URL:           firstNonEmpty(payload.PullRequest.HTMLURL, payload.Repository.HTMLURL),
-		Body:          payload.PullRequest.Body,
+		URL:           firstNonEmpty(pr.HTMLURL, payload.Repository.HTMLURL),
+		DiffURL:       pr.DiffURL,
+		Body:          pr.Body,
 		Action:        payload.Action,
-		Number:        payload.Number,
-		Merged:        payload.PullRequest.Merged,
+		Number:        number,
+		Merged:        pr.Merged,
+		IsDraft:       pr.Draft,
+		Labels:        uniqueNames(labels),
+		Assignees:     uniqueNames(assignees),
+		Reviewers:     uniqueNames(reviewers),
+		Additions:     pr.Additions,
+		Deletions:     pr.Deletions,
+		ChangedFiles:  pr.ChangedFiles,
+		CommitCount:   pr.Commits,
+		MergedBy:      mergedBy,
+		MergedAt:      pr.MergedAt,
+		ClosedAt:      pr.ClosedAt,
 	}, true, nil
+}
+
+func uniqueNames(values []string) []string {
+	var out []string
+	seen := make(map[string]bool)
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func parseRelease(body []byte) (notify.Event, bool, error) {

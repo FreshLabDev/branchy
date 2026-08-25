@@ -62,8 +62,22 @@ func TestParsePullRequest(t *testing.T) {
 		"action":"opened",
 		"number":42,
 		"repository":{"full_name":"acme/repo","default_branch":"main","html_url":"https://github.com/acme/repo"},
-		"pull_request":{"title":"Add feature","html_url":"https://github.com/acme/repo/pull/42","base":{"ref":"main"}},
-		"sender":{"login":"octocat"}
+		"pull_request":{
+			"title":"Add feature",
+			"html_url":"https://github.com/acme/repo/pull/42",
+			"draft":true,
+			"additions":0,
+			"deletions":0,
+			"changed_files":0,
+			"commits":1,
+			"user":{"login":"mona"},
+			"head":{"ref":"feat/x","sha":"abc1234def"},
+			"base":{"ref":"main"},
+			"labels":[{"name":"ux"}],
+			"assignees":[{"login":"octocat"}],
+			"requested_reviewers":[{"login":"hubot"}]
+		},
+		"sender":{"login":"webhook-bot"}
 	}`)
 	event, supported, err := ParseEvent("pull_request", body)
 	if err != nil {
@@ -72,8 +86,20 @@ func TestParsePullRequest(t *testing.T) {
 	if !supported {
 		t.Fatal("pull_request should be supported")
 	}
-	if event.Branch != "main" || event.Title != "Add feature" || event.Summary != "opened pull request" || event.Action != "opened" || event.Number != 42 {
+	if event.Branch != "main" || event.HeadBranch != "feat/x" || event.HeadSHA != "abc1234def" {
+		t.Fatalf("unexpected branches: %+v", event)
+	}
+	if event.Author != "mona" || event.Actor != "webhook-bot" {
+		t.Fatalf("author should be pull_request.user.login, actor sender: %+v", event)
+	}
+	if event.Title != "Add feature" || event.Summary != "opened pull request" || event.Action != "opened" || event.Number != 42 {
 		t.Fatalf("unexpected pull request event: %+v", event)
+	}
+	if !event.IsDraft || event.CommitCount != 1 || event.Additions != 0 {
+		t.Fatalf("unexpected snapshot stats: %+v", event)
+	}
+	if len(event.Labels) != 1 || event.Labels[0] != "ux" || event.Reviewers[0] != "hubot" {
+		t.Fatalf("unexpected labels/reviewers: %+v", event)
 	}
 }
 

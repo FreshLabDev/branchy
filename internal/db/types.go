@@ -69,11 +69,13 @@ type CallbackToken struct {
 }
 
 type NotificationJobInsert struct {
+	ID                string
 	SubscriptionID    string
 	DestinationChatID int64
 	Text              string
 	RichText          string
 	PayloadFormat     string
+	MoreJSON          json.RawMessage
 }
 
 type NotificationJob struct {
@@ -84,6 +86,7 @@ type NotificationJob struct {
 	Text              string
 	RichText          string
 	PayloadFormat     string
+	MoreJSON          json.RawMessage
 	Attempts          int
 	MaxAttempts       int
 }

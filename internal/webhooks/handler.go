@@ -130,7 +130,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	notification := notify.GitHubNotification(event)
+	var shared *notify.Notification
 	var jobs []db.NotificationJobInsert
 	for _, sub := range subs {
 		filter := SubscriptionFilter{
@@ -143,12 +143,40 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !MatchesSubscription(filter, event) {
 			continue
 		}
+		jobID, err := db.NewUUID()
+		if err != nil {
+			slog.Error("webhook job id failed", "delivery_id", deliveryID, "error", err)
+			http.Error(w, "store jobs", http.StatusInternalServerError)
+			return
+		}
+		var card notify.Notification
+		var moreJSON []byte
+		if event.Type == "pull_request" {
+			jobEvent := event
+			jobEvent.MoreJobID = db.CompactUUID(jobID)
+			card = notify.GitHubNotification(jobEvent)
+			raw, err := notify.PRMoreJSON(event)
+			if err != nil {
+				slog.Error("webhook more snapshot failed", "delivery_id", deliveryID, "error", err)
+				http.Error(w, "store jobs", http.StatusInternalServerError)
+				return
+			}
+			moreJSON = raw
+		} else {
+			if shared == nil {
+				n := notify.GitHubNotification(event)
+				shared = &n
+			}
+			card = *shared
+		}
 		jobs = append(jobs, db.NotificationJobInsert{
+			ID:                jobID,
 			SubscriptionID:    sub.ID,
 			DestinationChatID: sub.DestinationChatID,
-			Text:              notification.FallbackHTML,
-			RichText:          notification.RichHTML,
+			Text:              card.FallbackHTML,
+			RichText:          card.RichHTML,
 			PayloadFormat:     db.NotificationPayloadRichHTMLV1,
+			MoreJSON:          moreJSON,
 		})
 	}
 

@@ -46,7 +46,7 @@ Branchy keeps the MVP deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v1.2.0-alpha.1` | Pre-release evaluating Bot API 10.3 notification cards and settings |
+| Latest | `v1.2.0-alpha.2` | Pre-release evaluating title-first cards and PR More overlays |
 | Stable | `v1.1.1` | Latest non-prerelease tag |
 
 The MVP has been live-tested with Telegram and GitHub. `v1.1.1` is the current
@@ -67,25 +67,23 @@ Branchy messages keep one event, one repository, and the useful links up front.
   </tr>
   <tr>
     <td>
-      <strong>FreshLabDev/branchy</strong><br/>
-      2 new commits · <code>main</code><br/><br/>
+      <strong>2 new commits</strong><br/>
+      pushed to FreshLabDev/branchy · <code>main</code> · <strong>amtiYo</strong><br/><br/>
       <code>f2a07de</code> fix Telegram layout<br/>
       <code>a4e7f27</code> clarify release flow<br/><br/>
-      Pushed by <strong>amtiYo</strong><br/>
-      Compare changes
+      Open compare
     </td>
     <td>
-      <strong>FreshLabDev/branchy</strong><br/>
-      Pull request opened<br/><br/>
       <strong>#42 Add branch filters</strong><br/>
-      into <code>main</code> · by <strong>amtiYo</strong><br/><br/>
-      Description is rendered as a compact quote.
+      opened in FreshLabDev/branchy · <code>feat → main</code> · <strong>amtiYo</strong><br/><br/>
+      Description is rendered as a compact quote.<br/><br/>
+      Open pull request · More
     </td>
     <td>
-      <strong>FreshLabDev/branchy</strong><br/>
-      <strong>Release</strong> · v0.1.0<br/><br/>
-      by <strong>amtiYo</strong><br/><br/>
-      Release notes render from GitHub Markdown.
+      <strong>v0.1.0</strong><br/>
+      Release in FreshLabDev/branchy · <code>v0.1.0</code> · <strong>amtiYo</strong><br/><br/>
+      Release notes render from GitHub Markdown.<br/><br/>
+      Open release
     </td>
   </tr>
 </table>

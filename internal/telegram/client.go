@@ -250,6 +250,36 @@ func (c *Client) SendRichHTML(ctx context.Context, chatID int64, richHTML string
 	return nil
 }
 
+// SendEphemeralRichHTML delivers a Rich Message visible only to receiverUserID.
+// callbackQueryID associates the overlay with the in-message button tap.
+// replace_callback_query_message is omitted so the public card stays in place.
+func (c *Client) SendEphemeralRichHTML(ctx context.Context, chatID, receiverUserID int64, callbackQueryID, richHTML string) error {
+	ephemeral := map[string]any{
+		"receiver_user_id": receiverUserID,
+	}
+	if callbackQueryID != "" {
+		ephemeral["callback_query_id"] = callbackQueryID
+	}
+	req := map[string]any{
+		"chat_id": chatID,
+		"rich_message": map[string]any{
+			"html":                  richHTML,
+			"skip_entity_detection": true,
+		},
+		"ephemeral_message_parameters": ephemeral,
+	}
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	if err := c.post(ctx, "sendRichMessage", req, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("telegram sendRichMessage returned ok=false")
+	}
+	return nil
+}
+
 // SendRichMarkdown is retained as a transport compatibility seam. The current
 // worker sanitizes legacy alpha jobs into Rich HTML before reaching the client.
 func (c *Client) SendRichMarkdown(ctx context.Context, chatID int64, markdown string) error {

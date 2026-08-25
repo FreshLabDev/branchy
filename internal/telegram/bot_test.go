@@ -368,3 +368,99 @@ func TestEditNavigationRoutesBackToEditMenu(t *testing.T) {
 		t.Fatal("sub.edit.menu must be re-enterable, not consumed on first tap")
 	}
 }
+
+func TestPRMoreCallbackDoesNotUseTokenAndScopesToChat(t *testing.T) {
+	jobID := "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	compact := db.CompactUUID(jobID)
+	snapshot, _ := json.Marshal(map[string]any{
+		"number": 7, "title": "More", "url": "https://github.com/acme/repo/pull/7",
+		"head_branch": "feat", "base_branch": "main",
+	})
+	store := &moreJobStore{
+		job: db.NotificationJob{ID: jobID, DestinationChatID: -100, MoreJSON: snapshot},
+	}
+	var paths []string
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer server.Close()
+	client := NewClient("token")
+	client.apiBase = server.URL
+	bot := &Bot{store: store, client: client}
+
+	cq := CallbackQuery{
+		ID:   "cq-more",
+		From: User{ID: 42},
+		Message: Message{Chat: Chat{ID: -100, Type: "supergroup"}},
+		Data: "m:" + compact,
+	}
+	if err := bot.handleCallback(context.Background(), cq); err != nil {
+		t.Fatal(err)
+	}
+	if store.tokenLookups != 0 {
+		t.Fatalf("More must not look up callback_tokens, lookups=%d", store.tokenLookups)
+	}
+	if store.lookups != 1 || store.lastChatID != -100 || store.lastID != jobID {
+		t.Fatalf("lookup = %+v chat=%d id=%q", store, store.lastChatID, store.lastID)
+	}
+	if len(paths) < 1 || !strings.HasSuffix(paths[0], "/sendRichMessage") {
+		t.Fatalf("paths = %v, want sendRichMessage first", paths)
+	}
+	if !strings.Contains(bodies[0], `"callback_query_id":"cq-more"`) || strings.Contains(bodies[0], `"replace_callback_query_message"`) {
+		t.Fatalf("ephemeral overlay JSON unexpected:\n%s", bodies[0])
+	}
+
+	store.lookups = 0
+	paths = nil
+	cq.Message.Chat.ID = -999
+	if err := bot.handleCallback(context.Background(), cq); err != nil {
+		t.Fatal(err)
+	}
+	if store.lookups != 1 {
+		t.Fatalf("wrong-chat tap should still query scoped lookup, got %d", store.lookups)
+	}
+	for _, path := range paths {
+		if strings.HasSuffix(path, "/sendRichMessage") {
+			t.Fatalf("wrong chat must not send the overlay: %v", paths)
+		}
+	}
+	foundToast := false
+	for _, body := range bodies {
+		if strings.Contains(body, snapshotExpiredToast) {
+			foundToast = true
+		}
+	}
+	if !foundToast {
+		t.Fatalf("wrong chat should toast expired, bodies=%v", bodies)
+	}
+}
+
+type moreJobStore struct {
+	Store
+	job          db.NotificationJob
+	lookups      int
+	tokenLookups int
+	lastID       string
+	lastChatID   int64
+}
+
+func (s *moreJobStore) TouchCore(context.Context, db.TouchArgs) error { return nil }
+
+func (s *moreJobStore) GetNotificationJobForChat(_ context.Context, id string, chatID int64) (db.NotificationJob, error) {
+	s.lookups++
+	s.lastID = id
+	s.lastChatID = chatID
+	if id != s.job.ID || chatID != s.job.DestinationChatID {
+		return db.NotificationJob{}, db.ErrNotFound
+	}
+	return s.job, nil
+}
+
+func (s *moreJobStore) GetCallbackToken(context.Context, int64, string) (db.CallbackToken, error) {
+	s.tokenLookups++
+	return db.CallbackToken{}, db.ErrNotFound
+}

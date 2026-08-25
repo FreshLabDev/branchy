@@ -10,6 +10,43 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.2.0-alpha.2 - 2026-08-25
+
+Second Bot API 10.3 alpha. Notification cards become title-first, and pull
+requests gain a tap-to-open More overlay that is visible only to the tapping
+user.
+
+### Added
+
+- Pull request cards include a **More** in-message callback (`style="link"`).
+  Tapping it sends a separate ephemeral Rich Message to that user with the
+  webhook snapshot (branches, draft, non-zero diff counts, labels/reviewers,
+  description) and Open / Files / Commits / Checks URL buttons.
+- `notification_jobs.more_json` stores that snapshot. Job ids are generated in
+  Go so the More callback can embed `m:` plus a compact UUID.
+
+### Changed
+
+- Notification cards put the event in `h2` (`#7 Title`, `N new commits`,
+  release name) and move repository, action, branches, and author into one
+  quiet line. The divider is gone.
+- Copy is only **Copy SHA** on a single-commit push. Pull request **Copy #N**
+  and release **Copy tag** are removed; the release tag stays in the quiet
+  line.
+- Test notifications stay a short title-first card without More.
+
+### Security
+
+- More lookup is scoped to `destination_chat_id`. Missing, foreign-chat, or
+  expired snapshots toast `This snapshot expired.` and do not open settings.
+  GitHub body HTML still cannot inject `tg-button` callbacks.
+
+### Operations
+
+- Migration `009_notification_job_more.sql` adds nullable `more_json`. Outbox
+  payload format remains `rich_html_v1`. No new environment variables or OAuth
+  scopes. Old jobs without `more_json` simply have no More button.
+
 ## v1.2.0-alpha.1 - 2026-08-25
 
 First Bot API 10.3 alpha. Notification cards gain in-message Open/Copy buttons

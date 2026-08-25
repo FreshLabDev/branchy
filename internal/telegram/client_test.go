@@ -106,8 +106,43 @@ func TestSendEphemeralMessageTargetsInvokingUser(t *testing.T) {
 			t.Fatalf("request body missing %q:\n%s", want, gotBody)
 		}
 	}
-	if strings.Count(gotBody, `"receiver_user_id":42`) != 1 {
-		t.Fatalf("receiver_user_id should live only inside ephemeral_message_parameters:\n%s", gotBody)
+	if strings.Contains(gotBody, `"replace_callback_query_message"`) {
+		t.Fatalf("ephemeral rich send must not replace the public card:\n%s", gotBody)
+	}
+}
+
+func TestSendEphemeralRichHTMLTargetsCallbackUser(t *testing.T) {
+	var gotPath string
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":2,"chat":{"id":-100,"type":"supergroup"}}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("token")
+	client.apiBase = server.URL
+	if err := client.SendEphemeralRichHTML(context.Background(), -100, 42, "cq-1", "<h2>More</h2>"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(gotPath, "/sendRichMessage") {
+		t.Fatalf("path = %q, want sendRichMessage", gotPath)
+	}
+	for _, want := range []string{
+		`"chat_id":-100`,
+		`"html":"\u003ch2\u003eMore\u003c/h2\u003e"`,
+		`"receiver_user_id":42`,
+		`"callback_query_id":"cq-1"`,
+		`"skip_entity_detection":true`,
+	} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("request body missing %q:\n%s", want, gotBody)
+		}
+	}
+	if strings.Contains(gotBody, `"replace_callback_query_message"`) {
+		t.Fatalf("ephemeral rich send must not replace the public card:\n%s", gotBody)
 	}
 }
 

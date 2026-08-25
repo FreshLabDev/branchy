@@ -44,7 +44,8 @@ handlers do not send Telegram messages directly; they create durable
 7. GitHub posts events to `/webhooks/github`.
 8. Branchy validates the signature, dedupes the GitHub delivery, parses the
    event, applies event-specific subscription filters, renders allowlisted Rich
-   HTML plus a classic HTML fallback, creates `notification_jobs`, and returns
+   HTML plus a classic HTML fallback, creates `notification_jobs` (client-generated
+   UUID, optional `more_json` for pull requests), and returns
    `200`.
 9. The outbox worker locks pending jobs with `FOR UPDATE SKIP LOCKED`, sends
    Telegram messages, falls back through media-free Rich HTML, classic HTML, and
@@ -110,4 +111,12 @@ handlers do not send Telegram messages directly; they create durable
 - Before saving a group destination, Branchy checks `getChatMember` and requires
   `creator` or `administrator`.
 - Telegram callback data uses short tokens stored in PostgreSQL for dynamic
-  actions. Static menu actions use short literal callback strings.
+  settings actions. Static menu actions use short literal callback strings.
+  Pull-request More uses a static `m:` prefix plus the compact notification
+  job UUID and does not go through `callback_tokens` (those rows are bound to
+  `core.person` and the tapping user). The handler looks up
+  `notification_jobs` by id and `destination_chat_id`, then sends an extra
+  ephemeral Rich Message to the tapping user. The public card is not replaced.
+  Job ids are generated in Go so the More button can embed them before INSERT;
+  `more_json` holds the PR webhook snapshot (NULL for push/release and older
+  jobs).

@@ -18,6 +18,7 @@ import (
 
 	"branchy/internal/db"
 	"branchy/internal/github"
+	"branchy/internal/notify"
 	"branchy/internal/oauth"
 	"branchy/internal/subscriptions"
 )
@@ -34,6 +35,7 @@ type Store interface {
 	ConsumeCallbackToken(ctx context.Context, telegramUserID int64, token string) (db.CallbackToken, error)
 	GetRuntimeValue(ctx context.Context, key string) (string, error)
 	SetRuntimeValue(ctx context.Context, key, value string) error
+	GetNotificationJobForChat(ctx context.Context, id string, chatID int64) (db.NotificationJob, error)
 }
 
 type OAuthService interface {
@@ -353,6 +355,9 @@ func (b *Bot) dispatchCallback(ctx context.Context, cq CallbackQuery) (string, e
 	if page, ok := parsePage(cq.Data, "sub:new"); ok {
 		return "", b.renderRepoList(ctx, cq, true, page)
 	}
+	if strings.HasPrefix(cq.Data, "m:") {
+		return b.handlePRMore(ctx, cq)
+	}
 
 	if !strings.HasPrefix(cq.Data, "t:") {
 		return "", nil
@@ -382,6 +387,38 @@ func parsePage(data, prefix string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+const snapshotExpiredToast = "This snapshot expired."
+
+func (b *Bot) handlePRMore(ctx context.Context, cq CallbackQuery) (string, error) {
+	compact := strings.TrimPrefix(cq.Data, "m:")
+	jobID, ok := db.ExpandCompactUUID(compact)
+	if !ok {
+		return snapshotExpiredToast, nil
+	}
+	job, err := b.store.GetNotificationJobForChat(ctx, jobID, cq.Message.Chat.ID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return snapshotExpiredToast, nil
+		}
+		return "", err
+	}
+	if len(job.MoreJSON) == 0 {
+		return snapshotExpiredToast, nil
+	}
+	var snapshot notify.PRMoreSnapshot
+	if err := json.Unmarshal(job.MoreJSON, &snapshot); err != nil {
+		return snapshotExpiredToast, nil
+	}
+	html := notify.PRMoreHTML(snapshot)
+	if strings.TrimSpace(html) == "" {
+		return snapshotExpiredToast, nil
+	}
+	if err := b.client.SendEphemeralRichHTML(ctx, cq.Message.Chat.ID, cq.From.ID, cq.ID, html); err != nil {
+		return "", err
+	}
+	return "", nil
 }
 
 func (b *Bot) handleToken(ctx context.Context, cq CallbackQuery, token db.CallbackToken) (string, error) {

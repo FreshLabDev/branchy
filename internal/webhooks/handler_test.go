@@ -209,6 +209,57 @@ func TestHandlerEnqueuesMatchingSubscription(t *testing.T) {
 	}
 }
 
+func TestHandlerEnqueuesPullRequestMoreSnapshot(t *testing.T) {
+	body := []byte(`{
+		"action":"opened",
+		"number":7,
+		"repository":{"id":12345,"full_name":"acme/repo","default_branch":"main","html_url":"https://github.com/acme/repo"},
+		"pull_request":{
+			"title":"Add feature",
+			"html_url":"https://github.com/acme/repo/pull/7",
+			"user":{"login":"mona"},
+			"head":{"ref":"feat/x","sha":"abc1234"},
+			"base":{"ref":"main"}
+		},
+		"sender":{"login":"webhook-bot"}
+	}`)
+	store := &fakeStore{subs: []db.Subscription{{
+		ID:                 "sub-1",
+		DestinationChatID:  123,
+		BranchMode:         "all",
+		PullRequestActions: []string{"opened"},
+	}}}
+	handler := NewHandler("secret", store, 5, Limits{})
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(string(body)))
+	req.Header.Set("X-Hub-Signature-256", SignForTest("secret", body))
+	req.Header.Set("X-GitHub-Event", "pull_request")
+	req.Header.Set("X-GitHub-Delivery", "delivery-pr")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if len(store.jobs) != 1 {
+		t.Fatalf("jobs = %d, want 1", len(store.jobs))
+	}
+	job := store.jobs[0]
+	if job.ID == "" || strings.Contains(job.ID, "-") == false {
+		t.Fatalf("job id should be a UUID, got %q", job.ID)
+	}
+	if len(job.MoreJSON) == 0 {
+		t.Fatal("PR job should persist more_json")
+	}
+	if !strings.Contains(job.RichText, `type="callback_data" style="link" data="m:`) {
+		t.Fatalf("rich card should embed More callback:\n%s", job.RichText)
+	}
+	if strings.Contains(job.Text, "callback_data") || strings.Contains(job.Text, ">More<") {
+		t.Fatalf("classic fallback must not include More:\n%s", job.Text)
+	}
+	if !strings.Contains(string(job.MoreJSON), `"author":"mona"`) || !strings.Contains(string(job.MoreJSON), `"head_branch":"feat/x"`) {
+		t.Fatalf("snapshot should use user.login and head.ref: %s", job.MoreJSON)
+	}
+}
+
 func TestHandlerReconcilesRenamedRepo(t *testing.T) {
 	// The repo was renamed: the webhook payload carries the new name (acme/repo,
 	// id 12345) while our cached subscription still has the old name. Delivery

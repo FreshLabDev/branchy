@@ -528,14 +528,26 @@ func (s *Store) EnqueueNotificationJobs(ctx context.Context, deliveryID, event, 
 		if payloadFormat == "" {
 			payloadFormat = NotificationPayloadHTMLV1
 		}
+		id := job.ID
+		if id == "" {
+			generated, err := NewUUID()
+			if err != nil {
+				return 0, false, err
+			}
+			id = generated
+		}
+		var moreJSON any
+		if len(job.MoreJSON) > 0 {
+			moreJSON = job.MoreJSON
+		}
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO notification_jobs (
-				delivery_id, subscription_id, destination_chat_id, text,
-				rich_text, payload_format, max_attempts
+				id, delivery_id, subscription_id, destination_chat_id, text,
+				rich_text, payload_format, more_json, max_attempts
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9)
 			ON CONFLICT (delivery_id, subscription_id) DO NOTHING
-		`, deliveryID, job.SubscriptionID, job.DestinationChatID, job.Text, job.RichText, payloadFormat, maxAttempts)
+		`, id, deliveryID, job.SubscriptionID, job.DestinationChatID, job.Text, job.RichText, payloadFormat, moreJSON, maxAttempts)
 		if err != nil {
 			return 0, false, err
 		}
@@ -546,6 +558,24 @@ func (s *Store) EnqueueNotificationJobs(ctx context.Context, deliveryID, event, 
 		return 0, false, err
 	}
 	return insertedJobs, false, nil
+}
+
+func (s *Store) GetNotificationJobForChat(ctx context.Context, id string, chatID int64) (NotificationJob, error) {
+	var job NotificationJob
+	var more []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT id::text, destination_chat_id, more_json
+		FROM notification_jobs
+		WHERE id = $1::uuid AND destination_chat_id = $2
+	`, id, chatID).Scan(&job.ID, &job.DestinationChatID, &more)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return NotificationJob{}, ErrNotFound
+	}
+	if err != nil {
+		return NotificationJob{}, err
+	}
+	job.MoreJSON = more
+	return job, nil
 }
 
 func (s *Store) ClaimPendingNotificationJobs(ctx context.Context, limit int, lease time.Duration) ([]NotificationJob, error) {
