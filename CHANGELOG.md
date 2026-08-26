@@ -10,6 +10,21 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.2.0-alpha.4 - 2026-08-26
+
+Fourth Bot API 10.3 alpha. Long PR and release notes stay inside the folded
+body; cards no longer add a second GitHub link after truncation.
+
+### Changed
+
+- Pull request **Read more** and release **Full release notes** links are
+  gone. Long notes already collapse into `<details>` or an expandable quote;
+  **Open pull request** / **Open release** remain the GitHub links.
+- PR and release bodies share the Rich Message sanitizer budget (24k HTML
+  runes, 470 blocks, 13 depth, 50 media, 20 table columns, 32_768 for the
+  whole card) instead of the tighter 2500/10000 source cuts. No new migration
+  or OAuth scope.
+
 ## v1.2.0-alpha.3 - 2026-08-25
 
 Third Bot API 10.3 alpha. Pull-request More shows a file diff table instead of

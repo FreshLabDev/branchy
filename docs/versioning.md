@@ -30,6 +30,7 @@ v1.1.1          webhook consistency and OAuth error-surface fixes
 v1.2.0-alpha.1  Bot API 10.3 notification cards and disabled settings
 v1.2.0-alpha.2  title-first cards and PR More ephemeral overlay
 v1.2.0-alpha.3  PR More file table loaded live on tap
+v1.2.0-alpha.4  drop extra Read more links; body cap is Telegram Rich limits
 ```
 
 Future releases:

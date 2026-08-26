@@ -142,9 +142,7 @@ func TestGitHubEventTrimsOverlongCommitListToRemainder(t *testing.T) {
 	}
 }
 
-func TestGitHubEventBodyStaysUnderSoftCap(t *testing.T) {
-	// Overlong body must truncate with a full-notes link rather than shipping
-	// an unbounded payload to Telegram.
+func TestGitHubEventBodyStaysUnderTelegramLimit(t *testing.T) {
 	body := strings.Repeat("All the release notes go here. ", 800)
 	text := GitHubEvent(Event{
 		Type:         "release",
@@ -157,11 +155,32 @@ func TestGitHubEventBodyStaysUnderSoftCap(t *testing.T) {
 	if len(text) > maxRichMessageBytes {
 		t.Fatalf("message length = %d, exceeds Telegram rich limit %d", len(text), maxRichMessageBytes)
 	}
-	if !strings.Contains(text, "Full release notes") {
-		t.Fatalf("a body trimmed to fit should still link to the full notes:\n%s", text)
+	if strings.Contains(text, "Full release notes") || strings.Contains(text, "Read more") {
+		t.Fatalf("truncated notes must not add an extra GitHub link:\n%s", text)
 	}
 	if !strings.Contains(text, "<details>") {
-		t.Fatalf("a truncated body should collapse into details:\n%s", text)
+		t.Fatalf("a long body should collapse into details:\n%s", text)
+	}
+}
+
+func TestGitHubEventPRLongBodyHasNoReadMore(t *testing.T) {
+	text := GitHubEvent(Event{
+		Type:         "pull_request",
+		RepoFullName: "acme/repo",
+		Title:        "Long notes",
+		Action:       "opened",
+		Number:       11,
+		URL:          "https://github.com/acme/repo/pull/11",
+		Body:         strings.Repeat("This pull request changes a lot of things. ", 200),
+	})
+	if strings.Contains(text, "Read more") || strings.Contains(text, "Full release notes") {
+		t.Fatalf("long PR descriptions must not add an extra GitHub link:\n%s", text)
+	}
+	if !strings.Contains(text, "<details>") && !strings.Contains(text, "<blockquote expandable>") {
+		t.Fatalf("a long PR description should collapse:\n%s", text)
+	}
+	if !strings.Contains(text, "Open pull request") {
+		t.Fatalf("Open pull request should remain:\n%s", text)
 	}
 }
 
@@ -336,11 +355,10 @@ func TestGitHubEventFormatsRelease(t *testing.T) {
 	}
 }
 
-func TestGitHubEventReleaseBodyCapFitsLongNotes(t *testing.T) {
-	// Within the soft release body cap: no Full release notes link.
-	body := strings.Repeat("All the release notes go here. ", 96)
-	if len([]rune(body)) >= maxReleaseBodyRunes {
-		t.Fatalf("test body should sit under the release cap, got %d runes", len([]rune(body)))
+func TestGitHubEventLongNotesDoNotAddExtraLink(t *testing.T) {
+	body := strings.Repeat("All the release notes go here. ", 400)
+	if len([]rune(body)) >= maxRichBodyHTMLRunes {
+		t.Fatalf("test body should sit under the sanitizer body budget, got %d runes", len([]rune(body)))
 	}
 	text := GitHubEvent(Event{
 		Type:         "release",
@@ -350,8 +368,8 @@ func TestGitHubEventReleaseBodyCapFitsLongNotes(t *testing.T) {
 		URL:          "https://github.com/FreshLabDev/branchy/releases/tag/v1.0.0",
 		Body:         body,
 	})
-	if strings.Contains(text, "Full release notes") || strings.Contains(text, "\n...") {
-		t.Fatalf("release notes within the cap should not be truncated:\n%s", text)
+	if strings.Contains(text, "Full release notes") || strings.Contains(text, "Read more") {
+		t.Fatalf("long notes that fit the sanitizer must not add an extra GitHub link:\n%s", text)
 	}
 }
 
@@ -837,8 +855,11 @@ func TestGitHubEventCapsRichBlocksAndNesting(t *testing.T) {
 	if got := strings.Count(text, "<p>"); got > maxRichBodyBlocks+1 {
 		t.Fatalf("paragraph blocks = %d, max %d", got, maxRichBodyBlocks)
 	}
-	if !strings.Contains(text, "Full release notes") {
-		t.Fatalf("block truncation should keep the source link:\n%s", text)
+	if strings.Contains(text, "Full release notes") || strings.Contains(text, "Read more") {
+		t.Fatalf("block truncation must not add an extra GitHub link:\n%s", text)
+	}
+	if !strings.Contains(text, "<details>") {
+		t.Fatalf("a body that hits the block cap should still collapse:\n%s", text)
 	}
 
 	deep := strings.Repeat("> ", 30) + "nested"

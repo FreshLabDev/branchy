@@ -46,7 +46,7 @@ Branchy keeps the MVP deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v1.2.0-alpha.3` | Pre-release evaluating PR More file tables |
+| Latest | `v1.2.0-alpha.4` | Pre-release evaluating folded bodies without extra Read more |
 | Stable | `v1.1.1` | Latest non-prerelease tag |
 
 The MVP has been live-tested with Telegram and GitHub. `v1.1.1` is the current

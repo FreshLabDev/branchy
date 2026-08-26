@@ -213,15 +213,8 @@ func pullRequestNotification(event Event) Notification {
 
 	var richBody, fallbackBody string
 	if showsPRBody(action) {
-		prepared := renderGitHubBody(event.Body, maxPRBodyRunes)
+		prepared := renderGitHubBody(event.Body, maxRichBodyHTMLRunes)
 		richBody, fallbackBody = wrapRenderedBody(prepared, "Description")
-		if prepared.Truncated {
-			if link := safeURL(event.URL); link != "" {
-				more := fmt.Sprintf("\n\n"+`<a href="%s">Read more</a>`, escAttr(link))
-				richBody += more
-				fallbackBody += more
-			}
-		}
 	}
 
 	var buttons []actionButton
@@ -263,13 +256,13 @@ func showsPRBody(action string) bool {
 	}
 }
 
-// Soft body caps stay well under Telegram Rich Message's 32_768 UTF-8 limit so
-// group chats stay scannable even when release notes include media and tables.
+// Title and copy-text caps stay small. PR/release bodies use the Rich Message
+// sanitizer budget (maxRichBodyHTMLRunes) instead of a tighter source cut:
+// long notes already fold into details or an expandable quote, and Open
+// already links to GitHub. The whole card is still bound to 32_768 UTF-8.
 const (
-	maxPRBodyRunes      = 2500
-	maxReleaseBodyRunes = 10000
-	maxTitleRunes       = 200
-	maxCopyTextRunes    = 256
+	maxTitleRunes    = 200
+	maxCopyTextRunes = 256
 	// Absolute guard for the whole notification payload.
 	maxRichMessageBytes = 32768
 )
@@ -286,15 +279,8 @@ func releaseNotification(event Event) Notification {
 		boldName(event.Actor),
 	)
 
-	prepared := renderGitHubBody(event.Body, maxReleaseBodyRunes)
+	prepared := renderGitHubBody(event.Body, maxRichBodyHTMLRunes)
 	richBody, fallbackBody := wrapRenderedBody(prepared, "Release notes")
-	if prepared.Truncated {
-		if link := safeURL(event.URL); link != "" {
-			more := "\n\n" + fmt.Sprintf(`<a href="%s">Full release notes</a>`, escAttr(link))
-			richBody += more
-			fallbackBody += more
-		}
-	}
 
 	var buttons []actionButton
 	if link := safeURL(event.URL); link != "" {

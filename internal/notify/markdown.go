@@ -109,7 +109,7 @@ func renderGitHubBody(raw string, maxRunes int) renderedGitHubBody {
 		Source:       source,
 		// Classic HTML is a shorter rollback payload. Cutting it must not mark
 		// the preferred rich body as truncated (that would fold complete notes
-		// into <details> and append a "read more" link).
+		// into <details> even when the rich payload is whole).
 		Truncated: truncated || richCut,
 	}
 }
