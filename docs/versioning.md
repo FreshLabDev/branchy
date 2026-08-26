@@ -27,17 +27,14 @@ v0.2.0          notable UX, operations, or MVP-compatible feature improvements
 v1.0.0          first stable production contract
 v1.1.0          Telegram Rich Messages and Bot API 10.2 delivery
 v1.1.1          webhook consistency and OAuth error-surface fixes
-v1.2.0-alpha.1  Bot API 10.3 notification cards and disabled settings
-v1.2.0-alpha.2  title-first cards and PR More ephemeral overlay
-v1.2.0-alpha.3  PR More file table loaded live on tap
-v1.2.0-alpha.4  drop extra Read more links; body cap is Telegram Rich limits
+v1.2.0          Bot API 10.3 notification cards, PR More, disabled settings
 ```
 
 Future releases:
 
 ```text
-v1.1.x          backward-compatible fixes and operational hardening
-v1.2.0          notable MVP-compatible product or operations improvements
+v1.2.x          backward-compatible fixes and operational hardening
+v1.3.0          notable MVP-compatible product or operations improvements
 v2.0.0          intentionally breaking contract changes
 ```
 

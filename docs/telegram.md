@@ -11,8 +11,8 @@ registration retries after transient Telegram failures. The private reply is
 sent before the best-effort presence write so database latency cannot consume
 the 15-second ephemeral reply window.
 
-All setup happens through inline keyboards. Other text messages are ignored so
-the bot remains quiet and predictable.
+All setup happens through inline keyboards. Unrecognized private-chat text
+nudges the user to send `/start`. Groups stay quiet.
 
 ## Groups
 

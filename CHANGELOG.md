@@ -10,6 +10,89 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.2.0 - 2026-08-26
+
+Stable Telegram Bot API 10.3 release. Promoted from `v1.2.0-alpha.4` after live
+production soak of title-first notification cards, in-message buttons, disabled
+settings controls, and pull-request More overlays.
+
+### Added
+
+- GitHub notifications use Bot API 10.3 in-message action buttons
+  (`<tg-button-row>`): **Open compare** / **Open pull request** / **Open release**,
+  plus **Copy SHA** on single-commit pushes. Classic HTML fallback keeps ordinary
+  links and does not include More.
+- Pull request cards include **More** (`type="callback_data"` `style="link"`).
+  Tapping it sends a separate ephemeral Rich Message to that user: a thin
+  `#N Title` header, non-zero diff stats, and a compact `File` / `+` / `−` table
+  loaded live from GitHub `GET /repos/{owner}/{repo}/pulls/{n}/files` with the
+  subscription owner's OAuth token. The public card is not replaced. URL buttons
+  are Open and Files.
+- Settings keyboards keep incomplete Continue, Create, Save, Done, pagination
+  edges, and the current all/default/release radio visible as Bot API 10.3
+  `disabled` buttons (`{"disabled":{}}`). The selected-branch radio stays
+  tappable.
+- Test notifications use the same Rich HTML card chrome as live events, without
+  More.
+
+### Changed
+
+- Notification cards are title-first: an `h2` for the event (`#7 Title`,
+  `N new commits`, or the release name), one quiet line for repository, action,
+  branches, and author, then the body and a single trusted button row. There is
+  no divider.
+- Copy is only **Copy SHA** on a single-commit push. Pull-request **Copy #N**
+  and release **Copy tag** are gone; the release tag stays in the quiet line.
+- Long notes no longer add a second GitHub **Read more** / **Full release notes**
+  link. **Open pull request** / **Open release** remain the GitHub links. Long
+  flat notes fold into `<blockquote expandable>` with `<br>`; truncated or
+  structured notes use `<details>`.
+- GFM tables are serialized with `bordered striped compact`.
+- PR and release bodies share the Rich Message sanitizer budget (24k HTML
+  runes, 470 blocks, 13 depth, 50 media, 20 table columns, 32_768 for the whole
+  card) instead of the tighter 2500/10000 source cuts.
+- Group `/start` replies send Bot API 10.3 `ephemeral_message_parameters`.
+- Classic `sendMessage` / `editMessageText` disable link previews via
+  `link_preview_options`.
+
+### Fixed
+
+- Rich bodies are no longer marked truncated just because the shorter classic
+  HTML fallback was cut.
+- Unclosed `tg-*` tags in GitHub HTML no longer swallow the rest of the body.
+- PR titles in Rich HTML are plain text when an Open button is present, so the
+  card does not show two competing GitHub links.
+- Commit lists and PR subtitle lines use `<p>` / `<br>` instead of raw newlines.
+- Incomplete Done / Save branches controls stay visible as disabled buttons.
+- Test-notification fallback no longer retries classic HTML when the chat is
+  permanently unreachable.
+
+### Security
+
+- Untrusted GitHub HTML strips `tg-*` tags while keeping their inner text, so
+  injected in-message buttons cannot reach delivery and cannot hide later notes.
+- More lookup is scoped to `destination_chat_id`. Missing, foreign-chat, or
+  retained-and-purged snapshots toast `This snapshot expired.` and do not open
+  settings.
+- File patches are not stored or logged. A failed files fetch still sends the
+  overlay header and toasts `Could not load the file list.` (or
+  `GitHub access expired.` on GitHub 401).
+
+### Migrations
+
+- `009_notification_job_more.sql` adds nullable `more_json`. Job ids are
+  generated in Go so the More callback can embed `m:` plus a compact UUID.
+  Old jobs without `more_json` simply have no More button.
+
+### Operations
+
+- Outbox payload format remains `rich_html_v1`. Classic HTML stays in
+  `notification_jobs.text` as the rollback-safe fallback.
+- No new environment variables, OAuth scopes, or webhook-event requirements.
+- `AUTO_MIGRATE=true` applies migration `009` during upgrade from `v1.1.1`.
+- The webhook handler still only enqueues the job; the files API is called on
+  More tap, not at webhook time.
+
 ## v1.2.0-alpha.4 - 2026-08-26
 
 Fourth Bot API 10.3 alpha. Long PR and release notes stay inside the folded

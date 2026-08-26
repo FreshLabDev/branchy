@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/FreshLabDev/branchy/releases"><img src="https://img.shields.io/github/v/release/FreshLabDev/branchy?include_prereleases&sort=semver&style=for-the-badge&label=latest&labelColor=0f172a&color=4c8c4a" alt="latest version"></a>
-  <a href="docs/versioning.md"><img src="https://img.shields.io/badge/stable-v1.1.1-4c8c4a?style=for-the-badge&labelColor=0f172a" alt="stable version"></a>
+  <a href="docs/versioning.md"><img src="https://img.shields.io/badge/stable-v1.2.0-4c8c4a?style=for-the-badge&labelColor=0f172a" alt="stable version"></a>
   <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/FreshLabDev/branchy?style=for-the-badge&logo=go&logoColor=white&label=go&labelColor=0f172a&color=00ADD8" alt="go version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-334155?style=for-the-badge&labelColor=0f172a" alt="license"></a>
   <a href="https://t.me/branchy_bot"><img src="https://img.shields.io/badge/telegram-%40branchy__bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0f172a" alt="telegram bot"></a>
@@ -46,13 +46,12 @@ Branchy keeps the MVP deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v1.2.0-alpha.4` | Pre-release evaluating folded bodies without extra Read more |
-| Stable | `v1.1.1` | Latest non-prerelease tag |
+| Latest | `v1.2.0` | Latest tag |
+| Stable | `v1.2.0` | Latest non-prerelease tag |
 
-The MVP has been live-tested with Telegram and GitHub. `v1.1.1` is the current
-stable release; the `v1.2.0` alpha line evaluates Bot API 10.3 notification
-cards, in-message buttons, PR More overlays, and disabled settings controls
-before promotion.
+The MVP has been live-tested with Telegram and GitHub. `v1.2.0` is the current
+stable release: Bot API 10.3 notification cards, in-message buttons, PR More
+overlays, and disabled settings controls.
 
 ---
 
