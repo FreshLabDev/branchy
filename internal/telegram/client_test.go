@@ -281,21 +281,6 @@ func TestTelegramGetDoesNotRetryPermanentErrors(t *testing.T) {
 	}
 }
 
-func TestPollRetryDelayBacksOffAndCaps(t *testing.T) {
-	prev := time.Duration(0)
-	for failures := 1; failures <= 20; failures++ {
-		d := pollRetryDelay(failures)
-		if d < time.Second {
-			t.Fatalf("failures=%d delay=%s, want >= 1s", failures, d)
-		}
-		if d > 90*time.Second {
-			t.Fatalf("failures=%d delay=%s, want <= 90s (60s cap + jitter)", failures, d)
-		}
-		_ = prev
-		prev = d
-	}
-}
-
 func TestTelegramRateLimitSleepHonorsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

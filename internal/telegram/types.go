@@ -58,8 +58,8 @@ type InlineKeyboardButton struct {
 	Text         string `json:"text"`
 	CallbackData string `json:"callback_data,omitempty"`
 	URL          string `json:"url,omitempty"`
-	// Style colors the button (Bot API 9.4+). One of stylePrimary, styleSuccess,
-	// or styleDanger; empty uses the default app style. Clients older than
+	// Style colors the button (Bot API 9.4+). One of StylePrimary, StyleSuccess,
+	// or StyleDanger; empty uses the default app style. Clients older than
 	// 2026-02-09 render it as a normal button, so it degrades gracefully.
 	Style string `json:"style,omitempty"`
 	// Disabled is the Bot API 10.3 action slot for an inert button. It cannot
@@ -74,7 +74,7 @@ type DisabledButton struct{}
 // Inline button color styles (Bot API 9.4). Used sparingly: one accented call
 // to action per screen, plus danger for destructive actions.
 const (
-	stylePrimary = "primary" // blue: proceed / save / connect
-	styleSuccess = "success" // green: terminal "done" action
-	styleDanger  = "danger"  // red: destructive (delete)
+	StylePrimary = "primary" // blue: proceed / save / connect
+	StyleSuccess = "success" // green: terminal "done" action
+	StyleDanger  = "danger"  // red: destructive (delete)
 )

@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"branchy/internal/bot"
 	"branchy/internal/config"
 	"branchy/internal/db"
 	"branchy/internal/github"
@@ -83,7 +84,7 @@ func run() error {
 		PublicBaseURL:       cfg.PublicBaseURL,
 		GitHubWebhookSecret: cfg.GitHubWebhookSecret,
 	}, store, gh, sealer)
-	bot := telegram.NewBot(store, tg, oauthSvc, gh, sealer, subSvc)
+	service := bot.NewBot(store, tg, oauthSvc, gh, sealer, subSvc)
 	notificationWorker := outbox.NewWorker(store, tg, outbox.Config{
 		BatchSize:    cfg.OutboxBatchSize,
 		PollInterval: cfg.OutboxPollInterval,
@@ -99,7 +100,7 @@ func run() error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		serveHealth(w, r, store, bot.LastPoll, notificationWorker.LastPoll, startedAt)
+		serveHealth(w, r, store, service.LastPoll, notificationWorker.LastPoll, startedAt)
 	})
 	mux.Handle("GET /metrics", metrics.Handler())
 	mux.Handle("GET /oauth/github/callback", oauthSvc)
@@ -130,7 +131,7 @@ func run() error {
 	go func() {
 		defer wg.Done()
 		slog.Info("telegram polling starting")
-		if err := bot.Run(ctx); err != nil {
+		if err := service.Run(ctx); err != nil {
 			errCh <- err
 		}
 	}()

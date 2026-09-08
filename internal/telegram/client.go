@@ -38,6 +38,16 @@ func WithTimeout(d time.Duration) Option {
 	}
 }
 
+// WithAPIBase points the client at another Bot API server. Used by tests that
+// stand one up; production always talks to Telegram's own endpoint.
+func WithAPIBase(base string) Option {
+	return func(c *Client) {
+		if base != "" {
+			c.apiBase = strings.TrimRight(base, "/")
+		}
+	}
+}
+
 func NewClient(token string, opts ...Option) *Client {
 	c := &Client{
 		token:   token,
