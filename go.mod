@@ -5,7 +5,7 @@ module branchy
 go 1.26.6
 
 require (
-	github.com/FreshLabDev/tg v0.0.1-alpha.5
+	github.com/FreshLabDev/tg v0.0.1-alpha.6
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/yuin/goldmark v1.8.4
 	golang.org/x/net v0.57.0

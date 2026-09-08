@@ -9,9 +9,21 @@ package telegram
 
 import (
 	"context"
+	"errors"
 
 	"github.com/FreshLabDev/tg"
 )
+
+// delivered treats "Telegram accepted this and the receipt did not parse" as
+// success for the sends whose answer Branchy never reads. The notification
+// went out; reporting a failure would queue it again, and the outbox would
+// deliver it twice. A send whose message id Branchy does need keeps the error.
+func delivered(err error) error {
+	if errors.Is(err, tg.ErrUnexpectedResult) {
+		return nil
+	}
+	return err
+}
 
 // Client is the shared client plus those shapes.
 type Client struct {
@@ -33,7 +45,7 @@ func (c *Client) SendHTML(ctx context.Context, chatID int64, text string) error 
 // so malformed or newly unsupported HTML cannot prevent delivery.
 func (c *Client) SendText(ctx context.Context, chatID int64, text string) error {
 	_, err := c.SendPlainText(ctx, chatID, text)
-	return err
+	return delivered(err)
 }
 
 // SendRichHTML sends a rich message. Branchy renders and sanitizes GitHub
@@ -41,14 +53,14 @@ func (c *Client) SendText(ctx context.Context, chatID int64, text string) error 
 // HTML stored in the notification outbox.
 func (c *Client) SendRichHTML(ctx context.Context, chatID int64, richHTML string) error {
 	_, err := c.Client.SendRichHTML(ctx, chatID, 0, 0, richHTML, nil)
-	return err
+	return delivered(err)
 }
 
 // SendRichMarkdown is retained as a transport compatibility seam for legacy
 // alpha jobs that were queued as Markdown.
 func (c *Client) SendRichMarkdown(ctx context.Context, chatID int64, markdown string) error {
 	_, err := c.Client.SendRichMarkdown(ctx, chatID, markdown, nil)
-	return err
+	return delivered(err)
 }
 
 // SendEphemeralRichHTML delivers a rich message visible only to
@@ -56,7 +68,7 @@ func (c *Client) SendRichMarkdown(ctx context.Context, chatID int64, markdown st
 // asked for it; the public card stays in place.
 func (c *Client) SendEphemeralRichHTML(ctx context.Context, chatID, receiverUserID int64, callbackQueryID, richHTML string) error {
 	_, err := c.Client.SendEphemeralRichHTML(ctx, chatID, receiverUserID, callbackQueryID, richHTML, nil)
-	return err
+	return delivered(err)
 }
 
 // SendHTMLWithButton drops a caller into a bot menu without making it build

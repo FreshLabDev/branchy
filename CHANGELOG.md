@@ -25,11 +25,25 @@ Telegram server that cannot deliver its notifications.
   lines holding Branchy's own send shapes -- HTML by default, the
   parse-mode-free fallback the outbox needs, the button helper the OAuth flow
   uses. The outbox and OAuth interfaces are untouched.
-- A message with no sender is now ignored instead of being recorded as user 0.
-  Channel posts and anonymous group admins arrive without one; the local type
-  could not express that, and the shared one does.
+- A message with no sender is ignored rather than dereferenced. In practice
+  Telegram always fills `from` on the updates Branchy asks for -- anonymous
+  group admins arrive as `GroupAnonymousBot`, and channel posts are a different
+  update type Branchy does not request -- so this guards a case that does not
+  occur today rather than fixing an observed bug. The shared client models the
+  field as optional, which is what the API says.
 - Button style constants are exported (`StylePrimary`, `StyleSuccess`,
   `StyleDanger`).
+
+### Fixed
+
+- A notification whose receipt did not parse is no longer treated as a failed
+  delivery. The shared client reads what a send returns, where the old one
+  ignored it; without this the outbox would re-queue a notification that had
+  already gone out, and a tapped overlay could arrive four times.
+- The group-admin lookup is bounded at eight seconds. It runs on the update
+  loop, and the client honors a Retry-After verbatim, so a rate-limited lookup
+  could stall every other user's updates long enough to fail the
+  polling-freshness check in `/healthz`.
 
 ### Added
 

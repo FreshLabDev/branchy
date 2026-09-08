@@ -1711,8 +1711,16 @@ func (b *Bot) accessToken(ctx context.Context, telegramUserID int64) (string, er
 
 var errNotGroupAdmin = errors.New("not a group admin")
 
+// groupAdminLookup bounds the admin check. It runs on the update loop, and the
+// client honors a Retry-After verbatim -- a rate-limited lookup asked to wait
+// thirty seconds would stall every other user's updates behind it, and long
+// enough to fail the polling-freshness check in /healthz.
+const groupAdminLookup = 8 * time.Second
+
 func (b *Bot) requireGroupAdmin(ctx context.Context, chatID, userID int64) error {
-	member, err := b.client.GetChatMember(ctx, chatID, userID)
+	lookupCtx, cancel := context.WithTimeout(ctx, groupAdminLookup)
+	defer cancel()
+	member, err := b.client.GetChatMember(lookupCtx, chatID, userID)
 	if err != nil {
 		return err
 	}
