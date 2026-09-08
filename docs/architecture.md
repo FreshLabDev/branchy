@@ -24,7 +24,9 @@ handlers do not send Telegram messages directly; they create durable
 - `internal/db`: PostgreSQL store methods and data types.
 - `internal/github`: small GitHub OAuth, REST, repository, branch, and webhook client.
 - `internal/oauth`: OAuth state, PKCE, callback handling, and token encryption.
-- `internal/telegram`: Telegram Bot API client and inline-button flows.
+- `internal/bot`: the Telegram bot -- polling loop, menus, inline-button flows.
+- `internal/telegram`: a thin adapter over the shared `github.com/FreshLabDev/tg`
+  client, holding only Branchy's own send shapes.
 - `internal/subscriptions`: subscription mutation and repository webhook synchronization.
 - `internal/webhooks`: GitHub webhook signature validation, event parsing, filtering, dedupe, and outbox enqueue.
 - `internal/outbox`: durable Telegram notification job worker and retry classification.

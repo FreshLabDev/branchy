@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"branchy/internal/db"
-	"branchy/internal/telegram"
+	"github.com/FreshLabDev/tg"
 )
 
 func TestClassifyRateLimitUsesRetryAfter(t *testing.T) {
-	err := &telegram.APIError{
+	err := &tg.APIError{
 		Method:     "sendMessage",
 		StatusCode: httpStatusTooManyRequests,
 		RetryAfter: 3 * time.Second,
@@ -30,7 +30,7 @@ func TestClassifyRateLimitUsesRetryAfter(t *testing.T) {
 }
 
 func TestClassifyPermanentTelegramError(t *testing.T) {
-	err := &telegram.APIError{
+	err := &tg.APIError{
 		Method:      "sendMessage",
 		StatusCode:  httpStatusForbidden,
 		Description: "Forbidden: bot was blocked by the user",
@@ -47,7 +47,7 @@ func TestClassifyPermanentTelegramError(t *testing.T) {
 }
 
 func TestClassifyBlockedDestinationDisablesSubscription(t *testing.T) {
-	err := &telegram.APIError{
+	err := &tg.APIError{
 		Method:      "sendMessage",
 		StatusCode:  httpStatusForbidden,
 		Description: "Forbidden: bot was blocked by the user",
@@ -66,7 +66,7 @@ func TestClassifyBlockedDestinationDisablesSubscription(t *testing.T) {
 func TestClassifyContentErrorKeepsSubscription(t *testing.T) {
 	// A permanent error that is about the message, not the destination, must not
 	// pause the subscription.
-	err := &telegram.APIError{
+	err := &tg.APIError{
 		Method:      "sendMessage",
 		StatusCode:  400,
 		Description: "Bad Request: message text is empty",
@@ -86,7 +86,7 @@ func TestClassifySupergroupMigrationDisablesSubscription(t *testing.T) {
 	// A group→supergroup upgrade kills the old chat_id for good (Telegram returns
 	// migrate_to_chat_id): treat it as permanent and auto-pause so it stops
 	// enqueuing jobs to the dead id forever.
-	err := &telegram.APIError{
+	err := &tg.APIError{
 		Method:          "sendMessage",
 		StatusCode:      400,
 		Description:     "Bad Request: group chat was upgraded to a supergroup chat",
@@ -161,7 +161,7 @@ func TestWorkerSendSuccess(t *testing.T) {
 }
 
 func TestWorkerFallsBackAfterRichContentError(t *testing.T) {
-	sender := &fakeSender{richErr: &telegram.APIError{
+	sender := &fakeSender{richErr: &tg.APIError{
 		Method: "sendRichMessage", StatusCode: 400, Description: "Bad Request: invalid rich message",
 	}}
 	worker := NewWorker(nil, sender, Config{})
@@ -177,7 +177,7 @@ func TestWorkerFallsBackAfterRichContentError(t *testing.T) {
 }
 
 func TestWorkerRetriesRichWithoutMediaBeforeClassicHTML(t *testing.T) {
-	contentErr := &telegram.APIError{
+	contentErr := &tg.APIError{
 		Method: "sendRichMessage", StatusCode: 400, Description: "Bad Request: failed to fetch media",
 	}
 	sender := &fakeSender{richErrs: []error{contentErr, nil}}
@@ -202,7 +202,7 @@ func TestWorkerRetriesRichWithoutMediaBeforeClassicHTML(t *testing.T) {
 }
 
 func TestWorkerFallsBackFromClassicHTMLToPlainText(t *testing.T) {
-	contentErr := &telegram.APIError{
+	contentErr := &tg.APIError{
 		Method: "sendMessage", StatusCode: 400, Description: "Bad Request: can't parse entities",
 	}
 	sender := &fakeSender{htmlErr: contentErr}
@@ -226,7 +226,7 @@ func TestWorkerFallsBackFromClassicHTMLToPlainText(t *testing.T) {
 }
 
 func TestWorkerGivesFallbackAttemptAFreshDeadline(t *testing.T) {
-	contentErr := &telegram.APIError{
+	contentErr := &tg.APIError{
 		Method: "sendRichMessage", StatusCode: 400, Description: "Bad Request: invalid rich message",
 	}
 	sender := &fakeSender{
@@ -248,7 +248,7 @@ func TestWorkerGivesFallbackAttemptAFreshDeadline(t *testing.T) {
 }
 
 func TestWorkerDoesNotFallbackOnRichRateLimit(t *testing.T) {
-	sender := &fakeSender{richErr: &telegram.APIError{
+	sender := &fakeSender{richErr: &tg.APIError{
 		Method: "sendRichMessage", StatusCode: 429, Description: "Too Many Requests",
 	}}
 	worker := NewWorker(nil, sender, Config{})
@@ -264,7 +264,7 @@ func TestWorkerDoesNotFallbackOnRichRateLimit(t *testing.T) {
 }
 
 func TestWorkerFallsBackOnMediaPermissionError(t *testing.T) {
-	sender := &fakeSender{richErr: &telegram.APIError{
+	sender := &fakeSender{richErr: &tg.APIError{
 		Method: "sendRichMessage", StatusCode: 403, Description: "Forbidden: not enough rights to send photos",
 	}}
 	worker := NewWorker(nil, sender, Config{})

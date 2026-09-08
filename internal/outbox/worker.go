@@ -13,7 +13,7 @@ import (
 	"branchy/internal/db"
 	"branchy/internal/metrics"
 	"branchy/internal/notify"
-	"branchy/internal/telegram"
+	"github.com/FreshLabDev/tg"
 )
 
 // Config tunes the worker loop. Zero values fall back to the defaults below, so
@@ -206,7 +206,7 @@ func (w *Worker) sendAttempt(ctx context.Context, send func(context.Context) err
 // limits, server failures, transport errors, cancellation, and unreachable
 // destinations retain normal retry/disable behavior instead of double-sending.
 func shouldFallbackContent(err error) bool {
-	var apiErr *telegram.APIError
+	var apiErr *tg.APIError
 	if !errors.As(err, &apiErr) || apiErr.IsUnreachableDestination() {
 		return false
 	}
@@ -218,7 +218,7 @@ func classifyError(err error, nextAttempt int) db.NotificationJobResult {
 		Error: err.Error(),
 	}
 
-	var apiErr *telegram.APIError
+	var apiErr *tg.APIError
 	if errors.As(err, &apiErr) {
 		if apiErr.StatusCode == 429 || apiErr.RetryAfter > 0 {
 			metrics.TelegramRateLimited.Inc()

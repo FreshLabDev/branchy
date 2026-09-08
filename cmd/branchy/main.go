@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/FreshLabDev/tg"
+
 	"branchy/internal/bot"
 	"branchy/internal/config"
 	"branchy/internal/db"
@@ -72,20 +74,23 @@ func run() error {
 		UserAgent:    "branchy-mvp",
 		Timeout:      cfg.GitHubAPITimeout,
 	})
-	tg := telegram.NewClient(cfg.TelegramBotToken, telegram.WithTimeout(cfg.TelegramAPITimeout))
+	client := telegram.New(cfg.TelegramBotToken,
+		tg.WithTimeout(cfg.TelegramAPITimeout),
+		tg.WithAllowedUpdates("message", "callback_query", "my_chat_member"),
+	)
 	sealer := oauth.NewTokenSealer(cfg.AppSecret)
 	oauthSvc := oauth.NewService(oauth.ServiceConfig{
 		ClientID:     cfg.GitHubClientID,
 		ClientSecret: cfg.GitHubClientSecret,
 		Scope:        cfg.GitHubOAuthScope,
 		PublicBase:   cfg.PublicBaseURL,
-	}, store, gh, sealer, tg)
+	}, store, gh, sealer, client)
 	subSvc := subscriptions.NewService(subscriptions.Config{
 		PublicBaseURL:       cfg.PublicBaseURL,
 		GitHubWebhookSecret: cfg.GitHubWebhookSecret,
 	}, store, gh, sealer)
-	service := bot.NewBot(store, tg, oauthSvc, gh, sealer, subSvc)
-	notificationWorker := outbox.NewWorker(store, tg, outbox.Config{
+	service := bot.NewBot(store, client, oauthSvc, gh, sealer, subSvc)
+	notificationWorker := outbox.NewWorker(store, client, outbox.Config{
 		BatchSize:    cfg.OutboxBatchSize,
 		PollInterval: cfg.OutboxPollInterval,
 		SendTimeout:  cfg.OutboxSendTimeout,
@@ -95,6 +100,18 @@ func run() error {
 		RatePerSecond: cfg.WebhookRateLimit,
 		Burst:         cfg.WebhookRateBurst,
 	})
+
+	// Branchy's notifications are rich messages, and its group overlays are
+	// ephemeral ones. A Bot API server without those methods answers 404 to
+	// every delivery, which would look like a bot that polls and never speaks.
+	me, err := client.Preflight(ctx, tg.Needs{
+		Methods: []string{"sendRichMessage", "editEphemeralMessageText"},
+		Wait:    30 * time.Second,
+	})
+	if err != nil {
+		return err
+	}
+	slog.Info("telegram ready", "username", me.Username, "bot_api", tg.BotAPI)
 
 	startedAt := time.Now()
 
@@ -152,7 +169,7 @@ func run() error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		ensureTelegramCommands(ctx, tg, 30*time.Second)
+		ensureTelegramCommands(ctx, client, 30*time.Second)
 	}()
 
 	var runErr error
@@ -183,7 +200,7 @@ func run() error {
 }
 
 type commandRegistrar interface {
-	SetMyCommandsForScope(ctx context.Context, commands []telegram.BotCommand, scope *telegram.BotCommandScope) error
+	SetMyCommandsForScope(ctx context.Context, commands []tg.BotCommand, scope *tg.BotCommandScope) error
 }
 
 // ensureTelegramCommands runs independently from HTTP serving and polling.
@@ -201,9 +218,9 @@ func ensureTelegramCommands(ctx context.Context, registrar commandRegistrar, ret
 			return
 		}
 		if !privateReady {
-			commands := []telegram.BotCommand{{Command: "start", Description: "Open the Branchy menu"}}
+			commands := []tg.BotCommand{{Command: "start", Description: "Open the Branchy menu"}}
 			attemptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := registrar.SetMyCommandsForScope(attemptCtx, commands, &telegram.BotCommandScope{Type: "all_private_chats"})
+			err := registrar.SetMyCommandsForScope(attemptCtx, commands, &tg.BotCommandScope{Type: "all_private_chats"})
 			cancel()
 			if err != nil {
 				slog.Warn("set private telegram commands failed; will retry", "error", err, "retry_in", delay)
@@ -212,11 +229,11 @@ func ensureTelegramCommands(ctx context.Context, registrar commandRegistrar, ret
 			}
 		}
 		if !groupReady {
-			commands := []telegram.BotCommand{{
+			commands := []tg.BotCommand{{
 				Command: "start", Description: "Open Branchy privately", IsEphemeral: true,
 			}}
 			attemptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := registrar.SetMyCommandsForScope(attemptCtx, commands, &telegram.BotCommandScope{Type: "all_group_chats"})
+			err := registrar.SetMyCommandsForScope(attemptCtx, commands, &tg.BotCommandScope{Type: "all_group_chats"})
 			cancel()
 			if err != nil {
 				slog.Warn("set group telegram commands failed; will retry", "error", err, "retry_in", delay)

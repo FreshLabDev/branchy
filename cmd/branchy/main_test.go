@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"branchy/internal/telegram"
+	"github.com/FreshLabDev/tg"
 )
 
 func TestEnsureTelegramCommandsRetriesOnlyFailedScope(t *testing.T) {
@@ -32,7 +32,7 @@ type fakeCommandRegistrar struct {
 	failFirstGroup bool
 }
 
-func (f *fakeCommandRegistrar) SetMyCommandsForScope(_ context.Context, commands []telegram.BotCommand, scope *telegram.BotCommandScope) error {
+func (f *fakeCommandRegistrar) SetMyCommandsForScope(_ context.Context, commands []tg.BotCommand, scope *tg.BotCommandScope) error {
 	if scope == nil {
 		return errors.New("missing scope")
 	}

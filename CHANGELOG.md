@@ -10,6 +10,44 @@ GitHub Releases.
 
 Use this section for changes that are merged but not released yet.
 
+## v1.2.1-alpha.1 - 2026-09-08
+
+Internal, with one visible consequence: Branchy will not start against a
+Telegram server that cannot deliver its notifications.
+
+### Changed
+
+- The bot moved out of the transport package. `internal/telegram` held both
+  the HTTP client and 2300 lines of bot logic, which is why the client could
+  not be swapped; the logic now lives in `internal/bot`.
+- Telegram goes through `github.com/FreshLabDev/tg`, the client shared by the
+  bot family. What stays in `internal/telegram` is an adapter of about seventy
+  lines holding Branchy's own send shapes -- HTML by default, the
+  parse-mode-free fallback the outbox needs, the button helper the OAuth flow
+  uses. The outbox and OAuth interfaces are untouched.
+- A message with no sender is now ignored instead of being recorded as user 0.
+  Channel posts and anonymous group admins arrive without one; the local type
+  could not express that, and the shared one does.
+- Button style constants are exported (`StylePrimary`, `StyleSuccess`,
+  `StyleDanger`).
+
+### Added
+
+- A preflight at startup, naming `sendRichMessage` and
+  `editEphemeralMessageText`. A server without them answers 404 to every
+  notification, which used to look like a bot that polls and never speaks.
+
+### Security
+
+- The Go floor moves to 1.26.6, build image included. Advisories against
+  1.26.5 -- one of them reachable from every polling loop through `net/http`
+  -- were outstanding.
+
+### Operations
+
+- No configuration changes. A first start against a stale Bot API server now
+  crash-loops with the missing methods named, rather than running mute.
+
 ## v1.2.0 - 2026-08-26
 
 Stable Telegram Bot API 10.3 release. Promoted from `v1.2.0-alpha.4` after live

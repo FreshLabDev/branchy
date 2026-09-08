@@ -21,6 +21,8 @@ import (
 	"branchy/internal/notify"
 	"branchy/internal/oauth"
 	"branchy/internal/subscriptions"
+	"github.com/FreshLabDev/tg"
+
 	"branchy/internal/telegram"
 )
 
@@ -192,7 +194,7 @@ func (b *Bot) loadOffset(ctx context.Context) (int64, error) {
 	return offset, nil
 }
 
-func (b *Bot) handleUpdate(ctx context.Context, update telegram.Update) error {
+func (b *Bot) handleUpdate(ctx context.Context, update tg.Update) error {
 	if update.MyChatMember != nil {
 		return b.handleMyChatMember(ctx, *update.MyChatMember)
 	}
@@ -239,7 +241,14 @@ func isEphemeralStartCommand(text string) bool {
 	return token == "/start" || (strings.HasPrefix(token, "/start@") && len(token) > len("/start@"))
 }
 
-func (b *Bot) handleMessage(ctx context.Context, msg telegram.Message) error {
+func (b *Bot) handleMessage(ctx context.Context, msg tg.Message) error {
+	// A message with no sender is a channel post or an anonymous group admin.
+	// Branchy answers people, and every path below is keyed by a real user id;
+	// the shared client models the absence honestly, where the old local type
+	// handed over a zero-valued user.
+	if msg.From == nil {
+		return nil
+	}
 	if msg.Chat.Type != "private" && msg.EphemeralMessageID != 0 && isEphemeralStartCommand(msg.Text) {
 		return b.handleEphemeralStart(ctx, msg)
 	}
@@ -273,10 +282,10 @@ func (b *Bot) handleMessage(ctx context.Context, msg telegram.Message) error {
 	return nil
 }
 
-func (b *Bot) handleEphemeralStart(ctx context.Context, msg telegram.Message) error {
-	var markup *telegram.InlineKeyboardMarkup
+func (b *Bot) handleEphemeralStart(ctx context.Context, msg tg.Message) error {
+	var markup *tg.InlineKeyboardMarkup
 	if username := b.cachedBotUsername(); username != "" {
-		markup = &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
+		markup = &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{
 			{{Text: "Open Branchy in DM", URL: "https://t.me/" + username}},
 		}}
 	}
@@ -306,11 +315,11 @@ func (b *Bot) handleEphemeralStart(ctx context.Context, msg telegram.Message) er
 	return nil
 }
 
-func (b *Bot) handleMyChatMember(ctx context.Context, upd telegram.ChatMemberUpdated) error {
+func (b *Bot) handleMyChatMember(ctx context.Context, upd tg.ChatMemberUpdated) error {
 	// upsertUser touches core.person (upd.From) and, since this is a non-private
 	// chat, core.chat (upd.Chat identity) — both must exist before chat_state's
 	// FK inserts below.
-	if err := b.upsertUser(ctx, upd.From, &upd.Chat); err != nil {
+	if err := b.upsertUser(ctx, &upd.From, &upd.Chat); err != nil {
 		return err
 	}
 	// Only groups/supergroups/channels are tracked in chat_state (its chat_id FKs
@@ -330,8 +339,8 @@ func (b *Bot) handleMyChatMember(ctx context.Context, upd telegram.ChatMemberUpd
 	})
 }
 
-func (b *Bot) handleCallback(ctx context.Context, cq telegram.CallbackQuery) error {
-	if err := b.upsertUser(ctx, cq.From, &cq.Message.Chat); err != nil {
+func (b *Bot) handleCallback(ctx context.Context, cq tg.CallbackQuery) error {
+	if err := b.upsertUser(ctx, &cq.From, &cq.Message.Chat); err != nil {
 		return err
 	}
 	// Dispatch first, then answer the callback query exactly once with an
@@ -344,7 +353,7 @@ func (b *Bot) handleCallback(ctx context.Context, cq telegram.CallbackQuery) err
 	return err
 }
 
-func (b *Bot) dispatchCallback(ctx context.Context, cq telegram.CallbackQuery) (string, error) {
+func (b *Bot) dispatchCallback(ctx context.Context, cq tg.CallbackQuery) (string, error) {
 	switch cq.Data {
 	case "home":
 		return "", b.renderHome(ctx, cq)
@@ -396,7 +405,7 @@ const filesLoadFailedToast = "Could not load the file list."
 const githubExpiredToast = "GitHub access expired."
 const moreFilesTimeout = 8 * time.Second
 
-func (b *Bot) handlePRMore(ctx context.Context, cq telegram.CallbackQuery) (string, error) {
+func (b *Bot) handlePRMore(ctx context.Context, cq tg.CallbackQuery) (string, error) {
 	compact := strings.TrimPrefix(cq.Data, "m:")
 	jobID, ok := db.ExpandCompactUUID(compact)
 	if !ok {
@@ -479,7 +488,7 @@ func notifyPRFiles(files []github.PullRequestFile) []notify.PRFile {
 	return out
 }
 
-func (b *Bot) handleToken(ctx context.Context, cq telegram.CallbackQuery, token db.CallbackToken) (string, error) {
+func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.CallbackToken) (string, error) {
 	switch token.Action {
 	case "repo.info":
 		var payload repoPayload
@@ -791,7 +800,7 @@ func (b *Bot) handleToken(ctx context.Context, cq telegram.CallbackQuery, token 
 	return "", nil
 }
 
-func (b *Bot) mainMenu(ctx context.Context, telegramUserID int64) (string, *telegram.InlineKeyboardMarkup, error) {
+func (b *Bot) mainMenu(ctx context.Context, telegramUserID int64) (string, *tg.InlineKeyboardMarkup, error) {
 	connectURL, err := b.oauth.CreateAuthURL(ctx, telegramUserID)
 	if err != nil {
 		return "", nil, err
@@ -824,23 +833,23 @@ func (b *Bot) mainMenu(ctx context.Context, telegramUserID int64) (string, *tele
 	}
 	// When disconnected, connecting is the one call to action; once connected it
 	// becomes a secondary "Reconnect" and "New subscription" is the accent.
-	connectButton := telegram.InlineKeyboardButton{Text: connectLabel, URL: connectURL}
+	connectButton := tg.InlineKeyboardButton{Text: connectLabel, URL: connectURL}
 	if !connected {
-		connectButton.Style = telegram.StylePrimary
+		connectButton.Style = tg.StylePrimary
 	}
-	rows := [][]telegram.InlineKeyboardButton{{connectButton}}
+	rows := [][]tg.InlineKeyboardButton{{connectButton}}
 	// The other actions all require a GitHub connection, so only offer them
 	// once connected; until then the menu is just the connect button.
 	if connected {
 		rows = append(rows,
-			[]telegram.InlineKeyboardButton{{Text: "Repositories", CallbackData: "repo:list"}, {Text: "Subscriptions", CallbackData: "sub:list"}},
-			[]telegram.InlineKeyboardButton{{Text: "New subscription", CallbackData: "sub:new", Style: telegram.StylePrimary}},
+			[]tg.InlineKeyboardButton{{Text: "Repositories", CallbackData: "repo:list"}, {Text: "Subscriptions", CallbackData: "sub:list"}},
+			[]tg.InlineKeyboardButton{{Text: "New subscription", CallbackData: "sub:new", Style: tg.StylePrimary}},
 		)
 	}
-	return strings.Join(lines, "\n"), &telegram.InlineKeyboardMarkup{InlineKeyboard: rows}, nil
+	return strings.Join(lines, "\n"), &tg.InlineKeyboardMarkup{InlineKeyboard: rows}, nil
 }
 
-func (b *Bot) renderHome(ctx context.Context, cq telegram.CallbackQuery) error {
+func (b *Bot) renderHome(ctx context.Context, cq tg.CallbackQuery) error {
 	text, markup, err := b.mainMenu(ctx, cq.From.ID)
 	if err != nil {
 		return err
@@ -848,7 +857,7 @@ func (b *Bot) renderHome(ctx context.Context, cq telegram.CallbackQuery) error {
 	return b.respond(ctx, cq, text, markup)
 }
 
-func (b *Bot) renderRepoList(ctx context.Context, cq telegram.CallbackQuery, subscribeMode bool, page int) error {
+func (b *Bot) renderRepoList(ctx context.Context, cq tg.CallbackQuery, subscribeMode bool, page int) error {
 	token, err := b.accessToken(ctx, cq.From.ID)
 	if err != nil {
 		return b.respond(ctx, cq, "Connect GitHub first.", backHome())
@@ -879,7 +888,7 @@ func (b *Bot) renderRepoList(ctx context.Context, cq telegram.CallbackQuery, sub
 	start := page * repoPageSize
 	end := min(start+repoPageSize, len(repos))
 
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	for _, repo := range repos[start:end] {
 		action := "repo.info"
 		if subscribeMode {
@@ -893,36 +902,36 @@ func (b *Bot) renderRepoList(ctx context.Context, cq telegram.CallbackQuery, sub
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: text, CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: text, CallbackData: callback}})
 	}
 	if nav := paginationRow(prefix, page, pages); len(nav) > 0 {
 		rows = append(rows, nav)
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Back", CallbackData: "home"}})
+	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: "home"}})
 	header := "<b>" + esc(title) + "</b>"
 	if pages > 1 {
 		header += fmt.Sprintf("\nPage %d of %d", page+1, pages)
 	}
-	return b.respond(ctx, cq, header, &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, header, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderRepoInfo(ctx context.Context, cq telegram.CallbackQuery, repo github.Repository) error {
-	rows := [][]telegram.InlineKeyboardButton{}
+func (b *Bot) renderRepoInfo(ctx context.Context, cq tg.CallbackQuery, repo github.Repository) error {
+	rows := [][]tg.InlineKeyboardButton{}
 	if repo.HasAdminPermission && !repo.Archived {
 		callback, err := b.token(ctx, cq.From.ID, "sub.repo", subDraft{Repo: repo})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Create subscription", CallbackData: callback, Style: telegram.StylePrimary}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Create subscription", CallbackData: callback, Style: tg.StylePrimary}})
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Back", CallbackData: "repo:list"}})
+	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: "repo:list"}})
 	text := "<b>" + esc(repo.FullName) + "</b>\nDefault branch: " + esc(repo.DefaultBranch)
 	if repo.Archived {
 		text += "\nThis repository is archived, so GitHub webhooks cannot be configured."
 	} else if !repo.HasAdminPermission {
 		text += "\nYou need admin rights here to add a webhook, so you cannot subscribe to this repository."
 	}
-	return b.respond(ctx, cq, text, &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, text, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 func visibleRepositories(repos []github.Repository, subscribeMode bool) []github.Repository {
@@ -946,14 +955,14 @@ func visibleRepositories(repos []github.Repository, subscribeMode bool) []github
 	return filtered
 }
 
-func (b *Bot) renderDestinationPicker(ctx context.Context, cq telegram.CallbackQuery, draft subDraft, edit bool, editID string) error {
-	rows := [][]telegram.InlineKeyboardButton{}
+func (b *Bot) renderDestinationPicker(ctx context.Context, cq tg.CallbackQuery, draft subDraft, edit bool, editID string) error {
+	rows := [][]tg.InlineKeyboardButton{}
 	if edit {
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.dest.save", editDestinationPayload{ID: editID, DestinationType: "dm", DestinationChatID: cq.From.ID})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Direct message", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Direct message", CallbackData: callback}})
 	} else {
 		draft.DestinationType = "dm"
 		draft.DestinationChatID = cq.From.ID
@@ -961,7 +970,7 @@ func (b *Bot) renderDestinationPicker(ctx context.Context, cq telegram.CallbackQ
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Direct message", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Direct message", CallbackData: callback}})
 	}
 
 	groups, err := b.store.ListKnownGroups(ctx, cq.From.ID)
@@ -978,7 +987,7 @@ func (b *Bot) renderDestinationPicker(ctx context.Context, cq telegram.CallbackQ
 			if err != nil {
 				return err
 			}
-			rows = append(rows, []telegram.InlineKeyboardButton{{Text: label, CallbackData: callback}})
+			rows = append(rows, []tg.InlineKeyboardButton{{Text: label, CallbackData: callback}})
 			continue
 		}
 		next := draft
@@ -988,20 +997,20 @@ func (b *Bot) renderDestinationPicker(ctx context.Context, cq telegram.CallbackQ
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: label, CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: label, CallbackData: callback}})
 	}
 	backButton, err := b.stepBackButton(ctx, cq.From.ID, edit, editID, "sub:new")
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{backButton})
+	rows = append(rows, []tg.InlineKeyboardButton{backButton})
 	text := "<b>Choose destination</b>\nGroups appear here after Branchy is added to them."
-	return b.respond(ctx, cq, text, &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, text, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEventPicker(ctx context.Context, cq telegram.CallbackQuery, draft subDraft) error {
+func (b *Bot) renderEventPicker(ctx context.Context, cq tg.CallbackQuery, draft subDraft) error {
 	draft = withDraftDefaults(draft)
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	for _, event := range []string{"push", "pull_request", "release"} {
 		next := draft
 		next.ToggleEvent = event
@@ -1009,49 +1018,49 @@ func (b *Bot) renderEventPicker(ctx context.Context, cq telegram.CallbackQuery, 
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: checkbox(contains(draft.Events, event), eventLabel(event)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(draft.Events, event), eventLabel(event)), CallbackData: callback}})
 	}
 	if len(draft.Events) > 0 {
 		callback, err := b.token(ctx, cq.From.ID, "sub.settings", draft)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Continue", CallbackData: callback, Style: telegram.StylePrimary}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Continue", CallbackData: callback, Style: tg.StylePrimary}})
 	} else {
-		rows = append(rows, []telegram.InlineKeyboardButton{disabledButton("Continue")})
+		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Continue")})
 	}
 	// Back returns to the destination step, preserving the draft.
 	backCB, err := b.token(ctx, cq.From.ID, "sub.repo", draft)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
-	return b.respond(ctx, cq, "<b>Choose events</b>\nSelect at least one event, then continue.", &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
+	return b.respond(ctx, cq, "<b>Choose events</b>\nSelect at least one event, then continue.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEventSettings(ctx context.Context, cq telegram.CallbackQuery, draft subDraft) error {
+func (b *Bot) renderEventSettings(ctx context.Context, cq tg.CallbackQuery, draft subDraft) error {
 	draft = normalizeDraftForEvents(draft)
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	if usesBranchFilter(draft.Events) {
 		callback, err := b.token(ctx, cq.From.ID, "sub.settings.branch", draft)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Branch filter", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Branch filter", CallbackData: callback}})
 	}
 	if contains(draft.Events, "pull_request") {
 		callback, err := b.token(ctx, cq.From.ID, "sub.settings.pr", draft)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Pull request actions", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Pull request actions", CallbackData: callback}})
 	}
 	if contains(draft.Events, "release") {
 		callback, err := b.token(ctx, cq.From.ID, "sub.settings.release", draft)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Release notifications", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Release notifications", CallbackData: callback}})
 	}
 	backCB, err := b.token(ctx, cq.From.ID, "sub.dest", draft)
 	if err != nil {
@@ -1062,16 +1071,16 @@ func (b *Bot) renderEventSettings(ctx context.Context, cq telegram.CallbackQuery
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Create subscription", CallbackData: createCB, Style: telegram.StyleSuccess}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Create subscription", CallbackData: createCB, Style: tg.StyleSuccess}})
 	} else {
-		rows = append(rows, []telegram.InlineKeyboardButton{disabledButton("Create subscription")})
+		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Create subscription")})
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
+	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
 	text := "<b>Event settings</b>\n" + settingsSummary(draft.Events, draft.BranchMode, draft.BranchNames, draft.PullRequestActions, draft.ReleaseMode)
 	if hint := settingsBlockingHint(draft); hint != "" {
 		text += "\n\n⚠ " + hint
 	}
-	return b.respond(ctx, cq, text, &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, text, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 // settingsBlockingHint explains why "Create subscription" stays disabled,
@@ -1089,9 +1098,9 @@ func settingsBlockingHint(draft subDraft) string {
 	return "Finish the settings above to create the subscription."
 }
 
-func (b *Bot) renderBranchSettings(ctx context.Context, cq telegram.CallbackQuery, draft subDraft) error {
+func (b *Bot) renderBranchSettings(ctx context.Context, cq tg.CallbackQuery, draft subDraft) error {
 	draft = normalizeDraftForEvents(draft)
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	for _, mode := range []string{"all", "default", "selected"} {
 		next := draft
 		next.BranchMode = mode
@@ -1099,7 +1108,7 @@ func (b *Bot) renderBranchSettings(ctx context.Context, cq telegram.CallbackQuer
 			next.BranchNames = nil
 		}
 		if draft.BranchMode == mode && mode != "selected" {
-			rows = append(rows, []telegram.InlineKeyboardButton{disabledButton(radio(true, branchModeLabel(mode, draft.BranchNames)))})
+			rows = append(rows, []tg.InlineKeyboardButton{disabledButton(radio(true, branchModeLabel(mode, draft.BranchNames)))})
 			continue
 		}
 		action := "sub.settings.branch.mode"
@@ -1107,17 +1116,17 @@ func (b *Bot) renderBranchSettings(ctx context.Context, cq telegram.CallbackQuer
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: radio(draft.BranchMode == mode, branchModeLabel(mode, draft.BranchNames)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: radio(draft.BranchMode == mode, branchModeLabel(mode, draft.BranchNames)), CallbackData: callback}})
 	}
 	backCB, err := b.token(ctx, cq.From.ID, "sub.settings", draft)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Done", CallbackData: backCB, Style: telegram.StylePrimary}})
-	return b.respond(ctx, cq, "<b>Branch filter</b>", &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Done", CallbackData: backCB, Style: tg.StylePrimary}})
+	return b.respond(ctx, cq, "<b>Branch filter</b>", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderBranchList(ctx context.Context, cq telegram.CallbackQuery, draft subDraft) error {
+func (b *Bot) renderBranchList(ctx context.Context, cq tg.CallbackQuery, draft subDraft) error {
 	draft = normalizeDraftForEvents(draft)
 	draft.BranchMode = "selected"
 	draft.BranchNames = db.NormalizeBranchNames(draft.BranchNames)
@@ -1133,7 +1142,7 @@ func (b *Bot) renderBranchList(ctx context.Context, cq telegram.CallbackQuery, d
 	if err != nil {
 		return err
 	}
-	backRow := []telegram.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}}
+	backRow := []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}}
 
 	if len(branches) == 0 {
 		allDraft := draft
@@ -1143,11 +1152,11 @@ func (b *Bot) renderBranchList(ctx context.Context, cq telegram.CallbackQuery, d
 		if err != nil {
 			return err
 		}
-		rows := [][]telegram.InlineKeyboardButton{
-			{{Text: "Use all branches", CallbackData: allCB, Style: telegram.StylePrimary}},
+		rows := [][]tg.InlineKeyboardButton{
+			{{Text: "Use all branches", CallbackData: allCB, Style: tg.StylePrimary}},
 			backRow,
 		}
-		return b.respond(ctx, cq, "<b>Choose branch</b>\nThis repository has no branches to choose from.", &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+		return b.respond(ctx, cq, "<b>Choose branch</b>\nThis repository has no branches to choose from.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 	}
 
 	pages := (len(branches) + branchPageSize - 1) / branchPageSize
@@ -1155,7 +1164,7 @@ func (b *Bot) renderBranchList(ctx context.Context, cq telegram.CallbackQuery, d
 	start := page * branchPageSize
 	end := min(start+branchPageSize, len(branches))
 
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	for _, branch := range branches[start:end] {
 		next := draft
 		next.BranchMode = "selected"
@@ -1164,18 +1173,18 @@ func (b *Bot) renderBranchList(ctx context.Context, cq telegram.CallbackQuery, d
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: checkbox(contains(draft.BranchNames, branch.Name), branch.Name), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(draft.BranchNames, branch.Name), branch.Name), CallbackData: callback}})
 	}
 	if len(draft.BranchNames) > 0 {
 		doneCB, err := b.token(ctx, cq.From.ID, "sub.settings", draft)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Done", CallbackData: doneCB, Style: telegram.StylePrimary}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Done", CallbackData: doneCB, Style: tg.StylePrimary}})
 	} else {
-		rows = append(rows, []telegram.InlineKeyboardButton{disabledButton("Done")})
+		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Done")})
 	}
-	var nav []telegram.InlineKeyboardButton
+	var nav []tg.InlineKeyboardButton
 	if pages > 1 {
 		if page > 0 {
 			button, err := b.branchNavButton(ctx, cq.From.ID, draft, "‹ Prev", page-1, "sub.settings.branch.list")
@@ -1202,12 +1211,12 @@ func (b *Bot) renderBranchList(ctx context.Context, cq telegram.CallbackQuery, d
 	if pages > 1 {
 		header += fmt.Sprintf("\nPage %d of %d", page+1, pages)
 	}
-	return b.respond(ctx, cq, header, &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, header, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderPullRequestSettings(ctx context.Context, cq telegram.CallbackQuery, draft subDraft) error {
+func (b *Bot) renderPullRequestSettings(ctx context.Context, cq tg.CallbackQuery, draft subDraft) error {
 	draft = normalizeDraftForEvents(draft)
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	for _, action := range pullRequestActionOrder() {
 		next := draft
 		next.TogglePullRequestAction = action
@@ -1215,7 +1224,7 @@ func (b *Bot) renderPullRequestSettings(ctx context.Context, cq telegram.Callbac
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: checkbox(contains(draft.PullRequestActions, action), pullRequestActionLabel(action)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(draft.PullRequestActions, action), pullRequestActionLabel(action)), CallbackData: callback}})
 	}
 	// In the draft flow toggles already persist into the draft, so a single
 	// button is enough: "Done" once at least one action is selected, otherwise a
@@ -1228,37 +1237,37 @@ func (b *Bot) renderPullRequestSettings(ctx context.Context, cq telegram.Callbac
 	doneStyle := ""
 	if len(draft.PullRequestActions) > 0 {
 		doneLabel = "Done"
-		doneStyle = telegram.StylePrimary
+		doneStyle = tg.StylePrimary
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{{Text: doneLabel, CallbackData: doneCB, Style: doneStyle}})
-	return b.respond(ctx, cq, "<b>Pull request actions</b>\nSelect at least one action. “Opened” also covers reopened pull requests.", &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, []tg.InlineKeyboardButton{{Text: doneLabel, CallbackData: doneCB, Style: doneStyle}})
+	return b.respond(ctx, cq, "<b>Pull request actions</b>\nSelect at least one action. “Opened” also covers reopened pull requests.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderReleaseSettings(ctx context.Context, cq telegram.CallbackQuery, draft subDraft) error {
+func (b *Bot) renderReleaseSettings(ctx context.Context, cq tg.CallbackQuery, draft subDraft) error {
 	draft = normalizeDraftForEvents(draft)
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	for _, mode := range releaseModeOrder() {
 		next := draft
 		next.ReleaseMode = mode
 		if draft.ReleaseMode == mode {
-			rows = append(rows, []telegram.InlineKeyboardButton{disabledButton(radio(true, releaseModeLabel(mode)))})
+			rows = append(rows, []tg.InlineKeyboardButton{disabledButton(radio(true, releaseModeLabel(mode)))})
 			continue
 		}
 		callback, err := b.token(ctx, cq.From.ID, "sub.settings.release.mode", next)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: radio(false, releaseModeLabel(mode)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: radio(false, releaseModeLabel(mode)), CallbackData: callback}})
 	}
 	backCB, err := b.token(ctx, cq.From.ID, "sub.settings", draft)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
-	return b.respond(ctx, cq, "<b>Release notifications</b>", &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
+	return b.respond(ctx, cq, "<b>Release notifications</b>", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) createSubscription(ctx context.Context, cq telegram.CallbackQuery, draft subDraft) (string, error) {
+func (b *Bot) createSubscription(ctx context.Context, cq tg.CallbackQuery, draft subDraft) (string, error) {
 	draft = normalizeDraftForEvents(draft)
 	id, err := b.subs.Create(ctx, cq.From.ID, draft.Repo, draft.DestinationType, draft.DestinationChatID, draft.Events, draft.BranchMode, draft.BranchNames, draft.PullRequestActions, draft.ReleaseMode)
 	if err != nil {
@@ -1267,7 +1276,7 @@ func (b *Bot) createSubscription(ctx context.Context, cq telegram.CallbackQuery,
 	return "Subscription created.", b.renderSubscription(ctx, cq, id)
 }
 
-func (b *Bot) renderSubscriptionList(ctx context.Context, cq telegram.CallbackQuery) error {
+func (b *Bot) renderSubscriptionList(ctx context.Context, cq tg.CallbackQuery) error {
 	subs, err := b.store.ListSubscriptionsByUser(ctx, cq.From.ID)
 	if err != nil {
 		return err
@@ -1275,7 +1284,7 @@ func (b *Bot) renderSubscriptionList(ctx context.Context, cq telegram.CallbackQu
 	if len(subs) == 0 {
 		return b.respond(ctx, cq, "No subscriptions yet.", backHome())
 	}
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	for _, sub := range subs {
 		callback, err := b.token(ctx, cq.From.ID, "sub.view", subscriptionPayload{ID: sub.ID})
 		if err != nil {
@@ -1285,18 +1294,18 @@ func (b *Bot) renderSubscriptionList(ctx context.Context, cq telegram.CallbackQu
 		if sub.Status == "paused" {
 			label += "  ·  paused"
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: label, CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: label, CallbackData: callback}})
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Back", CallbackData: "home"}})
-	return b.respond(ctx, cq, "<b>Subscriptions</b>\nTap a subscription to view or edit it.", &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: "home"}})
+	return b.respond(ctx, cq, "<b>Subscriptions</b>\nTap a subscription to view or edit it.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderSubscription(ctx context.Context, cq telegram.CallbackQuery, id string) error {
+func (b *Bot) renderSubscription(ctx context.Context, cq tg.CallbackQuery, id string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
 		return b.respond(ctx, cq, "Subscription not found.", backHome())
 	}
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	nextStatus := "paused"
 	statusLabel := "Pause"
 	if sub.Status == "paused" {
@@ -1320,10 +1329,10 @@ func (b *Bot) renderSubscription(ctx context.Context, cq telegram.CallbackQuery,
 		return err
 	}
 	rows = append(rows,
-		[]telegram.InlineKeyboardButton{{Text: statusLabel, CallbackData: statusCB}, {Text: "Test", CallbackData: testCB}},
-		[]telegram.InlineKeyboardButton{{Text: "Edit", CallbackData: editMenuCB, Style: telegram.StylePrimary}},
-		[]telegram.InlineKeyboardButton{{Text: "Delete", CallbackData: deleteCB, Style: telegram.StyleDanger}},
-		[]telegram.InlineKeyboardButton{{Text: "Back", CallbackData: "sub:list"}},
+		[]tg.InlineKeyboardButton{{Text: statusLabel, CallbackData: statusCB}, {Text: "Test", CallbackData: testCB}},
+		[]tg.InlineKeyboardButton{{Text: "Edit", CallbackData: editMenuCB, Style: tg.StylePrimary}},
+		[]tg.InlineKeyboardButton{{Text: "Delete", CallbackData: deleteCB, Style: tg.StyleDanger}},
+		[]tg.InlineKeyboardButton{{Text: "Back", CallbackData: "sub:list"}},
 	)
 	destLabel, destWarning := b.describeDestination(ctx, cq.From.ID, sub)
 	text := fmt.Sprintf("<b>%s</b>\nStatus: %s\nDestination: %s\n%s",
@@ -1338,14 +1347,14 @@ func (b *Bot) renderSubscription(ctx context.Context, cq telegram.CallbackQuery,
 	if destWarning != "" {
 		text += "\n" + esc(destWarning)
 	}
-	return b.respond(ctx, cq, text, &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, text, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 // renderDeleteConfirm asks for explicit confirmation before deleting a
 // subscription: the destructive action is one fat-finger tap away on the detail
 // screen, so it gets a dedicated yes/no hop. "Delete" issues a fresh consumed
 // sub.delete token; "Cancel" returns to the subscription.
-func (b *Bot) renderDeleteConfirm(ctx context.Context, cq telegram.CallbackQuery, id string) error {
+func (b *Bot) renderDeleteConfirm(ctx context.Context, cq tg.CallbackQuery, id string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
 		return b.respond(ctx, cq, "Subscription not found.", backHome())
@@ -1358,15 +1367,15 @@ func (b *Bot) renderDeleteConfirm(ctx context.Context, cq telegram.CallbackQuery
 	if err != nil {
 		return err
 	}
-	rows := [][]telegram.InlineKeyboardButton{
-		{{Text: "Delete", CallbackData: deleteCB, Style: telegram.StyleDanger}},
+	rows := [][]tg.InlineKeyboardButton{
+		{{Text: "Delete", CallbackData: deleteCB, Style: tg.StyleDanger}},
 		{{Text: "Cancel", CallbackData: cancelCB}},
 	}
 	text := fmt.Sprintf("<b>Delete this subscription?</b>\n%s\nThis permanently removes the subscription and cannot be undone.", esc(sub.RepoFullName))
-	return b.respond(ctx, cq, text, &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, text, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderSubscriptionEditMenu(ctx context.Context, cq telegram.CallbackQuery, id string) error {
+func (b *Bot) renderSubscriptionEditMenu(ctx context.Context, cq tg.CallbackQuery, id string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
 		return b.respond(ctx, cq, "Subscription not found.", backHome())
@@ -1387,78 +1396,78 @@ func (b *Bot) renderSubscriptionEditMenu(ctx context.Context, cq telegram.Callba
 	if err != nil {
 		return err
 	}
-	rows := [][]telegram.InlineKeyboardButton{
+	rows := [][]tg.InlineKeyboardButton{
 		{{Text: "Event", CallbackData: editEventsCB}},
 		{{Text: "Destination", CallbackData: editDestCB}},
 		{{Text: "Advanced", CallbackData: advancedCB}},
 		{backButton},
 	}
-	return b.respond(ctx, cq, "<b>Edit subscription</b>\nChoose what to change.", &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, "<b>Edit subscription</b>\nChoose what to change.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEditEvents(ctx context.Context, cq telegram.CallbackQuery, id string, events []string) error {
-	rows := [][]telegram.InlineKeyboardButton{}
+func (b *Bot) renderEditEvents(ctx context.Context, cq tg.CallbackQuery, id string, events []string) error {
+	rows := [][]tg.InlineKeyboardButton{}
 	for _, event := range []string{"push", "pull_request", "release"} {
 		payload := editEventsPayload{ID: id, Events: events, ToggleEvent: event}
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.events.toggle", payload)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: checkbox(contains(events, event), eventLabel(event)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(events, event), eventLabel(event)), CallbackData: callback}})
 	}
 	if len(events) > 0 {
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.events.save", editEventsPayload{ID: id, Events: events})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Save", CallbackData: callback, Style: telegram.StylePrimary}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Save", CallbackData: callback, Style: tg.StylePrimary}})
 	} else {
-		rows = append(rows, []telegram.InlineKeyboardButton{disabledButton("Save")})
+		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Save")})
 	}
 	backButton, err := b.editMenuButton(ctx, cq.From.ID, id)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{backButton})
-	return b.respond(ctx, cq, "<b>Edit events</b>\nSelect at least one event, then tap Save.", &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, []tg.InlineKeyboardButton{backButton})
+	return b.respond(ctx, cq, "<b>Edit events</b>\nSelect at least one event, then tap Save.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderAdvancedSettings(ctx context.Context, cq telegram.CallbackQuery, id string) error {
+func (b *Bot) renderAdvancedSettings(ctx context.Context, cq tg.CallbackQuery, id string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
 		return b.respond(ctx, cq, "Subscription not found.", backHome())
 	}
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	if usesBranchFilter(sub.Events) {
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.branch", subscriptionPayload{ID: id})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Branch filter", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Branch filter", CallbackData: callback}})
 	}
 	if contains(sub.Events, "pull_request") {
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.pr", subscriptionPayload{ID: id})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Pull request actions", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Pull request actions", CallbackData: callback}})
 	}
 	if contains(sub.Events, "release") {
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.release", subscriptionPayload{ID: id})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Release notifications", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Release notifications", CallbackData: callback}})
 	}
 	backButton, err := b.editMenuButton(ctx, cq.From.ID, id)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{backButton})
-	return b.respond(ctx, cq, "<b>Advanced settings</b>\n"+settingsSummary(sub.Events, sub.BranchMode, subscriptionBranchNames(sub), sub.PullRequestActions, sub.ReleaseMode), &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, []tg.InlineKeyboardButton{backButton})
+	return b.respond(ctx, cq, "<b>Advanced settings</b>\n"+settingsSummary(sub.Events, sub.BranchMode, subscriptionBranchNames(sub), sub.PullRequestActions, sub.ReleaseMode), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEditBranch(ctx context.Context, cq telegram.CallbackQuery, id string) error {
+func (b *Bot) renderEditBranch(ctx context.Context, cq tg.CallbackQuery, id string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
 		return b.respond(ctx, cq, "Subscription not found.", backHome())
@@ -1467,7 +1476,7 @@ func (b *Bot) renderEditBranch(ctx context.Context, cq telegram.CallbackQuery, i
 		return b.renderAdvancedSettings(ctx, cq, id)
 	}
 	currentBranches := subscriptionBranchNames(sub)
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	for _, mode := range []string{"all", "default", "selected"} {
 		action := "sub.edit.branch.save"
 		payload := editBranchPayload{ID: id, BranchMode: mode}
@@ -1476,24 +1485,24 @@ func (b *Bot) renderEditBranch(ctx context.Context, cq telegram.CallbackQuery, i
 			payload.BranchNames = currentBranches
 		}
 		if sub.BranchMode == mode && mode != "selected" {
-			rows = append(rows, []telegram.InlineKeyboardButton{disabledButton(radio(true, branchModeLabel(mode, currentBranches)))})
+			rows = append(rows, []tg.InlineKeyboardButton{disabledButton(radio(true, branchModeLabel(mode, currentBranches)))})
 			continue
 		}
 		callback, err := b.token(ctx, cq.From.ID, action, payload)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: radio(sub.BranchMode == mode, branchModeLabel(mode, currentBranches)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: radio(sub.BranchMode == mode, branchModeLabel(mode, currentBranches)), CallbackData: callback}})
 	}
 	backButton, err := b.advancedButton(ctx, cq.From.ID, id)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{backButton})
-	return b.respond(ctx, cq, "<b>Edit branch filter</b>", &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, []tg.InlineKeyboardButton{backButton})
+	return b.respond(ctx, cq, "<b>Edit branch filter</b>", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEditBranchList(ctx context.Context, cq telegram.CallbackQuery, payload editBranchPayload) error {
+func (b *Bot) renderEditBranchList(ctx context.Context, cq tg.CallbackQuery, payload editBranchPayload) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, payload.ID)
 	if err != nil {
 		return b.respond(ctx, cq, "Subscription not found.", backHome())
@@ -1519,18 +1528,18 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq telegram.CallbackQuer
 	if err != nil {
 		return err
 	}
-	backRow := []telegram.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}}
+	backRow := []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}}
 
 	if len(branches) == 0 {
 		allCB, err := b.token(ctx, cq.From.ID, "sub.edit.branch.save", editBranchPayload{ID: payload.ID, BranchMode: "all"})
 		if err != nil {
 			return err
 		}
-		rows := [][]telegram.InlineKeyboardButton{
-			{{Text: "Use all branches", CallbackData: allCB, Style: telegram.StylePrimary}},
+		rows := [][]tg.InlineKeyboardButton{
+			{{Text: "Use all branches", CallbackData: allCB, Style: tg.StylePrimary}},
 			backRow,
 		}
-		return b.respond(ctx, cq, "<b>Choose branch</b>\nThis repository has no branches to choose from.", &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+		return b.respond(ctx, cq, "<b>Choose branch</b>\nThis repository has no branches to choose from.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 	}
 
 	pages := (len(branches) + branchPageSize - 1) / branchPageSize
@@ -1538,25 +1547,25 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq telegram.CallbackQuer
 	start := page * branchPageSize
 	end := min(start+branchPageSize, len(branches))
 
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	for _, branch := range branches[start:end] {
 		next := editBranchPayload{ID: payload.ID, BranchMode: "selected", BranchNames: selected, ToggleBranchName: branch.Name, Page: page}
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.branch.toggle", next)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: checkbox(contains(selected, branch.Name), branch.Name), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(selected, branch.Name), branch.Name), CallbackData: callback}})
 	}
 	if len(selected) > 0 {
 		saveCB, err := b.token(ctx, cq.From.ID, "sub.edit.branch.save", editBranchPayload{ID: payload.ID, BranchMode: "selected", BranchNames: selected})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Save branches", CallbackData: saveCB, Style: telegram.StylePrimary}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Save branches", CallbackData: saveCB, Style: tg.StylePrimary}})
 	} else {
-		rows = append(rows, []telegram.InlineKeyboardButton{disabledButton("Save branches")})
+		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Save branches")})
 	}
-	var nav []telegram.InlineKeyboardButton
+	var nav []tg.InlineKeyboardButton
 	if pages > 1 {
 		for _, step := range []struct {
 			text    string
@@ -1574,7 +1583,7 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq telegram.CallbackQuer
 			if err != nil {
 				return err
 			}
-			nav = append(nav, telegram.InlineKeyboardButton{Text: step.text, CallbackData: callback})
+			nav = append(nav, tg.InlineKeyboardButton{Text: step.text, CallbackData: callback})
 		}
 		rows = append(rows, nav)
 	}
@@ -1583,10 +1592,10 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq telegram.CallbackQuer
 	if pages > 1 {
 		header += fmt.Sprintf("\nPage %d of %d", page+1, pages)
 	}
-	return b.respond(ctx, cq, header, &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, header, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEditPullRequestSettings(ctx context.Context, cq telegram.CallbackQuery, id string, actions []string) error {
+func (b *Bot) renderEditPullRequestSettings(ctx context.Context, cq tg.CallbackQuery, id string, actions []string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
 		return b.respond(ctx, cq, "Subscription not found.", backHome())
@@ -1597,33 +1606,33 @@ func (b *Bot) renderEditPullRequestSettings(ctx context.Context, cq telegram.Cal
 	if actions == nil {
 		actions = normalizedPullRequestActions(sub.PullRequestActions)
 	}
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	for _, action := range pullRequestActionOrder() {
 		payload := editPullRequestPayload{ID: id, Actions: actions, ToggleAction: action}
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.pr.toggle", payload)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: checkbox(contains(actions, action), pullRequestActionLabel(action)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(actions, action), pullRequestActionLabel(action)), CallbackData: callback}})
 	}
 	if len(actions) > 0 {
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.pr.save", editPullRequestPayload{ID: id, Actions: actions})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Save", CallbackData: callback, Style: telegram.StylePrimary}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Save", CallbackData: callback, Style: tg.StylePrimary}})
 	} else {
-		rows = append(rows, []telegram.InlineKeyboardButton{disabledButton("Save")})
+		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Save")})
 	}
 	backButton, err := b.advancedButton(ctx, cq.From.ID, id)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{backButton})
-	return b.respond(ctx, cq, "<b>Pull request actions</b>\nSelect at least one action. “Opened” also covers reopened pull requests.", &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, []tg.InlineKeyboardButton{backButton})
+	return b.respond(ctx, cq, "<b>Pull request actions</b>\nSelect at least one action. “Opened” also covers reopened pull requests.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEditReleaseSettings(ctx context.Context, cq telegram.CallbackQuery, id string) error {
+func (b *Bot) renderEditReleaseSettings(ctx context.Context, cq tg.CallbackQuery, id string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
 		return b.respond(ctx, cq, "Subscription not found.", backHome())
@@ -1631,34 +1640,34 @@ func (b *Bot) renderEditReleaseSettings(ctx context.Context, cq telegram.Callbac
 	if !contains(sub.Events, "release") {
 		return b.renderAdvancedSettings(ctx, cq, id)
 	}
-	rows := [][]telegram.InlineKeyboardButton{}
+	rows := [][]tg.InlineKeyboardButton{}
 	mode := normalizeReleaseMode(sub.ReleaseMode)
 	for _, candidate := range releaseModeOrder() {
 		if mode == candidate {
-			rows = append(rows, []telegram.InlineKeyboardButton{disabledButton(radio(true, releaseModeLabel(candidate)))})
+			rows = append(rows, []tg.InlineKeyboardButton{disabledButton(radio(true, releaseModeLabel(candidate)))})
 			continue
 		}
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.release.save", editReleasePayload{ID: id, ReleaseMode: candidate})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []telegram.InlineKeyboardButton{{Text: radio(false, releaseModeLabel(candidate)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: radio(false, releaseModeLabel(candidate)), CallbackData: callback}})
 	}
 	backButton, err := b.advancedButton(ctx, cq.From.ID, id)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []telegram.InlineKeyboardButton{backButton})
-	return b.respond(ctx, cq, "<b>Release notifications</b>", &telegram.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, []tg.InlineKeyboardButton{backButton})
+	return b.respond(ctx, cq, "<b>Release notifications</b>", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) respond(ctx context.Context, cq telegram.CallbackQuery, text string, markup *telegram.InlineKeyboardMarkup) error {
+func (b *Bot) respond(ctx context.Context, cq tg.CallbackQuery, text string, markup *tg.InlineKeyboardMarkup) error {
 	if cq.Message.MessageID != 0 {
 		err := b.client.EditMessageText(ctx, cq.Message.Chat.ID, cq.Message.MessageID, text, markup)
 		// "message is not modified" means the view already shows this state
 		// (e.g. a toggle that produced identical text, or a double tap). Treat
 		// it as success instead of posting a duplicate message.
-		if err == nil || telegram.IsMessageNotModified(err) {
+		if err == nil || tg.IsMessageNotModified(err) {
 			return nil
 		}
 	}
@@ -1671,7 +1680,10 @@ func (b *Bot) respond(ctx context.Context, cq telegram.CallbackQuery, text strin
 // It is awaited before any FK insert into branchy.* so core.person/core.chat
 // exist first. chat may be nil; a private chat or an absent chat leaves ChatID
 // nil (a DM's chat_id equals the user id and carries no group identity).
-func (b *Bot) upsertUser(ctx context.Context, user telegram.User, chat *telegram.Chat) error {
+func (b *Bot) upsertUser(ctx context.Context, user *tg.User, chat *tg.Chat) error {
+	if user == nil {
+		return nil
+	}
 	args := db.TouchArgs{
 		UserID:    user.ID,
 		Username:  user.Username,
@@ -1714,7 +1726,7 @@ func (b *Bot) requireGroupAdmin(ctx context.Context, chatID, userID int64) error
 // non-admin is told so, a transient lookup failure is not. It re-renders the
 // destination picker so fresh callback tokens are issued (the tapped token may
 // already be consumed), letting the user retry.
-func (b *Bot) groupAdminFailure(ctx context.Context, cq telegram.CallbackQuery, err error, rerender func() error) (string, error) {
+func (b *Bot) groupAdminFailure(ctx context.Context, cq tg.CallbackQuery, err error, rerender func() error) (string, error) {
 	toast := "You must be a group administrator."
 	if !errors.Is(err, errNotGroupAdmin) {
 		slog.Error("group admin check failed", "error", err)
@@ -1746,8 +1758,8 @@ func decode(raw json.RawMessage, out any) error {
 	return json.Unmarshal(raw, out)
 }
 
-func backHome() *telegram.InlineKeyboardMarkup {
-	return &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
+func backHome() *tg.InlineKeyboardMarkup {
+	return &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{
 		{{Text: "Back", CallbackData: "home"}},
 	}}
 }
@@ -2084,7 +2096,7 @@ func (b *Bot) userMessage(err error, action string) string {
 // githubError renders the response for an error from a GitHub-backed action. A
 // revoked token (401) gets the reconnect prompt; anything else falls back to the
 // standard user message.
-func (b *Bot) githubError(ctx context.Context, cq telegram.CallbackQuery, err error, action string) error {
+func (b *Bot) githubError(ctx context.Context, cq tg.CallbackQuery, err error, action string) error {
 	if github.IsAuthError(err) {
 		return b.renderReconnect(ctx, cq)
 	}
@@ -2095,84 +2107,84 @@ func (b *Bot) githubError(ctx context.Context, cq telegram.CallbackQuery, err er
 // fails with an invalid token. It mutates no state: a revoked authorization
 // already stops GitHub deliveries, so no dead jobs accumulate, and reconnecting
 // restores the connection (a later edit re-syncs the webhook).
-func (b *Bot) renderReconnect(ctx context.Context, cq telegram.CallbackQuery) error {
+func (b *Bot) renderReconnect(ctx context.Context, cq tg.CallbackQuery) error {
 	connectURL, err := b.oauth.CreateAuthURL(ctx, cq.From.ID)
 	if err != nil {
 		return err
 	}
 	text := "<b>GitHub connection expired</b>\nReconnect to continue."
-	markup := &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
-		{{Text: "Reconnect GitHub", URL: connectURL, Style: telegram.StylePrimary}},
+	markup := &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{
+		{{Text: "Reconnect GitHub", URL: connectURL, Style: tg.StylePrimary}},
 		{{Text: "Back", CallbackData: "home"}},
 	}}
 	return b.respond(ctx, cq, text, markup)
 }
 
 // viewButton builds a "Back" button that returns to a subscription's detail view.
-func (b *Bot) viewButton(ctx context.Context, telegramUserID int64, id string) (telegram.InlineKeyboardButton, error) {
+func (b *Bot) viewButton(ctx context.Context, telegramUserID int64, id string) (tg.InlineKeyboardButton, error) {
 	callback, err := b.token(ctx, telegramUserID, "sub.view", subscriptionPayload{ID: id})
 	if err != nil {
-		return telegram.InlineKeyboardButton{}, err
+		return tg.InlineKeyboardButton{}, err
 	}
-	return telegram.InlineKeyboardButton{Text: "Back", CallbackData: callback}, nil
+	return tg.InlineKeyboardButton{Text: "Back", CallbackData: callback}, nil
 }
 
-func (b *Bot) editMenuButton(ctx context.Context, telegramUserID int64, id string) (telegram.InlineKeyboardButton, error) {
+func (b *Bot) editMenuButton(ctx context.Context, telegramUserID int64, id string) (tg.InlineKeyboardButton, error) {
 	callback, err := b.token(ctx, telegramUserID, "sub.edit.menu", subscriptionPayload{ID: id})
 	if err != nil {
-		return telegram.InlineKeyboardButton{}, err
+		return tg.InlineKeyboardButton{}, err
 	}
-	return telegram.InlineKeyboardButton{Text: "Back", CallbackData: callback}, nil
+	return tg.InlineKeyboardButton{Text: "Back", CallbackData: callback}, nil
 }
 
-func (b *Bot) advancedButton(ctx context.Context, telegramUserID int64, id string) (telegram.InlineKeyboardButton, error) {
+func (b *Bot) advancedButton(ctx context.Context, telegramUserID int64, id string) (tg.InlineKeyboardButton, error) {
 	callback, err := b.token(ctx, telegramUserID, "sub.edit.settings", subscriptionPayload{ID: id})
 	if err != nil {
-		return telegram.InlineKeyboardButton{}, err
+		return tg.InlineKeyboardButton{}, err
 	}
-	return telegram.InlineKeyboardButton{Text: "Back", CallbackData: callback}, nil
+	return tg.InlineKeyboardButton{Text: "Back", CallbackData: callback}, nil
 }
 
 // stepBackButton returns the destination-picker's Back button: to the
 // subscription detail when editing, or to the repository list when creating.
-func (b *Bot) stepBackButton(ctx context.Context, telegramUserID int64, edit bool, editID, createTarget string) (telegram.InlineKeyboardButton, error) {
+func (b *Bot) stepBackButton(ctx context.Context, telegramUserID int64, edit bool, editID, createTarget string) (tg.InlineKeyboardButton, error) {
 	if edit {
 		return b.editMenuButton(ctx, telegramUserID, editID)
 	}
-	return telegram.InlineKeyboardButton{Text: "Back", CallbackData: createTarget}, nil
+	return tg.InlineKeyboardButton{Text: "Back", CallbackData: createTarget}, nil
 }
 
-func (b *Bot) branchNavButton(ctx context.Context, telegramUserID int64, draft subDraft, text string, page int, action string) (telegram.InlineKeyboardButton, error) {
+func (b *Bot) branchNavButton(ctx context.Context, telegramUserID int64, draft subDraft, text string, page int, action string) (tg.InlineKeyboardButton, error) {
 	next := draft
 	next.BranchMode = "selected"
 	next.BranchPage = page
 	callback, err := b.token(ctx, telegramUserID, action, next)
 	if err != nil {
-		return telegram.InlineKeyboardButton{}, err
+		return tg.InlineKeyboardButton{}, err
 	}
-	return telegram.InlineKeyboardButton{Text: text, CallbackData: callback}, nil
+	return tg.InlineKeyboardButton{Text: text, CallbackData: callback}, nil
 }
 
-func paginationRow(prefix string, page, pages int) []telegram.InlineKeyboardButton {
+func paginationRow(prefix string, page, pages int) []tg.InlineKeyboardButton {
 	if pages <= 1 {
 		return nil
 	}
-	var row []telegram.InlineKeyboardButton
+	var row []tg.InlineKeyboardButton
 	if page > 0 {
-		row = append(row, telegram.InlineKeyboardButton{Text: "‹ Prev", CallbackData: fmt.Sprintf("%s:%d", prefix, page-1)})
+		row = append(row, tg.InlineKeyboardButton{Text: "‹ Prev", CallbackData: fmt.Sprintf("%s:%d", prefix, page-1)})
 	} else {
 		row = append(row, disabledButton("‹ Prev"))
 	}
 	if page < pages-1 {
-		row = append(row, telegram.InlineKeyboardButton{Text: "Next ›", CallbackData: fmt.Sprintf("%s:%d", prefix, page+1)})
+		row = append(row, tg.InlineKeyboardButton{Text: "Next ›", CallbackData: fmt.Sprintf("%s:%d", prefix, page+1)})
 	} else {
 		row = append(row, disabledButton("Next ›"))
 	}
 	return row
 }
 
-func disabledButton(text string) telegram.InlineKeyboardButton {
-	return telegram.InlineKeyboardButton{Text: text, Disabled: &telegram.DisabledButton{}}
+func disabledButton(text string) tg.InlineKeyboardButton {
+	return tg.InlineKeyboardButton{Text: text, Disabled: &tg.DisabledButton{}}
 }
 
 func clampPage(page, pages int) int {

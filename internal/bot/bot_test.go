@@ -15,6 +15,8 @@ import (
 	"branchy/internal/db"
 	"branchy/internal/github"
 	"branchy/internal/oauth"
+	"github.com/FreshLabDev/tg"
+
 	"branchy/internal/telegram"
 )
 
@@ -58,11 +60,11 @@ func TestGroupStartRepliesOnlyThroughEphemeralMessage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := telegram.NewClient("token", telegram.WithAPIBase(server.URL))
+	client := telegram.New("token", tg.WithAPIBase(server.URL))
 	store := &touchStore{}
 	bot := &Bot{store: store, client: client}
-	message := telegram.Message{
-		From: telegram.User{ID: 42}, Chat: telegram.Chat{ID: -100, Type: "supergroup"}, Text: "/start",
+	message := tg.Message{
+		From: &tg.User{ID: 42}, Chat: tg.Chat{ID: -100, Type: "supergroup"}, Text: "/start",
 	}
 
 	if err := bot.handleMessage(context.Background(), message); err != nil {
@@ -96,7 +98,7 @@ func TestEphemeralStartRepliesBeforeCoreTouch(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := telegram.NewClient("token", telegram.WithAPIBase(server.URL))
+	client := telegram.New("token", tg.WithAPIBase(server.URL))
 	store := &touchStore{touch: func(context.Context, db.TouchArgs) error {
 		<-releaseTouch
 		return errors.New("database unavailable")
@@ -104,8 +106,8 @@ func TestEphemeralStartRepliesBeforeCoreTouch(t *testing.T) {
 	bot := &Bot{store: store, client: client}
 	done := make(chan error, 1)
 	go func() {
-		done <- bot.handleMessage(context.Background(), telegram.Message{
-			From: telegram.User{ID: 42}, Chat: telegram.Chat{ID: -100, Type: "supergroup"},
+		done <- bot.handleMessage(context.Background(), tg.Message{
+			From: &tg.User{ID: 42}, Chat: tg.Chat{ID: -100, Type: "supergroup"},
 			Text: "/start@branchybot", EphemeralMessageID: 77,
 		})
 	}()
@@ -219,15 +221,15 @@ func TestPaginationRowDisablesUnavailableEdges(t *testing.T) {
 }
 
 func TestInlineKeyboardButtonStyleOmitsWhenEmpty(t *testing.T) {
-	plain, _ := json.Marshal(telegram.InlineKeyboardButton{Text: "Back", CallbackData: "home"})
+	plain, _ := json.Marshal(tg.InlineKeyboardButton{Text: "Back", CallbackData: "home"})
 	if strings.Contains(string(plain), "style") {
 		t.Fatalf("unstyled button should not serialize a style field: %s", plain)
 	}
-	primary, _ := json.Marshal(telegram.InlineKeyboardButton{Text: "Done", CallbackData: "x", Style: telegram.StylePrimary})
+	primary, _ := json.Marshal(tg.InlineKeyboardButton{Text: "Done", CallbackData: "x", Style: tg.StylePrimary})
 	if !strings.Contains(string(primary), `"style":"primary"`) {
 		t.Fatalf("primary button should serialize a style field: %s", primary)
 	}
-	styled, _ := json.Marshal(telegram.InlineKeyboardButton{Text: "Create", CallbackData: "x", Style: telegram.StyleSuccess})
+	styled, _ := json.Marshal(tg.InlineKeyboardButton{Text: "Create", CallbackData: "x", Style: tg.StyleSuccess})
 	if !strings.Contains(string(styled), `"style":"success"`) {
 		t.Fatalf("styled button should serialize style: %s", styled)
 	}
@@ -385,16 +387,16 @@ func TestPRMoreCallbackDoesNotUseTokenAndScopesToChat(t *testing.T) {
 		paths = append(paths, r.URL.Path)
 		raw, _ := io.ReadAll(r.Body)
 		bodies = append(bodies, string(raw))
-		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+		_, _ = w.Write([]byte(telegramStubResult(r.URL.Path)))
 	}))
 	defer server.Close()
-	client := telegram.NewClient("token", telegram.WithAPIBase(server.URL))
+	client := telegram.New("token", tg.WithAPIBase(server.URL))
 	bot := &Bot{store: store, client: client}
 
-	cq := telegram.CallbackQuery{
+	cq := tg.CallbackQuery{
 		ID:      "cq-more",
-		From:    telegram.User{ID: 42},
-		Message: telegram.Message{Chat: telegram.Chat{ID: -100, Type: "supergroup"}},
+		From:    tg.User{ID: 42},
+		Message: tg.Message{Chat: tg.Chat{ID: -100, Type: "supergroup"}},
 		Data:    "m:" + compact,
 	}
 	if err := bot.handleCallback(context.Background(), cq); err != nil {
@@ -470,21 +472,21 @@ func TestPRMoreCallbackFetchesFilesWithOwnerToken(t *testing.T) {
 	tgServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		tgBodies = append(tgBodies, string(raw))
-		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+		_, _ = w.Write([]byte(telegramStubResult(r.URL.Path)))
 	}))
 	defer tgServer.Close()
 
-	tg := telegram.NewClient("token", telegram.WithAPIBase(tgServer.URL))
+	client := telegram.New("token", tg.WithAPIBase(tgServer.URL))
 	bot := &Bot{
 		store:  store,
-		client: tg,
+		client: client,
 		github: github.NewClient(github.Config{UserAgent: "test", APIURL: ghServer.URL}),
 		sealer: sealer,
 	}
-	cq := telegram.CallbackQuery{
+	cq := tg.CallbackQuery{
 		ID:      "cq-more",
-		From:    telegram.User{ID: 42},
-		Message: telegram.Message{Chat: telegram.Chat{ID: -100, Type: "supergroup"}},
+		From:    tg.User{ID: 42},
+		Message: tg.Message{Chat: tg.Chat{ID: -100, Type: "supergroup"}},
 		Data:    "m:" + db.CompactUUID(jobID),
 	}
 	if err := bot.handleCallback(context.Background(), cq); err != nil {
@@ -534,21 +536,21 @@ func TestPRMoreCallbackSendsOverlayWhenFilesFetchFails(t *testing.T) {
 		tgPaths = append(tgPaths, r.URL.Path)
 		raw, _ := io.ReadAll(r.Body)
 		tgBodies = append(tgBodies, string(raw))
-		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+		_, _ = w.Write([]byte(telegramStubResult(r.URL.Path)))
 	}))
 	defer tgServer.Close()
 
-	tg := telegram.NewClient("token", telegram.WithAPIBase(tgServer.URL))
+	client := telegram.New("token", tg.WithAPIBase(tgServer.URL))
 	bot := &Bot{
 		store:  store,
-		client: tg,
+		client: client,
 		github: github.NewClient(github.Config{UserAgent: "test", APIURL: ghServer.URL}),
 		sealer: sealer,
 	}
-	if err := bot.handleCallback(context.Background(), telegram.CallbackQuery{
+	if err := bot.handleCallback(context.Background(), tg.CallbackQuery{
 		ID:      "cq-more",
-		From:    telegram.User{ID: 42},
-		Message: telegram.Message{Chat: telegram.Chat{ID: -100, Type: "supergroup"}},
+		From:    tg.User{ID: 42},
+		Message: tg.Message{Chat: tg.Chat{ID: -100, Type: "supergroup"}},
 		Data:    "m:" + db.CompactUUID(jobID),
 	}); err != nil {
 		t.Fatal(err)
@@ -603,20 +605,20 @@ func TestPRMoreCallbackToastsExpiredGitHubToken(t *testing.T) {
 	tgServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		tgBodies = append(tgBodies, string(raw))
-		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+		_, _ = w.Write([]byte(telegramStubResult(r.URL.Path)))
 	}))
 	defer tgServer.Close()
-	tg := telegram.NewClient("token", telegram.WithAPIBase(tgServer.URL))
+	client := telegram.New("token", tg.WithAPIBase(tgServer.URL))
 	bot := &Bot{
 		store:  store,
-		client: tg,
+		client: client,
 		github: github.NewClient(github.Config{UserAgent: "test", APIURL: ghServer.URL}),
 		sealer: sealer,
 	}
-	if err := bot.handleCallback(context.Background(), telegram.CallbackQuery{
+	if err := bot.handleCallback(context.Background(), tg.CallbackQuery{
 		ID:      "cq-more",
-		From:    telegram.User{ID: 42},
-		Message: telegram.Message{Chat: telegram.Chat{ID: -100, Type: "supergroup"}},
+		From:    tg.User{ID: 42},
+		Message: tg.Message{Chat: tg.Chat{ID: -100, Type: "supergroup"}},
 		Data:    "m:" + db.CompactUUID(jobID),
 	}); err != nil {
 		t.Fatal(err)
@@ -687,4 +689,14 @@ func TestPollRetryDelayBacksOffAndCaps(t *testing.T) {
 		_ = prev
 		prev = d
 	}
+}
+
+// telegramStubResult answers the way Telegram does: a send returns the message
+// it created, everything else returns true. The distinction matters now that
+// the client decodes what a send gives back instead of ignoring it.
+func telegramStubResult(path string) string {
+	if strings.Contains(path, "send") {
+		return `{"ok":true,"result":{"message_id":1,"date":1,"chat":{"id":-100,"type":"supergroup"}}}`
+	}
+	return `{"ok":true,"result":true}`
 }
