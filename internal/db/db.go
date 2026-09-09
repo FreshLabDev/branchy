@@ -93,6 +93,10 @@ type TouchArgs struct {
 	ChatTitle    string
 	ChatUsername string
 	IsBot        bool
+	// TGLanguage is the Telegram client's own language_code hint. It is handed
+	// to the hub so that clearing Branchy's manual language choice ("Follow
+	// Telegram") has something to fall back to.
+	TGLanguage string
 }
 
 // TouchCore upserts identity+presence in the shared core hub (person, chat,
@@ -102,8 +106,40 @@ func (s *Store) TouchCore(ctx context.Context, a TouchArgs) error {
 	_, err := s.pool.Exec(ctx,
 		`SELECT core.touch($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
 		"branchy", a.UserID, ns(a.Username), ns(a.FirstName), ns(a.LastName),
-		nil, a.ChatID, ns(a.ChatType), ns(a.ChatTitle), ns(a.ChatUsername), a.IsBot)
+		ns(a.TGLanguage), a.ChatID, ns(a.ChatType), ns(a.ChatTitle), ns(a.ChatUsername), a.IsBot)
 	return err
+}
+
+// SetLanguage records a manual UI language choice in the shared core hub, so the
+// same choice answers for the sibling bots too.
+//
+// The 'user'/'manual' literals stay inline on purpose: the production core takes
+// core.pref_scope/core.lang_source enums there, and pgx would send bound $n
+// parameters as text, which PostgreSQL cannot match to the enum overloads.
+func (s *Store) SetLanguage(ctx context.Context, telegramUserID int64, lang string) error {
+	_, err := s.pool.Exec(ctx, `SELECT core.set_language($1,'user',$2,$3,'manual')`, "branchy", telegramUserID, lang)
+	return err
+}
+
+// ClearLanguage drops Branchy's manual claim for a person, which re-resolves
+// them to whatever the rest of the hub knows — in practice the Telegram client's
+// own language_code hint. It is what the "Follow Telegram" button does.
+func (s *Store) ClearLanguage(ctx context.Context, telegramUserID int64) error {
+	_, err := s.pool.Exec(ctx, `SELECT core.clear_language($1,'user',$2)`, "branchy", telegramUserID)
+	return err
+}
+
+// EffectiveLanguage reads the resolved language from the core hub. A missing
+// preference is not an error: ok=false means "use the Telegram hint".
+func (s *Store) EffectiveLanguage(ctx context.Context, telegramUserID int64) (string, bool, error) {
+	var lang *string
+	if err := s.pool.QueryRow(ctx, `SELECT core.effective_language($1,NULL,'user')`, telegramUserID).Scan(&lang); err != nil {
+		return "", false, err
+	}
+	if lang == nil || *lang == "" {
+		return "", false, nil
+	}
+	return *lang, true, nil
 }
 
 func (s *Store) UpsertChatState(ctx context.Context, chat ChatState) error {

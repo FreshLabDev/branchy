@@ -52,3 +52,60 @@ BEGIN
       last_seen_at = EXCLUDED.last_seen_at, updated_at = EXCLUDED.updated_at;
   END IF;
 END $$;
+
+-- Local stand-in for the core language hub. The real one keeps per-bot
+-- observations with manual/auto/client ranking across the whole bot fleet; one
+-- row per (bot, subject) with manual-beats-client merge is enough here, and it
+-- is what lets `docker-compose up` exercise the language screen.
+CREATE TABLE IF NOT EXISTS core.user_language (
+  bot text NOT NULL,
+  subject_id bigint NOT NULL,
+  language text NOT NULL,
+  source text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (bot, subject_id)
+);
+
+CREATE OR REPLACE FUNCTION core.set_language(
+  p_bot text, p_scope text, p_subject bigint, p_lang text, p_source text
+) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  IF p_lang IS NULL OR btrim(p_lang) = '' THEN
+    RETURN;
+  END IF;
+  INSERT INTO core.user_language AS ul (bot, subject_id, language, source, updated_at)
+  VALUES (p_bot, p_subject, lower(split_part(btrim(p_lang), '-', 1)), p_source, now())
+  ON CONFLICT (bot, subject_id) DO UPDATE SET
+    language = EXCLUDED.language,
+    source = EXCLUDED.source,
+    updated_at = now();
+END $$;
+
+-- Dropping the manual observation has to leave the client hint behind, or
+-- "Follow Telegram" would only mean "forget everything": the real hub keeps the
+-- observations side by side and re-resolves, while this stand-in holds one row,
+-- so it rebuilds the client row from the language_code core.touch recorded.
+CREATE OR REPLACE FUNCTION core.clear_language(
+  p_bot text, p_scope text, p_subject bigint
+) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_client text;
+BEGIN
+  DELETE FROM core.user_language WHERE bot = p_bot AND subject_id = p_subject;
+  SELECT lower(split_part(btrim(pe.tg_language_code), '-', 1)) INTO v_client
+  FROM core.person pe
+  WHERE pe.telegram_user_id = p_subject AND btrim(coalesce(pe.tg_language_code, '')) <> '';
+  IF v_client IS NOT NULL THEN
+    INSERT INTO core.user_language (bot, subject_id, language, source)
+    VALUES (p_bot, p_subject, v_client, 'client');
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION core.effective_language(
+  p_user bigint, p_chat bigint DEFAULT NULL, p_prefer text DEFAULT 'user'
+) RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT l.language
+  FROM core.user_language l
+  WHERE l.subject_id = p_user
+  ORDER BY (l.source = 'manual') DESC, l.updated_at DESC
+  LIMIT 1;
+$$;
