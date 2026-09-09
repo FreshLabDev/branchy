@@ -263,7 +263,6 @@ func (b *Bot) handleMessage(ctx context.Context, msg tg.Message) error {
 	if err := b.upsertUser(ctx, msg.From, &msg.Chat); err != nil {
 		return err
 	}
-	lang := b.resolveLang(ctx, msg.From)
 	resolveSelf := func() string { return b.botUsername(ctx) }
 	if msg.Chat.Type != "private" {
 		resolveSelf = b.cachedBotUsername
@@ -275,7 +274,7 @@ func (b *Bot) handleMessage(ctx context.Context, msg tg.Message) error {
 			// and the prompt must remain visible only to the invoking user.
 			return nil
 		}
-		text, markup, err := b.mainMenu(ctx, msg.From.ID, lang)
+		text, markup, err := b.mainMenu(ctx, msg.From.ID, b.resolveLang(ctx, msg.From))
 		if err != nil {
 			return err
 		}
@@ -285,7 +284,7 @@ func (b *Bot) handleMessage(ctx context.Context, msg tg.Message) error {
 	// Nudge unrecognized private-chat input toward the menu instead of silently
 	// ignoring it (which reads as a dead bot). Groups stay quiet to avoid noise.
 	if msg.Chat.Type == "private" && strings.TrimSpace(msg.Text) != "" {
-		_, err := b.client.SendMessage(ctx, msg.Chat.ID, i18n.T(lang, "home.nudge"), nil)
+		_, err := b.client.SendMessage(ctx, msg.Chat.ID, i18n.T(b.resolveLang(ctx, msg.From), "home.nudge"), nil)
 		return err
 	}
 	return nil
@@ -406,7 +405,8 @@ func (b *Bot) handleCallback(ctx context.Context, cq tg.CallbackQuery) error {
 	// Dispatch first, then answer the callback query exactly once with an
 	// optional toast. Answering once (rather than a blank pre-answer) lets
 	// confirmations surface as a toast while the underlying menu stays in place.
-	toast, err := b.dispatchCallback(ctx, cq, b.resolveLang(ctx, &cq.From))
+	lang := b.resolveLang(ctx, &cq.From)
+	toast, err := b.dispatchCallback(ctx, cq, lang)
 	if ackErr := b.client.AnswerCallbackQuery(ctx, cq.ID, toast, false); ackErr != nil {
 		slog.Warn("answer callback failed", "error", ackErr)
 	}
