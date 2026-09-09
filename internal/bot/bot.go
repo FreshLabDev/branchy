@@ -421,6 +421,8 @@ func (b *Bot) dispatchCallback(ctx context.Context, cq tg.CallbackQuery, lang st
 		return "", b.renderAbout(ctx, cq, lang)
 	case "close":
 		return "", b.closePanel(ctx, cq)
+	case "lang":
+		return "", b.renderLanguage(ctx, cq, lang)
 	case "sub:list":
 		return "", b.renderSubscriptionList(ctx, cq, lang)
 	}
@@ -429,6 +431,9 @@ func (b *Bot) dispatchCallback(ctx context.Context, cq tg.CallbackQuery, lang st
 	}
 	if page, ok := parsePage(cq.Data, "sub:new"); ok {
 		return "", b.renderRepoList(ctx, cq, lang, true, page)
+	}
+	if choice, ok := strings.CutPrefix(cq.Data, "lang:"); ok {
+		return b.applyLanguage(ctx, cq, lang, choice)
 	}
 	if strings.HasPrefix(cq.Data, "m:") {
 		return b.handlePRMore(ctx, cq, lang)
@@ -909,9 +914,12 @@ func (b *Bot) mainMenu(ctx context.Context, telegramUserID int64, lang string) (
 			[]tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.sub_new"), CallbackData: "sub:new", Style: tg.StylePrimary}},
 		)
 	}
-	// About sits last: it answers a question rather than doing anything, so it
-	// should not compete with the call to action above it.
-	rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.about"), CallbackData: "about"}})
+	// Language and About sit last: they answer questions rather than doing
+	// anything, so they should not compete with the call to action above them.
+	rows = append(rows, []tg.InlineKeyboardButton{
+		{Text: i18n.T(lang, "btn.language"), CallbackData: "lang"},
+		{Text: i18n.T(lang, "btn.about"), CallbackData: "about"},
+	})
 	return panel(i18n.T(lang, "home.title"), "", i18n.T(lang, "home.hint"), strings.Join(lines, "\n")), &tg.InlineKeyboardMarkup{InlineKeyboard: rows}, nil
 }
 
@@ -934,6 +942,82 @@ func (b *Bot) renderHome(ctx context.Context, cq tg.CallbackQuery, lang string) 
 func (b *Bot) renderAbout(ctx context.Context, cq tg.CallbackQuery, lang string) error {
 	rows := [][]tg.InlineKeyboardButton{panelFooter(lang, cq.Message.Chat, "home")}
 	return b.respond(ctx, cq, aboutText(lang, b.buildVersion()), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+}
+
+// renderLanguage is the family's language screen: every language the fleet
+// shares, two to a row, flag and native name. Which one is current lives on the
+// buttons and nowhere else — a list in the body would say a second time what
+// sixteen marked buttons already say, and the two would eventually disagree.
+//
+// "Follow Telegram" withdraws Branchy's claim in the shared hub rather than
+// setting English, so the Telegram client's own language_code decides again.
+// It is a different thing from picking English, and a person who has never
+// chosen a language should be able to get back to it.
+func (b *Bot) renderLanguage(ctx context.Context, cq tg.CallbackQuery, lang string) error {
+	options := i18n.LANGUAGE_OPTIONS
+	rows := make([][]tg.InlineKeyboardButton, 0, len(options)/2+2)
+	for i := 0; i < len(options); i += 2 {
+		row := []tg.InlineKeyboardButton{languageButton(options[i], lang)}
+		if i+1 < len(options) {
+			row = append(row, languageButton(options[i+1], lang))
+		}
+		rows = append(rows, row)
+	}
+	rows = append(rows,
+		[]tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.follow_telegram"), CallbackData: "lang:follow"}},
+		panelFooter(lang, cq.Message.Chat, "home"),
+	)
+	text := panel(i18n.T(lang, "lang.title"), "", i18n.T(lang, "lang.hint"), "")
+	return b.respond(ctx, cq, text, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+}
+
+// languageButton marks every option so the column has one left edge, and styles
+// only the current one: in a grid of sixteen, one coloured button answers "which
+// am I on?" before the glyph is read.
+func languageButton(option i18n.LangOption, lang string) tg.InlineKeyboardButton {
+	button := tg.InlineKeyboardButton{
+		Text:         radio(option.Code == lang, option.Label),
+		CallbackData: "lang:" + option.Code,
+	}
+	if option.Code == lang {
+		button.Style = tg.StyleSuccess
+	}
+	return button
+}
+
+// applyLanguage records or withdraws the choice in the shared hub, then redraws
+// the screen in whatever language now answers — so the confirmation of a switch
+// to Ukrainian is itself in Ukrainian.
+func (b *Bot) applyLanguage(ctx context.Context, cq tg.CallbackQuery, lang, choice string) (string, error) {
+	if choice == "follow" {
+		if err := b.store.ClearLanguage(ctx, cq.From.ID); err != nil {
+			slog.Error("clear language failed", "user_id", cq.From.ID, "error", err)
+			return "", b.languageFailure(ctx, cq, lang)
+		}
+		// The hub re-resolves to the client hint, which is what Telegram sent
+		// with this very callback.
+		lang = i18n.LangOf(cq.From.LanguageCode)
+		return i18n.T(lang, "toast.lang_follow"), b.renderLanguage(ctx, cq, lang)
+	}
+	code := i18n.Normalize(choice)
+	if !i18n.IsSupported(code) {
+		// Callback data can be anything a client cares to send; an unknown code
+		// redraws rather than writing a language Branchy cannot render.
+		return "", b.renderLanguage(ctx, cq, lang)
+	}
+	if err := b.store.SetLanguage(ctx, cq.From.ID, code); err != nil {
+		slog.Error("set language failed", "user_id", cq.From.ID, "error", err)
+		return "", b.languageFailure(ctx, cq, lang)
+	}
+	return i18n.T(code, "toast.lang_set"), b.renderLanguage(ctx, cq, code)
+}
+
+// languageFailure keeps a hub write failure on the same footing as every other
+// failure: the standard error panel, still in the language that was answering
+// before the write was attempted.
+func (b *Bot) languageFailure(ctx context.Context, cq tg.CallbackQuery, lang string) error {
+	message := i18n.T(lang, "err.generic", "action", i18n.T(lang, "err.action.set_language"))
+	return b.respond(ctx, cq, errorPanel(lang, message), backHome(lang, cq.Message.Chat))
 }
 
 // buildVersion reports exactly what /healthz reports. A binary built without the

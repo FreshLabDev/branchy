@@ -86,6 +86,12 @@
  "btn.events": {
   "en": "Event"
  },
+ "btn.follow_telegram": {
+  "en": "Follow Telegram"
+ },
+ "btn.language": {
+  "en": "Language"
+ },
  "btn.next": {
   "en": "Next ›"
  },
@@ -169,6 +175,9 @@
  },
  "err.action.send_test": {
   "en": "send the test notification"
+ },
+ "err.action.set_language": {
+  "en": "change the language"
  },
  "err.action.update_branch": {
   "en": "update the branch filter"
@@ -283,6 +292,12 @@
  },
  "home.title": {
   "en": "Branchy"
+ },
+ "lang.hint": {
+  "en": "Applies to this bot's replies, and is shared with the other bots."
+ },
+ "lang.title": {
+  "en": "Language"
  },
  "page.indicator": {
   "en": "Page {page} of {pages}"
@@ -469,6 +484,12 @@
  },
  "toast.group_check_failed": {
   "en": "Couldn't verify group access. Please try again."
+ },
+ "toast.lang_follow": {
+  "en": "Following your Telegram language."
+ },
+ "toast.lang_set": {
+  "en": "Language updated."
  },
  "toast.not_group_admin": {
   "en": "You must be a group administrator."

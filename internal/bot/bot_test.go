@@ -1039,3 +1039,196 @@ func TestNoOrphanTranslationKeys(t *testing.T) {
 		}
 	}
 }
+
+// languageStore records what the language screen writes to the shared hub.
+type languageStore struct {
+	Store
+	effective string
+	set       string
+	cleared   bool
+	setErr    error
+}
+
+func (s *languageStore) TouchCore(context.Context, db.TouchArgs) error { return nil }
+
+func (s *languageStore) EffectiveLanguage(context.Context, int64) (string, bool, error) {
+	if s.effective == "" {
+		return "", false, nil
+	}
+	return s.effective, true, nil
+}
+
+func (s *languageStore) SetLanguage(_ context.Context, _ int64, lang string) error {
+	if s.setErr != nil {
+		return s.setErr
+	}
+	s.set = lang
+	return nil
+}
+
+func (s *languageStore) ClearLanguage(context.Context, int64) error {
+	s.cleared = true
+	return nil
+}
+
+// TestLanguageScreenMatchesTheFamilyGrid pins the shared screen: sixteen
+// languages in one fixed order, two per row, every option marked and only the
+// current one coloured, then "Follow Telegram" and the nav row. It is the same
+// grid in every bot of the family, and "the same" is the whole point of it.
+func TestLanguageScreenMatchesTheFamilyGrid(t *testing.T) {
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		if strings.HasSuffix(r.URL.Path, "/editMessageText") {
+			body = string(raw)
+		}
+		_, _ = w.Write([]byte(telegramStubResult(r.URL.Path)))
+	}))
+	defer server.Close()
+
+	b := &Bot{store: &languageStore{effective: "uk"}, client: telegram.New("token", tg.WithAPIBase(server.URL))}
+	cq := tg.CallbackQuery{
+		ID: "1", From: tg.User{ID: 42}, Data: "lang",
+		Message: tg.Message{MessageID: 5, Chat: tg.Chat{ID: 42, Type: "private"}},
+	}
+	if _, err := b.dispatchCallback(context.Background(), cq, "uk"); err != nil {
+		t.Fatal(err)
+	}
+
+	var sent struct {
+		Text   string `json:"text"`
+		Markup struct {
+			Keyboard [][]tg.InlineKeyboardButton `json:"inline_keyboard"`
+		} `json:"reply_markup"`
+	}
+	if err := json.Unmarshal([]byte(body), &sent); err != nil {
+		t.Fatalf("edit body did not parse: %v\n%s", err, body)
+	}
+	rows := sent.Markup.Keyboard
+	if len(rows) != 10 {
+		t.Fatalf("language keyboard has %d rows, want 8 language rows + follow + nav", len(rows))
+	}
+	var got []string
+	for _, row := range rows[:8] {
+		if len(row) != 2 {
+			t.Fatalf("language rows must hold two buttons, got %d: %#v", len(row), row)
+		}
+		for _, button := range row {
+			code := strings.TrimPrefix(button.CallbackData, "lang:")
+			got = append(got, code)
+			// Both states are shown, so the column has one left edge.
+			if !strings.HasPrefix(button.Text, "◉ ") && !strings.HasPrefix(button.Text, "◎ ") {
+				t.Fatalf("unmarked language button: %q", button.Text)
+			}
+			if !strings.HasSuffix(button.Text, i18n.LabelOf(code)) {
+				t.Fatalf("button %q does not carry the family label for %q", button.Text, code)
+			}
+			if code == "uk" {
+				if button.Style != tg.StyleSuccess || !strings.HasPrefix(button.Text, "◉ ") {
+					t.Fatalf("current language must be marked and Success: %#v", button)
+				}
+			} else if button.Style != "" {
+				t.Fatalf("only the current language carries a style: %#v", button)
+			}
+		}
+	}
+	if strings.Join(got, " ") != strings.Join(i18n.Codes(), " ") {
+		t.Fatalf("language order = %v, want %v", got, i18n.Codes())
+	}
+	if rows[8][0].CallbackData != "lang:follow" {
+		t.Fatalf("follow row = %#v", rows[8])
+	}
+	if rows[9][0].Text != i18n.T("uk", "btn.back") || rows[9][0].CallbackData != "home" {
+		t.Fatalf("nav row = %#v", rows[9])
+	}
+	// A DM has nothing to close.
+	if len(rows[9]) != 1 {
+		t.Fatalf("a direct chat must not offer Close: %#v", rows[9])
+	}
+	// State lives on the buttons, never repeated as a list in the body.
+	if strings.Contains(sent.Text, "blockquote") {
+		t.Fatalf("language panel must not restate the keyboard: %s", sent.Text)
+	}
+}
+
+// TestLanguageChoiceReachesTheSharedHub covers the two writes the screen makes
+// and, for "Follow Telegram", that withdrawing the claim is not the same as
+// picking English.
+func TestLanguageChoiceReachesTheSharedHub(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(telegramStubResult(r.URL.Path)))
+	}))
+	defer server.Close()
+
+	store := &languageStore{}
+	b := &Bot{store: store, client: telegram.New("token", tg.WithAPIBase(server.URL))}
+	base := tg.Message{MessageID: 5, Chat: tg.Chat{ID: 42, Type: "private"}}
+
+	toast, err := b.dispatchCallback(context.Background(),
+		tg.CallbackQuery{ID: "1", From: tg.User{ID: 42}, Data: "lang:uk", Message: base}, "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.set != "uk" {
+		t.Fatalf("set language = %q, want uk", store.set)
+	}
+	// The confirmation of a switch is itself in the language just chosen.
+	if toast != i18n.T("uk", "toast.lang_set") {
+		t.Fatalf("toast = %q, want the Ukrainian confirmation", toast)
+	}
+
+	// An unsupported code is not written: callback data is whatever a client
+	// chose to send, not only what it was shown.
+	store.set = ""
+	if _, err := b.dispatchCallback(context.Background(),
+		tg.CallbackQuery{ID: "2", From: tg.User{ID: 42}, Data: "lang:klingon", Message: base}, "en"); err != nil {
+		t.Fatal(err)
+	}
+	if store.set != "" {
+		t.Fatalf("unsupported code was written to the hub: %q", store.set)
+	}
+
+	// Follow Telegram withdraws the claim rather than setting a language.
+	store.set = ""
+	toast, err = b.dispatchCallback(context.Background(),
+		tg.CallbackQuery{ID: "3", From: tg.User{ID: 42, LanguageCode: "de-DE"}, Data: "lang:follow", Message: base}, "uk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.cleared || store.set != "" {
+		t.Fatalf("follow should clear, not set: cleared=%v set=%q", store.cleared, store.set)
+	}
+	if toast != i18n.T("de", "toast.lang_follow") {
+		t.Fatalf("toast = %q, want the German confirmation the Telegram hint implies", toast)
+	}
+}
+
+// TestLanguageIsReachableFromHome guards the one thing that makes the screen
+// worth having: a way in that does not require knowing a callback string.
+func TestLanguageIsReachableFromHome(t *testing.T) {
+	b := &Bot{store: &homeStore{}, oauth: stubOAuth{}}
+	_, markup, err := b.mainMenu(context.Background(), 42, i18n.DefaultLang)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range markup.InlineKeyboard {
+		for _, button := range row {
+			if button.CallbackData == "lang" {
+				return
+			}
+		}
+	}
+	t.Fatalf("no way into the language screen from home: %#v", markup.InlineKeyboard)
+}
+
+type homeStore struct{ Store }
+
+func (homeStore) GetGitHubConnection(context.Context, int64) (db.GitHubConnection, error) {
+	return db.GitHubConnection{}, db.ErrNotFound
+}
+
+type stubOAuth struct{}
+
+func (stubOAuth) CreateAuthURL(context.Context, int64) (string, error) {
+	return "https://github.com/login/oauth/authorize", nil
+}
