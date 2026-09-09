@@ -11,10 +11,11 @@ registration retries after transient Telegram failures. The private reply is
 sent before the best-effort presence write so database latency cannot consume
 the 15-second ephemeral reply window.
 
-Both command descriptions live in `internal/bot/copy.go` with the rest of
-Branchy's fixed copy. One list is registered per scope and none per
-`language_code`: the interface is English only, which is a product boundary,
-not an unfinished localization.
+Both command descriptions are translation keys (`cmd.private`, `cmd.group`).
+One list is registered per scope, in the default language. Telegram also takes
+one list per `language_code`; registering those is a one-line follow-up once
+the other locales are populated, and is deliberately skipped while every
+language would send the same English words.
 
 All setup happens through inline keyboards. Unrecognized private-chat text
 nudges the user to send `/start`. Groups stay quiet.
@@ -27,16 +28,48 @@ unstamped build — the tagline, and a quote with the supported events, the
 repository as a link, the license, and the admin contact. The repository is a
 link inside the text, never a second button.
 
+Every screen is built by one helper, `panel(title, badge, hint, body)` in
+`internal/bot/copy.go`: a bold title, an italic one-line hint, then the
+substance in a `<blockquote>`. Parts a screen does not have are not emitted, so
+a screen whose keyboard says everything carries no quote. `badge` is the About
+card's version and is empty everywhere else.
+
 Navigation labels are `Back` and `Close`, plus `Done` where a screen finishes a
-step rather than returning to the one before it. `Close` appears only in group
-panels, where the panel sits in a shared feed; a DM has nothing to close. It
-acts only on ephemeral messages, because callback data can be sent for any
-visible message and a public `close` would let anyone delete a notification
-card.
+step rather than returning to the one before it. `Back` is the only word for
+going up, whatever the screen and however deep it sits. `Close` appears only in
+group panels, where the panel sits in a shared feed; a DM has nothing to close.
+It is painted `danger`, and it acts only on ephemeral messages, because callback
+data can be sent for any visible message and a public `close` would let anyone
+delete a notification card.
+
+At most one button per screen is `primary`, and it marks the single thing
+somebody most likely came to do. `success` never marks an action: it marks the
+state you are already in — the current language, the current branch mode, the
+current release setting. `danger` marks only what destroys or dismisses.
 
 Single-select options are marked `◉` (chosen) and `◎` (not chosen);
 multi-select options keep the square `■`/`□` pair, so the two kinds of list
 never look alike.
+
+## Language
+
+The interface language is resolved per update: the manual choice recorded in
+the shared core hub wins, and the Telegram profile `language_code` is the
+fallback when the hub holds nothing. A hub failure never costs a reply — it
+falls through to the hint.
+
+The **Language** screen on the main menu offers the sixteen languages the bot
+family shares, in one fixed order, two per row, flag and native name. Every
+option is marked `◉`/`◎` and the current one also carries `success`; the
+message body never repeats the selection. **Follow Telegram** calls
+`core.clear_language`, which withdraws Branchy's claim so the client hint
+decides again — a different state from choosing English.
+
+Strings live in `internal/i18n/translations.json` as `key -> {lang: text}` and
+are rendered with `i18n.T(lang, key, pairs...)`, which interpolates
+`{placeholder}` values and falls back to English. GitHub notification cards are
+not translated: one card is rendered once and delivered to every subscriber of a
+repository, so there is no single reader whose language it could be in.
 
 ## Groups
 

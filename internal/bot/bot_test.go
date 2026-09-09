@@ -763,6 +763,25 @@ func TestAboutCardStatesVersionAndLinksSourceInText(t *testing.T) {
 	if got := (&Bot{}).buildVersion(); got != "dev" {
 		t.Fatalf("unstamped build version = %q, want \"dev\"", got)
 	}
+
+	// The card is specified as exactly three rows, and the two facts people ask
+	// for that it must NOT carry are a commit hash and a build timestamp:
+	// neither answers a question somebody reading this card is asking.
+	quote := text[strings.Index(text, "<blockquote>"):]
+	if rows := strings.Count(quote, "\n") + 1; rows != 3 {
+		t.Fatalf("About quote has %d rows, want exactly three:\n%s", rows, quote)
+	}
+	for _, forbidden := range []string{"commit", "Commit", "Built", "built"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("About card carries a %q row it should not:\n%s", forbidden, text)
+		}
+	}
+
+	// The card renders in whatever language is answering; only the labels move.
+	uk := aboutText("uk", "v1.2.1-alpha.3")
+	if !strings.Contains(uk, "FreshLabDev/branchy") || !strings.Contains(uk, "@amtiyo") {
+		t.Fatalf("About card lost its facts when translated:\n%s", uk)
+	}
 }
 
 func TestGroupPanelOffersAboutAndCloseAndNoSourceButton(t *testing.T) {

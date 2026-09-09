@@ -13,6 +13,59 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+### Added
+
+- An **internationalisation layer**. Every string a person reads in Telegram now
+  lives in `internal/i18n/translations.json` as `key -> {lang: text}` and is
+  rendered through `i18n.T(lang, key, pairs...)`, which interpolates
+  `{placeholder}` values and falls back to English. Until now Branchy's copy was
+  written inline at each point of display, which fixed the product at one
+  language and made "what does this bot actually say" unanswerable without
+  reading the panel code. English is populated; the other fifteen languages of
+  the bot family are a separate pass, and the file is shaped so that pass only
+  adds languages to keys that already exist.
+- A **Language** screen on the main menu: the sixteen languages the family
+  shares, in one fixed order, two per row, flag and native name. The choice is
+  recorded in the shared core hub, so a language picked here answers in the
+  sibling bots and one picked there answers here. **Follow Telegram** withdraws
+  Branchy's claim instead of writing English, which is a different state:
+  "answer me in English" is not "I have no opinion, use my client's".
+
+### Changed
+
+- **Every screen is now built by one helper** — bold title, italic one-line
+  hint, substance in a blockquote. Screens used to assemble their own text, so
+  "Repositories" was a bold line, "Choose destination" was a bold line plus a
+  sentence, and "Branch filter" was a bold line and nothing else. Three screens,
+  three shapes, no reason. Parts a screen does not have are not emitted, so a
+  screen whose keyboard already says everything carries no empty quote.
+- **Button colours mean one thing each.** "Create subscription" was `primary`
+  when reached from a repository and `success` when reached from the settings
+  hub — the same action in two colours depending on the route in. It is
+  `primary` in both. `success` is now reserved for state, and marks the option a
+  single-select screen is already on (the current branch mode, the current
+  release setting, the current language) rather than any action.
+- **Close is painted destructive**, on the group panel and on any panel opened
+  from a group. It removes the panel from a conversation other people are
+  reading and nothing brings that instance back. The group panel's DM link
+  became its `primary` at the same time, so the loudest thing on it is not the
+  red button.
+- The delete-confirmation screen says **Back** rather than "Cancel". One word
+  for going up, whatever the screen.
+- Subscription validation failures now carry a translation key and its data
+  rather than a finished English sentence, so the wording is chosen where the
+  reader's language is known.
+- `core.touch` is finally handed the Telegram `language_code` it always had a
+  parameter for. Without it, withdrawing a manual language choice would have
+  fallen back to nothing at all, because the hub had never been told what the
+  client asked for.
+
+### Note
+
+GitHub notification cards are deliberately **not** translated. One card is
+rendered once and delivered to every subscriber of a repository, frequently into
+a group, so there is no single reader whose language it could be in.
+
 ## v1.2.1 - 2026-09-09
 
 An About card, a group panel that can be closed, and the fix for a hole that let
