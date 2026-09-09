@@ -13,6 +13,37 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+### Added
+
+- `docs/releases.md` gained a **Deploying** section, and `AGENTS.md` points at it.
+  Releasing was documented; deploying was not, in any repository in the family —
+  the process stopped at "deploy it" and never said how. That gap mattered more
+  after the stacks moved from building on the host to pulling a published image,
+  because the procedure changed on the same day. The section names this stack's
+  host directory, its env file, the variable that selects the image, the networks
+  it needs, and what a rollback actually is.
+
+- An **About** card, reachable from the main menu and from the group panel. It
+  states the running version — the same string `/healthz` reports — plus the
+  supported events, the repository, the license, and the admin contact. Until
+  now nothing in the interface could answer "which version are you running",
+  which is the first question any complaint has to answer. The repository is a
+  link in the text rather than a second button, because two ways to reach one
+  place is duplication.
+- **Close** on the group panel, and on the About card when it is opened from a
+  group. Branchy had no way to take a panel back out of a group chat. Close acts
+  only on ephemeral messages: Telegram lets a client send any callback data for
+  any message it can see, so honouring `close` against a public message would
+  have let anyone in a group delete Branchy's notification cards. There is no
+  Close in DM, where the conversation is the panel and there is nothing to
+  close.
+- `deploy/ws04/compose.yaml`, the production stack, pulling the image the
+  release workflow publishes to GHCR. The stack on the host built its own image
+  from a working copy, so what served users was not the artifact CI had tested,
+  scanned and published, and nothing on the host could say which commit it came
+  from. `BRANCHY_IMAGE` has no default: an unset one stops the stack instead of
+  quietly starting something else.
+
 ### Changed
 
 - One versioning and release document for the whole family. `docs/versioning.md`
@@ -29,7 +60,6 @@ Use this section for changes that are merged but not released yet.
   Earlier pre-releases were tagged on `main` under the previous rule; they are
   left as they are.
 
-### Changed
 
 - `github.com/FreshLabDev/tg` moves to `v0.0.1-alpha.7`. It carries one fix:
   a preflight probe is marked as a probe, so the `404 method not found` it
@@ -62,37 +92,6 @@ Use this section for changes that are merged but not released yet.
   unchanged — one list per scope, still `all_private_chats` plus an ephemeral
   `all_group_chats`. The file records why there is no list per `language_code`:
   the English-only interface is a product boundary, not missing work.
-
-### Added
-
-- `docs/releases.md` gained a **Deploying** section, and `AGENTS.md` points at it.
-  Releasing was documented; deploying was not, in any repository in the family —
-  the process stopped at "deploy it" and never said how. That gap mattered more
-  after the stacks moved from building on the host to pulling a published image,
-  because the procedure changed on the same day. The section names this stack's
-  host directory, its env file, the variable that selects the image, the networks
-  it needs, and what a rollback actually is.
-
-- An **About** card, reachable from the main menu and from the group panel. It
-  states the running version — the same string `/healthz` reports — plus the
-  supported events, the repository, the license, and the admin contact. Until
-  now nothing in the interface could answer "which version are you running",
-  which is the first question any complaint has to answer. The repository is a
-  link in the text rather than a second button, because two ways to reach one
-  place is duplication.
-- **Close** on the group panel, and on the About card when it is opened from a
-  group. Branchy had no way to take a panel back out of a group chat. Close acts
-  only on ephemeral messages: Telegram lets a client send any callback data for
-  any message it can see, so honouring `close` against a public message would
-  have let anyone in a group delete Branchy's notification cards. There is no
-  Close in DM, where the conversation is the panel and there is nothing to
-  close.
-- `deploy/ws04/compose.yaml`, the production stack, pulling the image the
-  release workflow publishes to GHCR. The stack on the host built its own image
-  from a working copy, so what served users was not the artifact CI had tested,
-  scanned and published, and nothing on the host could say which commit it came
-  from. `BRANCHY_IMAGE` has no default: an unset one stops the stack instead of
-  quietly starting something else.
 
 ## v1.2.1-alpha.1 - 2026-09-08
 
