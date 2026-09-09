@@ -65,6 +65,14 @@ Use this section for changes that are merged but not released yet.
 
 ### Added
 
+- `docs/releases.md` gained a **Deploying** section, and `AGENTS.md` points at it.
+  Releasing was documented; deploying was not, in any repository in the family —
+  the process stopped at "deploy it" and never said how. That gap mattered more
+  after the stacks moved from building on the host to pulling a published image,
+  because the procedure changed on the same day. The section names this stack's
+  host directory, its env file, the variable that selects the image, the networks
+  it needs, and what a rollback actually is.
+
 - An **About** card, reachable from the main menu and from the group panel. It
   states the running version — the same string `/healthz` reports — plus the
   supported events, the repository, the license, and the admin contact. Until
