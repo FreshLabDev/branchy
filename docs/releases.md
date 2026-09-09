@@ -1,113 +1,184 @@
 # Release Process
 
-This document explains how Branchy uses `CHANGELOG.md` and GitHub Releases.
+Every Asterfield repository releases the same way. This document is identical in
+all of them; only the verification section is specific to Branchy.
 
-## Changelog Rules
+See [`versioning.md`](versioning.md) for what the numbers mean and why
+pre-releases are tagged on `dev` and stable versions on `main`.
 
-- Keep `CHANGELOG.md` as the source of truth for human-readable release history.
-- Put unreleased user-visible, operational, security, migration, or behavior
-  changes under `## Unreleased`.
-- Do not record every small refactor. Record changes that matter to users,
-  operators, contributors, or future release decisions.
-- Use these sections when relevant:
-  - `Added`
-  - `Changed`
-  - `Fixed`
-  - `Security`
-  - `Migrations`
-  - `Breaking`
-  - `Known Limitations`
-- Keep entries short and concrete.
-- Mention migration filenames in `Migrations`.
-- Mention required environment variable, OAuth scope, webhook behavior, outbox
-  behavior, or deployment changes explicitly.
+## The changelog is the release notes
 
-## Preparing A Release
+`CHANGELOG.md` is the source of truth for history, and the release workflow reads
+it directly — the GitHub Release body is the `## <tag>` section, copied verbatim.
+There is no second place to write release notes, and no step where the two can
+disagree.
 
-1. Finish code and documentation changes.
-2. Run the verification commands from `AGENTS.md`.
-3. Run a real smoke test for `beta`, `rc`, and public releases.
-4. Move relevant `Unreleased` entries into a version section:
+Which means the changelog has to be written for somebody else to read:
+
+- Put unreleased changes under `## Unreleased`, in the section that fits:
+  `Added`, `Changed`, `Fixed`, `Removed`, `Security`, `Breaking`,
+  `Known Limitations`.
+- Record what matters to a user, an operator, or the next person deciding
+  whether to upgrade. Not every refactor.
+- Say what changed and why it mattered, concretely. "Fixed a bug" tells nobody
+  anything.
+- Call out anything an operator must act on — a new or renamed environment
+  variable, a migration, a changed deployment assumption — explicitly, in its
+  own entry.
+- Exactly one `## Unreleased` section, always at the top. Two of them means the
+  next release renames the wrong one.
+
+## Publishing a pre-release
+
+A pre-release is tagged on `dev`. Nothing merges anywhere.
+
+1. Finish the work on `dev` and run the verification below.
+2. Rename `## Unreleased` to the version, and open a fresh empty `## Unreleased`
+   above it:
 
    ```text
-   ## v0.1.0-alpha.1 - 2026-06-02
+   ## Unreleased
+
+   ## v1.2.3-alpha.4 - 2026-09-09
    ```
 
-5. Keep an empty `## Unreleased` section at the top for future changes.
-6. Write release notes from the version section.
-7. Create an annotated git tag.
-8. Create a GitHub Release.
+3. Commit that on `dev` and push it.
+4. Tag the pushed commit and push the tag:
 
-## GitHub Release Notes
+   ```sh
+   git tag -a v1.2.3-alpha.4 -m "v1.2.3-alpha.4"
+   git push origin dev
+   git push origin v1.2.3-alpha.4
+   ```
 
-Use this shape for release notes (same sections as `CHANGELOG.md`):
+The tag push runs `.github/workflows/release.yml`, which re-runs the checks,
+refuses the tag if it is not on `dev` or has no changelog section, builds and
+publishes the image, and creates the GitHub Release marked as a pre-release.
 
-```text
-### Changed
+Then point the test bot at it. A pre-release nobody ran is a pre-release that
+proved nothing.
 
-- Short concrete bullets from the version section of CHANGELOG.md.
+## Publishing a stable release
 
-### Fixed
+A stable version is tagged on `main`, on the merge commit.
 
-- ...
+1. The version being promoted should already have been through at least one
+   pre-release that actually ran somewhere. If it has not, say why in the
+   changelog.
+2. On `dev`, rename `## Unreleased` to the stable version and push.
+3. Merge into `main` with a merge commit, so the tag has something to sit on:
 
-### Operations
+   ```sh
+   git checkout main
+   git merge --no-ff dev
+   git push origin main
+   ```
 
-- Migration notes, env, or deploy notes when relevant.
-```
+4. Tag the merge commit and push the tag:
 
-GitHub Release **title** is the version only (`v1.1.1`), not
-`Branchy v…`. Copy the matching `CHANGELOG.md` version section into the release
-body (skip the `## vX.Y.Z` heading).
+   ```sh
+   git tag -a v1.2.3 -m "v1.2.3"
+   git push origin v1.2.3
+   ```
 
-For `alpha`, `beta`, and `rc` versions, mark the GitHub Release as pre-release.
-For stable tags, publish a normal GitHub Release.
+5. Deploy it, and check the running version says what it should.
 
-## Commands
+## Rolling back
 
-Create a pre-release:
+Do not retag and do not delete a published release. Roll back by deploying the
+previous version — the images are pinned by digest, so the previous digest is
+the whole rollback — and then publish a new patch that fixes what went wrong.
 
-```sh
-git tag -a v0.1.0-alpha.1 -m "v0.1.0-alpha.1"
-git push origin main
-git push origin v0.1.0-alpha.1
-gh release create v0.1.0-alpha.1 \
-  --prerelease \
-  --title "v0.1.0-alpha.1" \
-  --notes-file /tmp/branchy-release-notes.md
-```
+A version that was published is a fact about what existed. Rewriting it makes
+every other record of it wrong.
 
-Create a stable release:
+## Deploying
 
-```sh
-git tag -a v1.1.1 -m "v1.1.1"
-git push origin main
-git push origin v1.1.1
-gh release create v1.1.1 \
-  --title "v1.1.1" \
-  --notes-file /tmp/branchy-release-notes.md
-```
+The host is WS04. Every stack lives in `/opt/stacks/<stack>` and is driven by the
+`ws04` CLI, which exists on the operator's machine and reaches the host over the
+LAN. Nothing here is built on the host any more: a stack pulls the image the
+release workflow published and runs that. If you find a `build:` section in a
+production manifest, that is a bug, not a shortcut.
 
-Do not publish a release before the release notes, tag, and verification status
-all match.
-
-## Production Deployment
-
-Production runs the `branchy` service from `/opt/stacks/branchy` and uses the
-shared `core-postgres`. The root `docker-compose.yml` is local-development
-configuration and must not be used as a production deployment source.
-
-After the commit and tag are published, deploy only the Branchy stack with the
-WS04 deployment workflow. The deploy command snapshots the current compose,
-environment, and image ids, waits for health, and rolls back automatically on a
-failed health check:
+### One deploy
 
 ```sh
-WS04_HOST=ssh.amdumo.fun ws04 deploy branchy --yes --health-timeout 120
-WS04_HOST=ssh.amdumo.fun ws04 stack status branchy
-WS04_HOST=ssh.amdumo.fun ws04 audit --stack branchy --since 1h
+ws04 deploy branchy --dry-run --yes    # prints what it would do, changes nothing
+ws04 deploy branchy --yes
 ```
 
-The final check must confirm the released version in `/healthz`, a healthy
-container with no restart, fresh Telegram polling and outbox worker timestamps,
-and zero pending, processing, or failed notification jobs.
+`deploy` snapshots the stack's compose, env and image ids into
+`/opt/stacks/.ws04/deploy-snapshots/branchy/<timestamp>`, pulls, brings the stack
+up, waits up to ninety seconds for the container to report healthy, and **rolls
+back on its own** if it does not. The snapshot is kept either way.
+
+### Pointing the stack at a version
+
+The image is chosen by one variable in the stack's env file on the host, not by
+anything in this repository:
+
+```sh
+BRANCHY_IMAGE=ghcr.io/freshlabdev/branchy@sha256:<digest>
+```
+
+Pin the **digest**, not the tag. A tag can be moved; a digest names one build
+that was tested, so a rollback is one line with nothing to rebuild, and
+`docker inspect` on the running container answers which commit it came from. The
+digest of a release is in its GitHub Release notes, or:
+
+```sh
+gh api /orgs/FreshLabDev/packages/container/branchy/versions \
+  --jq '.[] | select(.metadata.container.tags[]? == "<tag>") | .name'
+```
+
+The variable has no default. An unset one stops the stack with a message naming
+it, rather than quietly starting something else.
+
+### Rolling back
+
+Set `BRANCHY_IMAGE` to the previous digest and deploy again. That is the whole
+rollback — the images are still on the host, and nothing is rebuilt. Then publish
+a patch that fixes what went wrong; never retag or delete the bad release.
+
+### What this stack needs to exist
+
+| | |
+|:--|:--|
+| Stack | `branchy` — `/opt/stacks/branchy` |
+| Manifest | [`deploy/ws04/compose.yaml`](deploy/ws04/compose.yaml) in this repository |
+| Env file | `.env` on the host, never in git |
+| Networks | `core_net` (core-postgres), `management` (the Cloudflare tunnel that terminates the GitHub OAuth callback and the repository webhooks) |
+
+Branchy is the only stack on `management`. Without it the OAuth callback and
+every GitHub webhook delivery stop arriving, and the bot looks idle rather than
+broken.
+
+### Checking what is running
+
+```sh
+ws04 container list                    # health of everything
+ws04 logs branchy --since 1h
+ws04 container inspect branchy     # includes the image digest
+```
+
+The bot also reports its own version — from the About card in Telegram, and from
+its health endpoint where it has one. Those two and `docker inspect` should
+agree; if they do not, something was deployed by hand.
+
+## Verification
+
+The local machine may not have `go` in `PATH`; Docker is the reliable route:
+
+```sh
+docker run --rm -v "$PWD":/src -w /src golang:1.26-alpine go test ./...
+docker run --rm -v "$PWD":/src -w /src golang:1.26-alpine go vet ./...
+docker compose config
+```
+
+CI additionally runs `go mod verify`, `go test -race ./...`, `govulncheck`, the
+Docker build, and Compose validation.
+
+For `beta`, `rc`, and stable: a real smoke test against live Telegram and a real
+GitHub webhook delivery — `/start`, the settings keyboards in DM, a group
+delivery after admin verification, and one each of `push`, `pull_request`, and
+`release`.

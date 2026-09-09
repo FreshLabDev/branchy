@@ -55,6 +55,10 @@ type Bot struct {
 	subs         *subscriptions.Service
 	lastPollUnix atomic.Int64
 	username     atomic.Value // string, the bot's @username, fetched lazily
+	// version is the same build string /healthz reports, stamped into the
+	// binary at link time. The About card states it because "which version are
+	// you running" is the first question a complaint has to answer.
+	version string
 }
 
 const (
@@ -62,8 +66,8 @@ const (
 	branchPageSize = 20
 )
 
-func NewBot(store Store, client *telegram.Client, oauthSvc OAuthService, githubClient *github.Client, sealer *oauth.TokenSealer, subs *subscriptions.Service) *Bot {
-	return &Bot{store: store, client: client, oauth: oauthSvc, github: githubClient, sealer: sealer, subs: subs}
+func NewBot(store Store, client *telegram.Client, oauthSvc OAuthService, githubClient *github.Client, sealer *oauth.TokenSealer, subs *subscriptions.Service, version string) *Bot {
+	return &Bot{store: store, client: client, oauth: oauthSvc, github: githubClient, sealer: sealer, subs: subs, version: version}
 }
 
 func (b *Bot) Run(ctx context.Context) error {
@@ -282,21 +286,32 @@ func (b *Bot) handleMessage(ctx context.Context, msg tg.Message) error {
 	return nil
 }
 
-func (b *Bot) handleEphemeralStart(ctx context.Context, msg tg.Message) error {
-	var markup *tg.InlineKeyboardMarkup
+// groupPanel is the whole of Branchy's group interface. Settings live in DM, so
+// the panel only points there, plus About for the build string and Close to take
+// the panel back out of the chat.
+func (b *Bot) groupPanel() *tg.InlineKeyboardMarkup {
+	var rows [][]tg.InlineKeyboardButton
+	// The DM link needs the bot's own @username, which is resolved in the
+	// background; until it lands the panel is still worth showing without it.
 	if username := b.cachedBotUsername(); username != "" {
-		markup = &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{
-			{{Text: "Open Branchy in DM", URL: "https://t.me/" + username}},
-		}}
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Open Branchy in DM", URL: "https://t.me/" + username}})
 	}
+	rows = append(rows, []tg.InlineKeyboardButton{
+		{Text: "About", CallbackData: "about"},
+		{Text: "Close", CallbackData: "close"},
+	})
+	return &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
+func (b *Bot) handleEphemeralStart(ctx context.Context, msg tg.Message) error {
 	replyCtx, cancelReply := context.WithTimeout(ctx, 10*time.Second)
 	_, err := b.client.SendEphemeralMessage(
 		replyCtx,
 		msg.Chat.ID,
 		msg.From.ID,
 		msg.EphemeralMessageID,
-		"Open a direct message with Branchy to configure notifications.",
-		markup,
+		groupPanelText,
+		b.groupPanel(),
 	)
 	cancelReply()
 	if err != nil {
@@ -357,6 +372,10 @@ func (b *Bot) dispatchCallback(ctx context.Context, cq tg.CallbackQuery) (string
 	switch cq.Data {
 	case "home":
 		return "", b.renderHome(ctx, cq)
+	case "about":
+		return "", b.renderAbout(ctx, cq)
+	case "close":
+		return "", b.closePanel(ctx, cq)
 	case "sub:list":
 		return "", b.renderSubscriptionList(ctx, cq)
 	}
@@ -846,15 +865,74 @@ func (b *Bot) mainMenu(ctx context.Context, telegramUserID int64) (string, *tg.I
 			[]tg.InlineKeyboardButton{{Text: "New subscription", CallbackData: "sub:new", Style: tg.StylePrimary}},
 		)
 	}
+	// About sits last: it answers a question rather than doing anything, so it
+	// should not compete with the call to action above it.
+	rows = append(rows, []tg.InlineKeyboardButton{{Text: "About", CallbackData: "about"}})
 	return strings.Join(lines, "\n"), &tg.InlineKeyboardMarkup{InlineKeyboard: rows}, nil
 }
 
 func (b *Bot) renderHome(ctx context.Context, cq tg.CallbackQuery) error {
+	// A callback arriving from a group belongs to the group panel. Rebuilding
+	// the DM menu here would put one person's GitHub login and subscription
+	// count into a chat they share with everyone else, so the group gets the
+	// group panel back instead.
+	if inGroup(cq.Message.Chat) {
+		return b.respond(ctx, cq, groupPanelText, b.groupPanel())
+	}
 	text, markup, err := b.mainMenu(ctx, cq.From.ID)
 	if err != nil {
 		return err
 	}
 	return b.respond(ctx, cq, text, markup)
+}
+
+// renderAbout states what Branchy is and which build is answering.
+func (b *Bot) renderAbout(ctx context.Context, cq tg.CallbackQuery) error {
+	rows := [][]tg.InlineKeyboardButton{panelFooter(cq.Message.Chat, "home")}
+	return b.respond(ctx, cq, aboutText(b.buildVersion()), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+}
+
+// buildVersion reports exactly what /healthz reports. A binary built without the
+// release ldflags has no version to state, and "dev" is the honest answer.
+func (b *Bot) buildVersion() string {
+	if b.version == "" {
+		return "dev"
+	}
+	return b.version
+}
+
+// closePanel takes the group panel back out of the chat.
+//
+// Only an ephemeral message is closed. Telegram lets a client send any callback
+// data for any message it can see, not only the buttons it was shown, so
+// honouring "close" against a public message would let anyone in a group delete
+// Branchy's notification cards. An ephemeral message is already visible to one
+// person, so deleting it at that person's request destroys nothing that was not
+// theirs to begin with.
+func (b *Bot) closePanel(ctx context.Context, cq tg.CallbackQuery) error {
+	if cq.Message.EphemeralMessageID == 0 {
+		return nil
+	}
+	return b.client.DeleteEphemeralMessage(ctx, cq.Message.Chat.ID, cq.From.ID, cq.Message.EphemeralMessageID)
+}
+
+// inGroup reports whether a callback came from a shared chat. An unknown chat
+// type counts as a DM: the group-only affordances all cost something when shown
+// in the wrong place, so absence of evidence should not offer them.
+func inGroup(chat tg.Chat) bool {
+	return chat.Type != "" && chat.Type != "private"
+}
+
+// panelFooter is the navigation row a panel ends with. Close appears only in
+// groups, where the panel sits in a feed shared with people who never asked for
+// it and whoever summoned it needs a way to withdraw it. A DM has nothing to
+// close: there the conversation is the panel.
+func panelFooter(chat tg.Chat, backCallback string) []tg.InlineKeyboardButton {
+	row := []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCallback}}
+	if inGroup(chat) {
+		row = append(row, tg.InlineKeyboardButton{Text: "Close", CallbackData: "close"})
+	}
+	return row
 }
 
 func (b *Bot) renderRepoList(ctx context.Context, cq tg.CallbackQuery, subscribeMode bool, page int) error {
@@ -1122,7 +1200,10 @@ func (b *Bot) renderBranchSettings(ctx context.Context, cq tg.CallbackQuery, dra
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Done", CallbackData: backCB, Style: tg.StylePrimary}})
+	// Back, not Done: a branch mode is always set, this screen saves nothing of
+	// its own, and the settings hub it returns to is the screen the user came
+	// from. Its twin — release notifications — has always said Back.
+	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
 	return b.respond(ctx, cq, "<b>Branch filter</b>", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
@@ -1226,20 +1307,15 @@ func (b *Bot) renderPullRequestSettings(ctx context.Context, cq tg.CallbackQuery
 		}
 		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(draft.PullRequestActions, action), pullRequestActionLabel(action)), CallbackData: callback}})
 	}
-	// In the draft flow toggles already persist into the draft, so a single
-	// button is enough: "Done" once at least one action is selected, otherwise a
-	// neutral "Back" (the settings hub explains why Create stays disabled).
-	doneCB, err := b.token(ctx, cq.From.ID, "sub.settings", draft)
+	// In the draft flow toggles already persist into the draft, so one button is
+	// enough and it is a Back: it returns to the settings hub the user came
+	// from, and nothing on this screen was committed for a "Done" to confirm.
+	// The hub explains why Create stays disabled when no action is selected.
+	backCB, err := b.token(ctx, cq.From.ID, "sub.settings", draft)
 	if err != nil {
 		return err
 	}
-	doneLabel := "Back"
-	doneStyle := ""
-	if len(draft.PullRequestActions) > 0 {
-		doneLabel = "Done"
-		doneStyle = tg.StylePrimary
-	}
-	rows = append(rows, []tg.InlineKeyboardButton{{Text: doneLabel, CallbackData: doneCB, Style: doneStyle}})
+	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
 	return b.respond(ctx, cq, "<b>Pull request actions</b>\nSelect at least one action. “Opened” also covers reopened pull requests.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
@@ -1561,9 +1637,9 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq tg.CallbackQuery, pay
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Save branches", CallbackData: saveCB, Style: tg.StylePrimary}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Save", CallbackData: saveCB, Style: tg.StylePrimary}})
 	} else {
-		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Save branches")})
+		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Save")})
 	}
 	var nav []tg.InlineKeyboardButton
 	if pages > 1 {
@@ -1662,7 +1738,23 @@ func (b *Bot) renderEditReleaseSettings(ctx context.Context, cq tg.CallbackQuery
 }
 
 func (b *Bot) respond(ctx context.Context, cq tg.CallbackQuery, text string, markup *tg.InlineKeyboardMarkup) error {
-	if cq.Message.MessageID != 0 {
+	switch {
+	// An ephemeral message is addressed by its own id plus its receiver, never
+	// by message_id, so editMessageText cannot reach one. Without this branch a
+	// tap on the group panel would answer in DM and leave the panel frozen on
+	// its previous screen.
+	case cq.Message.EphemeralMessageID != 0:
+		err := b.client.EditEphemeralMessageText(ctx, cq.Message.Chat.ID, cq.From.ID, cq.Message.EphemeralMessageID, text, markup)
+		if err == nil {
+			return nil
+		}
+		slog.Warn("ephemeral panel edit failed; answering in DM", "chat_id", cq.Message.Chat.ID, "error", err)
+	// Every panel Branchy shows in a group is ephemeral, so a public group
+	// message from Branchy is a delivered notification card. Callback data can
+	// be sent for any visible message, so editing one here would let anyone
+	// overwrite a notification with a panel. Answer in DM instead.
+	case inGroup(cq.Message.Chat):
+	case cq.Message.MessageID != 0:
 		err := b.client.EditMessageText(ctx, cq.Message.Chat.ID, cq.Message.MessageID, text, markup)
 		// "message is not modified" means the view already shows this state
 		// (e.g. a toggle that produced identical text, or a double tap). Treat
@@ -1900,12 +1992,13 @@ func checkbox(on bool, label string) string {
 }
 
 // radio marks a single-select option. Round glyph signals "pick exactly one",
-// distinguishing it from the square multi-select checkboxes.
+// distinguishing it from the square multi-select checkboxes. ◉/◎ is the
+// family-wide pair for a chosen and an unchosen item.
 func radio(on bool, label string) string {
 	if on {
-		return "● " + label
+		return "◉ " + label
 	}
-	return "○ " + label
+	return "◎ " + label
 }
 
 func settingsSummary(events []string, branchMode string, branchNames []string, pullRequestActions []string, releaseMode string) string {

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -177,7 +178,8 @@ func TestCheckboxAndRadioUseDistinctGlyphs(t *testing.T) {
 	if checkbox(true, "x") != "■ x" || checkbox(false, "x") != "□ x" {
 		t.Fatalf("checkbox glyphs = %q/%q", checkbox(true, "x"), checkbox(false, "x"))
 	}
-	if radio(true, "x") != "● x" || radio(false, "x") != "○ x" {
+	// ◉/◎ is the family-wide chosen/unchosen pair; branchy used to draw ●/○.
+	if radio(true, "x") != "◉ x" || radio(false, "x") != "◎ x" {
 		t.Fatalf("radio glyphs = %q/%q", radio(true, "x"), radio(false, "x"))
 	}
 	if checkbox(true, "x") == radio(true, "x") {
@@ -699,4 +701,213 @@ func telegramStubResult(path string) string {
 		return `{"ok":true,"result":{"message_id":1,"date":1,"chat":{"id":-100,"type":"supergroup"}}}`
 	}
 	return `{"ok":true,"result":true}`
+}
+
+func TestPanelFooterOffersCloseOnlyInGroups(t *testing.T) {
+	cases := []struct {
+		chatType string
+		want     []string
+	}{
+		{"private", []string{"Back"}},
+		{"", []string{"Back"}}, // unknown chat: never offer a Close that cannot work
+		{"group", []string{"Back", "Close"}},
+		{"supergroup", []string{"Back", "Close"}},
+	}
+	for _, c := range cases {
+		row := panelFooter(tg.Chat{Type: c.chatType}, "home")
+		var got []string
+		for _, button := range row {
+			got = append(got, button.Text)
+			if button.CallbackData == "" {
+				t.Fatalf("chat %q: %q has no callback data", c.chatType, button.Text)
+			}
+		}
+		if strings.Join(got, "|") != strings.Join(c.want, "|") {
+			t.Fatalf("panelFooter(%q) = %v, want %v", c.chatType, got, c.want)
+		}
+	}
+}
+
+func TestAboutCardStatesVersionAndLinksSourceInText(t *testing.T) {
+	text := aboutText("v1.2.1-alpha.3")
+	for _, want := range []string{
+		"<b>Branchy</b> · <i>v1.2.1-alpha.3</i>",
+		"Clean GitHub notifications in Telegram.",
+		"<blockquote>Events · push, pull request, release",
+		`Source · <a href="https://github.com/FreshLabDev/branchy">FreshLabDev/branchy</a> · Apache-2.0`,
+		`Admin · <a href="https://t.me/amtiyo">@amtiyo</a></blockquote>`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("about card missing %q:\n%s", want, text)
+		}
+	}
+
+	// A build without the release ldflags has no version to claim.
+	if got := (&Bot{}).buildVersion(); got != "dev" {
+		t.Fatalf("unstamped build version = %q, want \"dev\"", got)
+	}
+}
+
+func TestGroupPanelOffersAboutAndCloseAndNoSourceButton(t *testing.T) {
+	b := &Bot{}
+	b.username.Store("branchybot")
+	rows := b.groupPanel().InlineKeyboard
+
+	var labels []string
+	for _, row := range rows {
+		for _, button := range row {
+			labels = append(labels, button.Text)
+			// The repository is a link inside the About card, never a button:
+			// two ways to reach one place is duplication, not convenience.
+			if strings.Contains(button.URL, "github.com") {
+				t.Fatalf("group panel should not link to the repository: %#v", button)
+			}
+		}
+	}
+	for _, want := range []string{"Open Branchy in DM", "About", "Close"} {
+		if !slices.Contains(labels, want) {
+			t.Fatalf("group panel buttons = %v, want %q", labels, want)
+		}
+	}
+
+	// The DM link needs getMe; the rest of the panel must survive without it.
+	fresh := &Bot{}
+	for _, row := range fresh.groupPanel().InlineKeyboard {
+		for _, button := range row {
+			if button.Text == "Open Branchy in DM" {
+				t.Fatal("DM link offered before the bot username resolved")
+			}
+		}
+	}
+}
+
+func TestAboutFromGroupPanelEditsTheEphemeralMessage(t *testing.T) {
+	var paths []string
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		raw, _ := io.ReadAll(r.Body)
+		if strings.HasSuffix(r.URL.Path, "/editEphemeralMessageText") {
+			body = string(raw)
+		}
+		_, _ = w.Write([]byte(telegramStubResult(r.URL.Path)))
+	}))
+	defer server.Close()
+
+	b := &Bot{store: &touchStore{}, client: telegram.New("token", tg.WithAPIBase(server.URL)), version: "v9.9.9"}
+	cq := tg.CallbackQuery{
+		ID: "1", From: tg.User{ID: 42}, Data: "about",
+		Message: tg.Message{
+			MessageID: 5, EphemeralMessageID: 77,
+			Chat: tg.Chat{ID: -100, Type: "supergroup"},
+		},
+	}
+	if _, err := b.dispatchCallback(context.Background(), cq); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range paths {
+		if strings.HasSuffix(path, "/editMessageText") || strings.HasSuffix(path, "/sendMessage") {
+			t.Fatalf("ephemeral panel answered with %s; the group panel would freeze and the reply would land in DM", path)
+		}
+	}
+	for _, want := range []string{
+		`"ephemeral_message_id":77`,
+		`"receiver_user_id":42`,
+		"v9.9.9",
+		`"text":"Close"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("about edit missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestCloseOnlyDeletesEphemeralMessages(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		_, _ = w.Write([]byte(telegramStubResult(r.URL.Path)))
+	}))
+	defer server.Close()
+
+	b := &Bot{store: &touchStore{}, client: telegram.New("token", tg.WithAPIBase(server.URL))}
+	group := tg.Chat{ID: -100, Type: "supergroup"}
+
+	// Callback data can be sent for any visible message, not only for the
+	// buttons a client was shown. "close" against a public message must not
+	// delete Branchy's notification cards.
+	public := tg.CallbackQuery{ID: "1", From: tg.User{ID: 42}, Data: "close", Message: tg.Message{MessageID: 5, Chat: group}}
+	if _, err := b.dispatchCallback(context.Background(), public); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		if strings.Contains(path, "elete") {
+			t.Fatalf("close deleted a public group message via %s", path)
+		}
+	}
+
+	paths = nil
+	ephemeral := tg.CallbackQuery{ID: "2", From: tg.User{ID: 42}, Data: "close", Message: tg.Message{MessageID: 5, EphemeralMessageID: 77, Chat: group}}
+	if _, err := b.dispatchCallback(context.Background(), ephemeral); err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 1 || !strings.HasSuffix(paths[0], "/deleteEphemeralMessage") {
+		t.Fatalf("close on the group panel called %v, want one deleteEphemeralMessage", paths)
+	}
+}
+
+func TestGroupHomeCallbackDoesNotRebuildTheDirectMessageMenu(t *testing.T) {
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		if strings.HasSuffix(r.URL.Path, "/editEphemeralMessageText") {
+			body = string(raw)
+		}
+		_, _ = w.Write([]byte(telegramStubResult(r.URL.Path)))
+	}))
+	defer server.Close()
+
+	// A store whose GitHub lookups would panic: renderHome must not reach for
+	// the caller's connection while answering inside a shared chat.
+	b := &Bot{store: &touchStore{}, client: telegram.New("token", tg.WithAPIBase(server.URL))}
+	cq := tg.CallbackQuery{
+		ID: "1", From: tg.User{ID: 42}, Data: "home",
+		Message: tg.Message{MessageID: 5, EphemeralMessageID: 77, Chat: tg.Chat{ID: -100, Type: "supergroup"}},
+	}
+	if _, err := b.dispatchCallback(context.Background(), cq); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "Open a direct message with Branchy") {
+		t.Fatalf("group home did not return the group panel:\n%s", body)
+	}
+}
+
+func TestPublicGroupMessagesAreNeverEditedIntoPanels(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		_, _ = w.Write([]byte(telegramStubResult(r.URL.Path)))
+	}))
+	defer server.Close()
+
+	// Every panel Branchy shows in a group is ephemeral, so a public group
+	// message from it is a delivered notification card. Callback data can be
+	// sent for any visible message, so a forged one must not overwrite a card.
+	b := &Bot{store: &touchStore{}, client: telegram.New("token", tg.WithAPIBase(server.URL))}
+	cq := tg.CallbackQuery{
+		ID: "1", From: tg.User{ID: 42}, Data: "home",
+		Message: tg.Message{MessageID: 5, Chat: tg.Chat{ID: -100, Type: "supergroup"}},
+	}
+	if _, err := b.dispatchCallback(context.Background(), cq); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		if strings.HasSuffix(path, "/editMessageText") {
+			t.Fatalf("a forged group callback edited a public message: %v", paths)
+		}
+	}
+	if len(paths) != 1 || !strings.HasSuffix(paths[0], "/sendMessage") {
+		t.Fatalf("group callback answered with %v, want one DM sendMessage", paths)
+	}
 }

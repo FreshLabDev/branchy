@@ -83,6 +83,9 @@ Temporary Telegram/GitHub failures should retry with `retry_at` and `attempts`. 
 
 ## Versioning
 
+- Work on `dev`. Pre-releases (`-alpha.N`, `-beta.N`, `-rc.N`) are tagged on
+  `dev`; stable versions are tagged on `main`, on the merge commit from `dev`.
+  The test bot runs `dev`, the production bot runs `main`.
 - Follow `docs/versioning.md` for release tags.
 - Keep the first release line as `v0.1.0-alpha.1`, `v0.1.0-beta.1`, `v0.1.0-rc.1`, then `v0.1.0`.
 - Use patch versions for fixes, minor versions for MVP-compatible product or operations improvements, and reserve `v1.0.0` for a stable production contract.
@@ -143,3 +146,17 @@ Branchy is licensed under Apache-2.0. Preserve the root `LICENSE` and `NOTICE` f
   `editEphemeralMessageText`. Notifications are rich messages and group
   overlays are ephemeral ones, so a server without them makes Branchy mute.
 
+## Deploying
+
+Do not invent a deploy. [`docs/releases.md`](docs/releases.md) has a **Deploying**
+section describing this stack exactly: which host directory it lives in, which
+env file names the image, which networks it needs, and how to roll back. Read it
+before touching anything on the host.
+
+Two rules that hold everywhere and are easy to get wrong:
+
+- **Nothing is built on the host.** A production stack pulls the image the
+  release workflow published. A `build:` section in a production manifest is a
+  bug.
+- **Pin the digest, not the tag.** A tag moves; a digest names one build that was
+  tested, and a rollback becomes one line with nothing to rebuild.

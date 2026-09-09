@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: Apache-2.0
+# Production stack on WS04. Joins the shared core_net / core-postgres.
+#
+# The image is pulled, never built here. A stack that builds from a working
+# copy on the host runs whatever that copy happened to contain, which is not
+# necessarily what CI tested, scanned and published -- and afterwards nothing
+# on the host can say which commit it was. BRANCHY_IMAGE must therefore name an
+# immutable GHCR reference, digest for preference:
+#
+#   BRANCHY_IMAGE=ghcr.io/freshlabdev/branchy@sha256:<digest>
+#
+# A tag is accepted but a digest is what makes a rollback exact.
+name: branchy
+
+services:
+  branchy:
+    image: ${BRANCHY_IMAGE:?BRANCHY_IMAGE must be an immutable GHCR reference}
+    container_name: branchy
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      DATABASE_URL: "postgres://branchy_core:${BRANCHY_CORE_PASSWORD:?BRANCHY_CORE_PASSWORD must be set}@core-postgres:5432/core?sslmode=disable&options=-csearch_path%3Dbranchy"
+      HTTP_ADDR: :8080
+      MIGRATIONS_DIR: /app/migrations
+      AUTO_MIGRATE: "true"
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://branchy.amdumo.fun}
+    expose:
+      - "8080"
+    # management carries the Cloudflare tunnel that terminates the GitHub
+    # OAuth callback and the repository webhooks; core_net reaches core-postgres.
+    networks:
+      - core_net
+      - management
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  core_net:
+    external: true
+    name: core_net
+  management:
+    external: true
+    name: management

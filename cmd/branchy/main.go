@@ -89,7 +89,7 @@ func run() error {
 		PublicBaseURL:       cfg.PublicBaseURL,
 		GitHubWebhookSecret: cfg.GitHubWebhookSecret,
 	}, store, gh, sealer)
-	service := bot.NewBot(store, client, oauthSvc, gh, sealer, subSvc)
+	service := bot.NewBot(store, client, oauthSvc, gh, sealer, subSvc, version)
 	notificationWorker := outbox.NewWorker(store, client, outbox.Config{
 		BatchSize:    cfg.OutboxBatchSize,
 		PollInterval: cfg.OutboxPollInterval,
@@ -206,6 +206,9 @@ type commandRegistrar interface {
 // ensureTelegramCommands runs independently from HTTP serving and polling.
 // Each scope is retried until it succeeds, so a transient first-deploy failure
 // cannot leave group /start public or unavailable until the next restart.
+//
+// The two lists come from internal/bot, where Branchy's fixed copy lives; that
+// file also records why there is one list per scope and not one per language.
 func ensureTelegramCommands(ctx context.Context, registrar commandRegistrar, retryBase time.Duration) {
 	if retryBase <= 0 {
 		retryBase = 30 * time.Second
@@ -218,9 +221,8 @@ func ensureTelegramCommands(ctx context.Context, registrar commandRegistrar, ret
 			return
 		}
 		if !privateReady {
-			commands := []tg.BotCommand{{Command: "start", Description: "Open the Branchy menu"}}
 			attemptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := registrar.SetMyCommandsForScope(attemptCtx, commands, &tg.BotCommandScope{Type: "all_private_chats"})
+			err := registrar.SetMyCommandsForScope(attemptCtx, bot.PrivateCommands(), &tg.BotCommandScope{Type: "all_private_chats"})
 			cancel()
 			if err != nil {
 				slog.Warn("set private telegram commands failed; will retry", "error", err, "retry_in", delay)
@@ -229,11 +231,8 @@ func ensureTelegramCommands(ctx context.Context, registrar commandRegistrar, ret
 			}
 		}
 		if !groupReady {
-			commands := []tg.BotCommand{{
-				Command: "start", Description: "Open Branchy privately", IsEphemeral: true,
-			}}
 			attemptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := registrar.SetMyCommandsForScope(attemptCtx, commands, &tg.BotCommandScope{Type: "all_group_chats"})
+			err := registrar.SetMyCommandsForScope(attemptCtx, bot.GroupCommands(), &tg.BotCommandScope{Type: "all_group_chats"})
 			cancel()
 			if err != nil {
 				slog.Warn("set group telegram commands failed; will retry", "error", err, "retry_in", delay)

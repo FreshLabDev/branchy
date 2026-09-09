@@ -138,13 +138,18 @@ All user setup is button-driven inside Telegram.
 5. Choose DM delivery or an eligible Telegram group.
 6. View, pause, edit, delete, or test subscriptions from the inline menus.
 
+`About` on the main menu reports the running version — the same string
+`/healthz` returns — along with the supported events, the repository, and who
+to reach.
+
 Groups become available only after Branchy has seen the group. Before group
 delivery is enabled, Branchy verifies that the Telegram user is a group
 `creator` or `administrator`.
 
 In groups, `/start` is registered as a Bot API 10.2 ephemeral command. Its DM
 prompt is visible only to the user who invoked it; Branchy never posts a public
-fallback into the group.
+fallback into the group. That panel offers `About` and `Close`; `Close` removes
+it from the chat.
 
 ---
 
@@ -264,6 +269,22 @@ only; restrict them at your reverse proxy if you do not want them public.
 
 ---
 
+## Production
+
+`deploy/ws04/compose.yaml` is the production stack. It pulls the image the
+release workflow published to GHCR and never builds one:
+
+```sh
+# in the stack directory, alongside .env
+BRANCHY_IMAGE=ghcr.io/freshlabdev/branchy@sha256:<digest> docker compose up -d
+```
+
+Pin `BRANCHY_IMAGE` by digest rather than tag. A digest names one exact build,
+so a rollback is a one-line change with nothing to rebuild, and `docker
+inspect` on the running container answers which commit it came from.
+
+---
+
 ## Testing
 
 ```sh
@@ -294,6 +315,6 @@ docker compose config
 </p>
 
 <p align="center">
-  Branchy is open source software by FreshLab.<br/>
-  Copyright 2026 FreshLab.
+  Branchy is open source software by Asterfield.<br/>
+  Copyright 2026 Asterfield.
 </p>

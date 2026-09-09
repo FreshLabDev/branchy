@@ -2,13 +2,102 @@
 
 All notable Branchy changes are documented here.
 
-Branchy uses SemVer-style versions with pre-release tags before `v1.0.0`. Release
-notes should be copied from the relevant changelog section and lightly edited for
-GitHub Releases.
+The `## <tag>` section of this file *is* the GitHub Release body: the release
+workflow copies it verbatim and refuses a tag that has no section. Write it
+for whoever has to decide whether to upgrade.
+
+See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
+[`docs/releases.md`](docs/releases.md) for how a release is published.
 
 ## Unreleased
 
 Use this section for changes that are merged but not released yet.
+
+## v1.2.1 - 2026-09-09
+
+An About card, a group panel that can be closed, and the fix for a hole that let
+any group member delete Branchy's notification cards.
+
+
+### Added
+
+- `docs/releases.md` gained a **Deploying** section, and `AGENTS.md` points at it.
+  Releasing was documented; deploying was not, in any repository in the family —
+  the process stopped at "deploy it" and never said how. That gap mattered more
+  after the stacks moved from building on the host to pulling a published image,
+  because the procedure changed on the same day. The section names this stack's
+  host directory, its env file, the variable that selects the image, the networks
+  it needs, and what a rollback actually is.
+
+- An **About** card, reachable from the main menu and from the group panel. It
+  states the running version — the same string `/healthz` reports — plus the
+  supported events, the repository, the license, and the admin contact. Until
+  now nothing in the interface could answer "which version are you running",
+  which is the first question any complaint has to answer. The repository is a
+  link in the text rather than a second button, because two ways to reach one
+  place is duplication.
+- **Close** on the group panel, and on the About card when it is opened from a
+  group. Branchy had no way to take a panel back out of a group chat. Close acts
+  only on ephemeral messages: Telegram lets a client send any callback data for
+  any message it can see, so honouring `close` against a public message would
+  have let anyone in a group delete Branchy's notification cards. There is no
+  Close in DM, where the conversation is the panel and there is nothing to
+  close.
+- `deploy/ws04/compose.yaml`, the production stack, pulling the image the
+  release workflow publishes to GHCR. The stack on the host built its own image
+  from a working copy, so what served users was not the artifact CI had tested,
+  scanned and published, and nothing on the host could say which commit it came
+  from. `BRANCHY_IMAGE` has no default: an unset one stops the stack instead of
+  quietly starting something else.
+
+### Changed
+
+- One versioning and release document for the whole family. `docs/versioning.md`
+  and `docs/releases.md` are now byte-identical across every Asterfield
+  repository apart from two clearly marked sections: this repository's own
+  version line, and the surface where a change here breaks something. They spell
+  out what each of the three numbers means, what the `-alpha.N` suffix counts,
+  when alpha becomes beta and when it is legitimate to skip to rc or run a
+  pre-release in production.
+- **Pre-releases are now tagged on `dev`, not `main`.** Only stable versions are
+  tagged on `main`, on the merge commit from `dev`. `release.yml` had no branch
+  check at all before, so a tag pushed from any branch would publish; it now
+  refuses a tag that is not on the branch its channel is published from.
+  Earlier pre-releases were tagged on `main` under the previous rule; they are
+  left as they are.
+
+
+- `github.com/FreshLabDev/tg` moves to `v0.0.1-alpha.7`. It carries one fix:
+  a preflight probe is marked as a probe, so the `404 method not found` it
+  expects stops being counted and logged as a transport failure. All four bots
+  on the shared client now run the same version.
+- The same action is now called the same thing on every screen. Three sibling
+  settings screens all returned to the settings hub and each named it
+  differently: the draft branch-filter screen said `Done`, the draft release
+  screen said `Back`, and the draft pull-request screen flipped between the two
+  depending on how many actions were selected. All three now say `Back`, which
+  is what they do — nothing on them is committed, and the hub is the screen the
+  user came from. `Done` survives in exactly one place, the draft branch list,
+  where it skips a level rather than stepping back. `Save branches` on the edit
+  branch list is now `Save`, matching the other two edit screens that commit.
+- Single-select options are marked `◉` and `◎` instead of `●` and `○`, the pair
+  the rest of the bot family uses. Multi-select options keep `■`/`□`, so the two
+  kinds of list still cannot be confused for each other.
+- Callbacks arriving from a group are answered on the ephemeral panel itself
+  (`editEphemeralMessageText`) rather than through `editMessageText`, which
+  cannot address an ephemeral message. Before this, a button on the group panel
+  would have left the panel frozen and answered in DM. A `home` callback from a
+  group now returns the group panel instead of building the DM menu, which
+  would have put one person's GitHub login and subscription count into a chat
+  they share with everyone else. A public group message is never edited into a
+  panel at all: every panel Branchy shows in a group is ephemeral, so a public
+  one is a delivered notification card, and callback data can be sent for any
+  visible message. Such a callback is answered in DM.
+- Both Telegram command descriptions moved out of `cmd/branchy/main.go` into
+  `internal/bot/copy.go`, next to the rest of Branchy's fixed copy. Behaviour is
+  unchanged — one list per scope, still `all_private_chats` plus an ephemeral
+  `all_group_chats`. The file records why there is no list per `language_code`:
+  the English-only interface is a product boundary, not missing work.
 
 ## v1.2.1-alpha.1 - 2026-09-08
 
@@ -781,7 +870,7 @@ Telegram-first setup flow are unchanged.
   - Subscription view, pause, edit, delete, and test notification actions.
   - Startup SQL migrations tracked in `schema_migrations`.
   - `/healthz` runtime health endpoint.
-- Apache-2.0 license under FreshLab.
+- Apache-2.0 license under Asterfield.
 - Project documentation for architecture, GitHub integration, Telegram behavior,
   versioning, and release process.
 - Pagination for the repository and branch pickers (Prev/Next) instead of
