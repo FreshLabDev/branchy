@@ -18,6 +18,7 @@ import (
 
 	"branchy/internal/db"
 	"branchy/internal/github"
+	"branchy/internal/i18n"
 	"branchy/internal/notify"
 	"branchy/internal/oauth"
 	"branchy/internal/subscriptions"
@@ -40,6 +41,9 @@ type Store interface {
 	GetRuntimeValue(ctx context.Context, key string) (string, error)
 	SetRuntimeValue(ctx context.Context, key, value string) error
 	GetNotificationJobForChat(ctx context.Context, id string, chatID int64) (db.NotificationJob, error)
+	SetLanguage(ctx context.Context, telegramUserID int64, lang string) error
+	ClearLanguage(ctx context.Context, telegramUserID int64) error
+	EffectiveLanguage(ctx context.Context, telegramUserID int64) (string, bool, error)
 }
 
 type OAuthService interface {
@@ -259,6 +263,7 @@ func (b *Bot) handleMessage(ctx context.Context, msg tg.Message) error {
 	if err := b.upsertUser(ctx, msg.From, &msg.Chat); err != nil {
 		return err
 	}
+	lang := b.resolveLang(ctx, msg.From)
 	resolveSelf := func() string { return b.botUsername(ctx) }
 	if msg.Chat.Type != "private" {
 		resolveSelf = b.cachedBotUsername
@@ -270,7 +275,7 @@ func (b *Bot) handleMessage(ctx context.Context, msg tg.Message) error {
 			// and the prompt must remain visible only to the invoking user.
 			return nil
 		}
-		text, markup, err := b.mainMenu(ctx, msg.From.ID)
+		text, markup, err := b.mainMenu(ctx, msg.From.ID, lang)
 		if err != nil {
 			return err
 		}
@@ -280,38 +285,78 @@ func (b *Bot) handleMessage(ctx context.Context, msg tg.Message) error {
 	// Nudge unrecognized private-chat input toward the menu instead of silently
 	// ignoring it (which reads as a dead bot). Groups stay quiet to avoid noise.
 	if msg.Chat.Type == "private" && strings.TrimSpace(msg.Text) != "" {
-		_, err := b.client.SendMessage(ctx, msg.Chat.ID, "Send /start to open the Branchy menu.", nil)
+		_, err := b.client.SendMessage(ctx, msg.Chat.ID, i18n.T(lang, "home.nudge"), nil)
 		return err
 	}
 	return nil
 }
 
+// resolveLang answers "which language does this person read Branchy in".
+//
+// The manual choice lives in the shared core hub, so a language picked in a
+// sibling bot already answers here before Branchy has ever shown its own
+// picker. Only when the hub has nothing does the Telegram profile hint decide.
+// A hub that is slow or down must not cost a person their reply, so every
+// failure falls through to the hint rather than propagating.
+func (b *Bot) resolveLang(ctx context.Context, user *tg.User) string {
+	if user == nil {
+		return i18n.DefaultLang
+	}
+	fallback := i18n.LangOf(user.LanguageCode)
+	if user.ID == 0 {
+		return fallback
+	}
+	effective, ok, err := b.store.EffectiveLanguage(ctx, user.ID)
+	if err != nil {
+		slog.Warn("effective language lookup failed", "user_id", user.ID, "error", err)
+		return fallback
+	}
+	if !ok {
+		return fallback
+	}
+	return i18n.LangOf(effective)
+}
+
+// groupPanelText is the group door: Branchy does nothing configurable in a
+// group, so the card's whole job is to send the reader to a direct message.
+func groupPanelText(lang string) string {
+	return panel(i18n.T(lang, "home.title"), "", i18n.T(lang, "home.hint"), i18n.T(lang, "home.group.body"))
+}
+
 // groupPanel is the whole of Branchy's group interface. Settings live in DM, so
 // the panel only points there, plus About for the build string and Close to take
 // the panel back out of the chat.
-func (b *Bot) groupPanel() *tg.InlineKeyboardMarkup {
+func (b *Bot) groupPanel(lang string) *tg.InlineKeyboardMarkup {
 	var rows [][]tg.InlineKeyboardButton
 	// The DM link needs the bot's own @username, which is resolved in the
 	// background; until it lands the panel is still worth showing without it.
 	if username := b.cachedBotUsername(); username != "" {
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Open Branchy in DM", URL: "https://t.me/" + username}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.open_dm"), URL: "https://t.me/" + username}})
 	}
 	rows = append(rows, []tg.InlineKeyboardButton{
-		{Text: "About", CallbackData: "about"},
-		{Text: "Close", CallbackData: "close"},
+		{Text: i18n.T(lang, "btn.about"), CallbackData: "about"},
+		{Text: i18n.T(lang, "btn.close"), CallbackData: "close"},
 	})
 	return &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 func (b *Bot) handleEphemeralStart(ctx context.Context, msg tg.Message) error {
+	// Telegram gives an ephemeral command a 15-second response window, so the
+	// language lookup gets a short leash of its own: resolveLang falls back to
+	// the Telegram hint on timeout, which is the right answer anyway when the
+	// hub cannot be reached in time.
+	langCtx, cancelLang := context.WithTimeout(ctx, 2*time.Second)
+	lang := b.resolveLang(langCtx, msg.From)
+	cancelLang()
+
 	replyCtx, cancelReply := context.WithTimeout(ctx, 10*time.Second)
 	_, err := b.client.SendEphemeralMessage(
 		replyCtx,
 		msg.Chat.ID,
 		msg.From.ID,
 		msg.EphemeralMessageID,
-		groupPanelText,
-		b.groupPanel(),
+		groupPanelText(lang),
+		b.groupPanel(lang),
 	)
 	cancelReply()
 	if err != nil {
@@ -361,32 +406,32 @@ func (b *Bot) handleCallback(ctx context.Context, cq tg.CallbackQuery) error {
 	// Dispatch first, then answer the callback query exactly once with an
 	// optional toast. Answering once (rather than a blank pre-answer) lets
 	// confirmations surface as a toast while the underlying menu stays in place.
-	toast, err := b.dispatchCallback(ctx, cq)
+	toast, err := b.dispatchCallback(ctx, cq, b.resolveLang(ctx, &cq.From))
 	if ackErr := b.client.AnswerCallbackQuery(ctx, cq.ID, toast, false); ackErr != nil {
 		slog.Warn("answer callback failed", "error", ackErr)
 	}
 	return err
 }
 
-func (b *Bot) dispatchCallback(ctx context.Context, cq tg.CallbackQuery) (string, error) {
+func (b *Bot) dispatchCallback(ctx context.Context, cq tg.CallbackQuery, lang string) (string, error) {
 	switch cq.Data {
 	case "home":
-		return "", b.renderHome(ctx, cq)
+		return "", b.renderHome(ctx, cq, lang)
 	case "about":
-		return "", b.renderAbout(ctx, cq)
+		return "", b.renderAbout(ctx, cq, lang)
 	case "close":
 		return "", b.closePanel(ctx, cq)
 	case "sub:list":
-		return "", b.renderSubscriptionList(ctx, cq)
+		return "", b.renderSubscriptionList(ctx, cq, lang)
 	}
 	if page, ok := parsePage(cq.Data, "repo:list"); ok {
-		return "", b.renderRepoList(ctx, cq, false, page)
+		return "", b.renderRepoList(ctx, cq, lang, false, page)
 	}
 	if page, ok := parsePage(cq.Data, "sub:new"); ok {
-		return "", b.renderRepoList(ctx, cq, true, page)
+		return "", b.renderRepoList(ctx, cq, lang, true, page)
 	}
 	if strings.HasPrefix(cq.Data, "m:") {
-		return b.handlePRMore(ctx, cq)
+		return b.handlePRMore(ctx, cq, lang)
 	}
 
 	if !strings.HasPrefix(cq.Data, "t:") {
@@ -395,15 +440,15 @@ func (b *Bot) dispatchCallback(ctx context.Context, cq tg.CallbackQuery) (string
 	tokenValue := strings.TrimPrefix(cq.Data, "t:")
 	token, err := b.store.GetCallbackToken(ctx, cq.From.ID, tokenValue)
 	if err != nil {
-		return "This action expired.", b.renderHome(ctx, cq)
+		return i18n.T(lang, "toast.action_expired"), b.renderHome(ctx, cq, lang)
 	}
 	if isConsumedAction(token.Action) {
 		token, err = b.store.ConsumeCallbackToken(ctx, cq.From.ID, tokenValue)
 		if err != nil {
-			return "This action already ran.", b.renderHome(ctx, cq)
+			return i18n.T(lang, "toast.action_already_ran"), b.renderHome(ctx, cq, lang)
 		}
 	}
-	return b.handleToken(ctx, cq, token)
+	return b.handleToken(ctx, cq, lang, token)
 }
 
 // parsePage matches a static callback prefix optionally suffixed with ":<page>".
@@ -419,36 +464,34 @@ func parsePage(data, prefix string) (int, bool) {
 	return 0, false
 }
 
-const snapshotExpiredToast = "This snapshot expired."
-const filesLoadFailedToast = "Could not load the file list."
-const githubExpiredToast = "GitHub access expired."
 const moreFilesTimeout = 8 * time.Second
 
-func (b *Bot) handlePRMore(ctx context.Context, cq tg.CallbackQuery) (string, error) {
+func (b *Bot) handlePRMore(ctx context.Context, cq tg.CallbackQuery, lang string) (string, error) {
+	expired := i18n.T(lang, "toast.snapshot_expired")
 	compact := strings.TrimPrefix(cq.Data, "m:")
 	jobID, ok := db.ExpandCompactUUID(compact)
 	if !ok {
-		return snapshotExpiredToast, nil
+		return expired, nil
 	}
 	job, err := b.store.GetNotificationJobForChat(ctx, jobID, cq.Message.Chat.ID)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
-			return snapshotExpiredToast, nil
+			return expired, nil
 		}
 		return "", err
 	}
 	if len(job.MoreJSON) == 0 {
-		return snapshotExpiredToast, nil
+		return expired, nil
 	}
 	var snapshot notify.PRMoreSnapshot
 	if err := json.Unmarshal(job.MoreJSON, &snapshot); err != nil {
-		return snapshotExpiredToast, nil
+		return expired, nil
 	}
 
-	files, toast := b.loadPRMoreFiles(ctx, job, snapshot)
+	files, toast := b.loadPRMoreFiles(ctx, lang, job, snapshot)
 	html := notify.PRMoreHTML(snapshot, files)
 	if strings.TrimSpace(html) == "" {
-		return snapshotExpiredToast, nil
+		return expired, nil
 	}
 	callbackID := cq.ID
 	if toast != "" {
@@ -460,12 +503,13 @@ func (b *Bot) handlePRMore(ctx context.Context, cq tg.CallbackQuery) (string, er
 	return toast, nil
 }
 
-func (b *Bot) loadPRMoreFiles(ctx context.Context, job db.NotificationJob, snapshot notify.PRMoreSnapshot) ([]notify.PRFile, string) {
+func (b *Bot) loadPRMoreFiles(ctx context.Context, lang string, job db.NotificationJob, snapshot notify.PRMoreSnapshot) ([]notify.PRFile, string) {
+	failed := i18n.T(lang, "toast.files_failed")
 	if b.github == nil || b.sealer == nil || strings.TrimSpace(job.SubscriptionID) == "" {
 		return nil, ""
 	}
 	if strings.TrimSpace(snapshot.RepoFullName) == "" || snapshot.Number <= 0 {
-		return nil, filesLoadFailedToast
+		return nil, failed
 	}
 
 	fetchCtx, cancel := context.WithTimeout(ctx, moreFilesTimeout)
@@ -474,20 +518,20 @@ func (b *Bot) loadPRMoreFiles(ctx context.Context, job db.NotificationJob, snaps
 	sub, err := b.store.GetSubscription(fetchCtx, job.SubscriptionID)
 	if err != nil {
 		slog.Warn("pr more subscription lookup failed", "error", err)
-		return nil, filesLoadFailedToast
+		return nil, failed
 	}
 	token, err := b.accessToken(fetchCtx, sub.TelegramUserID)
 	if err != nil {
 		slog.Warn("pr more token decrypt failed", "error", err)
-		return nil, filesLoadFailedToast
+		return nil, failed
 	}
 	raw, err := b.github.ListPullRequestFiles(fetchCtx, token, snapshot.RepoFullName, snapshot.Number)
 	if err != nil {
 		if github.IsAuthError(err) {
-			return nil, githubExpiredToast
+			return nil, i18n.T(lang, "toast.github_expired")
 		}
 		slog.Warn("pr more files fetch failed", "error", err)
-		return nil, filesLoadFailedToast
+		return nil, failed
 	}
 	return notifyPRFiles(raw), ""
 }
@@ -507,20 +551,20 @@ func notifyPRFiles(files []github.PullRequestFile) []notify.PRFile {
 	return out
 }
 
-func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.CallbackToken) (string, error) {
+func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, lang string, token db.CallbackToken) (string, error) {
 	switch token.Action {
 	case "repo.info":
 		var payload repoPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
-		return "", b.renderRepoInfo(ctx, cq, payload.Repo)
+		return "", b.renderRepoInfo(ctx, cq, lang, payload.Repo)
 	case "sub.repo":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
 			return "", err
 		}
-		return "", b.renderDestinationPicker(ctx, cq, draft, false, "")
+		return "", b.renderDestinationPicker(ctx, cq, lang, draft, false, "")
 	case "sub.dest":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
@@ -528,12 +572,12 @@ func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.Cal
 		}
 		if draft.DestinationType == "group" {
 			if err := b.requireGroupAdmin(ctx, draft.DestinationChatID, cq.From.ID); err != nil {
-				return b.groupAdminFailure(ctx, cq, err, func() error {
-					return b.renderDestinationPicker(ctx, cq, draft, false, "")
+				return b.groupAdminFailure(ctx, cq, lang, err, func() error {
+					return b.renderDestinationPicker(ctx, cq, lang, draft, false, "")
 				})
 			}
 		}
-		return "", b.renderEventPicker(ctx, cq, draft)
+		return "", b.renderEventPicker(ctx, cq, lang, draft)
 	case "sub.events.toggle":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
@@ -543,35 +587,35 @@ func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.Cal
 			draft.Events = toggleEvent(draft.Events, draft.ToggleEvent)
 			draft.ToggleEvent = ""
 		}
-		return "", b.renderEventPicker(ctx, cq, draft)
+		return "", b.renderEventPicker(ctx, cq, lang, draft)
 	case "sub.settings":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
 			return "", err
 		}
-		return "", b.renderEventSettings(ctx, cq, draft)
+		return "", b.renderEventSettings(ctx, cq, lang, draft)
 	case "sub.settings.branch":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
 			return "", err
 		}
-		return "", b.renderBranchSettings(ctx, cq, draft)
+		return "", b.renderBranchSettings(ctx, cq, lang, draft)
 	case "sub.settings.branch.mode":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
 			return "", err
 		}
 		if draft.BranchMode == "selected" {
-			return "", b.renderBranchList(ctx, cq, draft)
+			return "", b.renderBranchList(ctx, cq, lang, draft)
 		}
 		draft.BranchNames = nil
-		return "", b.renderEventSettings(ctx, cq, draft)
+		return "", b.renderEventSettings(ctx, cq, lang, draft)
 	case "sub.settings.branch.list":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
 			return "", err
 		}
-		return "", b.renderBranchList(ctx, cq, draft)
+		return "", b.renderBranchList(ctx, cq, lang, draft)
 	case "sub.settings.branch.toggle":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
@@ -581,13 +625,13 @@ func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.Cal
 			draft.BranchNames = toggleString(draft.BranchNames, draft.ToggleBranchName)
 			draft.ToggleBranchName = ""
 		}
-		return "", b.renderBranchList(ctx, cq, draft)
+		return "", b.renderBranchList(ctx, cq, lang, draft)
 	case "sub.settings.pr":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
 			return "", err
 		}
-		return "", b.renderPullRequestSettings(ctx, cq, draft)
+		return "", b.renderPullRequestSettings(ctx, cq, lang, draft)
 	case "sub.settings.pr.toggle":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
@@ -597,25 +641,25 @@ func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.Cal
 			draft.PullRequestActions = togglePullRequestAction(draft.PullRequestActions, draft.TogglePullRequestAction)
 			draft.TogglePullRequestAction = ""
 		}
-		return "", b.renderPullRequestSettings(ctx, cq, draft)
+		return "", b.renderPullRequestSettings(ctx, cq, lang, draft)
 	case "sub.settings.release":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
 			return "", err
 		}
-		return "", b.renderReleaseSettings(ctx, cq, draft)
+		return "", b.renderReleaseSettings(ctx, cq, lang, draft)
 	case "sub.settings.release.mode":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
 			return "", err
 		}
-		return "", b.renderEventSettings(ctx, cq, draft)
+		return "", b.renderEventSettings(ctx, cq, lang, draft)
 	case "sub.create":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
 			return "", err
 		}
-		return b.createSubscription(ctx, cq, draft)
+		return b.createSubscription(ctx, cq, lang, draft)
 	case "sub.branch":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
@@ -625,9 +669,9 @@ func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.Cal
 			draft.BranchNames = []string{draft.BranchName}
 		}
 		if draft.BranchMode == "selected" && len(draft.BranchNames) == 0 {
-			return "", b.renderBranchList(ctx, cq, draft)
+			return "", b.renderBranchList(ctx, cq, lang, draft)
 		}
-		return b.createSubscription(ctx, cq, draft)
+		return b.createSubscription(ctx, cq, lang, draft)
 	case "sub.branch.selected":
 		var draft subDraft
 		if err := decode(token.Payload, &draft); err != nil {
@@ -636,41 +680,41 @@ func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.Cal
 		if draft.BranchName != "" && len(draft.BranchNames) == 0 {
 			draft.BranchNames = []string{draft.BranchName}
 		}
-		return b.createSubscription(ctx, cq, draft)
+		return b.createSubscription(ctx, cq, lang, draft)
 	case "sub.view":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
-		return "", b.renderSubscription(ctx, cq, payload.ID)
+		return "", b.renderSubscription(ctx, cq, lang, payload.ID)
 	case "sub.status":
 		var payload statusPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
 		if err := b.subs.SetStatus(ctx, cq.From.ID, payload.ID, payload.Status); err != nil {
-			return "", b.githubError(ctx, cq, err, "update the subscription")
+			return "", b.githubError(ctx, cq, lang, err, "err.action.update_subscription")
 		}
-		toast := "Subscription paused."
+		toast := i18n.T(lang, "toast.sub_paused")
 		if payload.Status == "active" {
-			toast = "Subscription resumed."
+			toast = i18n.T(lang, "toast.sub_resumed")
 		}
-		return toast, b.renderSubscription(ctx, cq, payload.ID)
+		return toast, b.renderSubscription(ctx, cq, lang, payload.ID)
 	case "sub.delete.confirm":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
-		return "", b.renderDeleteConfirm(ctx, cq, payload.ID)
+		return "", b.renderDeleteConfirm(ctx, cq, lang, payload.ID)
 	case "sub.delete":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
 		if err := b.subs.Delete(ctx, cq.From.ID, payload.ID); err != nil {
-			return "", b.githubError(ctx, cq, err, "delete the subscription")
+			return "", b.githubError(ctx, cq, lang, err, "err.action.delete_subscription")
 		}
-		return "Subscription deleted.", b.renderSubscriptionList(ctx, cq)
+		return i18n.T(lang, "toast.sub_deleted"), b.renderSubscriptionList(ctx, cq, lang)
 	case "sub.test":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
@@ -679,15 +723,15 @@ func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.Cal
 		if err := b.subs.SendTest(ctx, b.client, cq.From.ID, payload.ID); err != nil {
 			// Keep the user on the subscription screen and surface the failure as
 			// a toast, mirroring the success path, instead of ejecting them home.
-			return b.userMessage(err, "send the test notification"), b.renderSubscription(ctx, cq, payload.ID)
+			return b.userMessage(err, lang, "err.action.send_test"), b.renderSubscription(ctx, cq, lang, payload.ID)
 		}
-		return "Test notification sent.", b.renderSubscription(ctx, cq, payload.ID)
+		return i18n.T(lang, "toast.test_sent"), b.renderSubscription(ctx, cq, lang, payload.ID)
 	case "sub.edit.events":
 		var payload editEventsPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
-		return "", b.renderEditEvents(ctx, cq, payload.ID, payload.Events)
+		return "", b.renderEditEvents(ctx, cq, lang, payload.ID, payload.Events)
 	case "sub.edit.events.toggle":
 		var payload editEventsPayload
 		if err := decode(token.Payload, &payload); err != nil {
@@ -697,34 +741,34 @@ func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.Cal
 			payload.Events = toggleEvent(payload.Events, payload.ToggleEvent)
 			payload.ToggleEvent = ""
 		}
-		return "", b.renderEditEvents(ctx, cq, payload.ID, payload.Events)
+		return "", b.renderEditEvents(ctx, cq, lang, payload.ID, payload.Events)
 	case "sub.edit.events.save":
 		var payload editEventsPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
 		if err := b.subs.SetEvents(ctx, cq.From.ID, payload.ID, payload.Events); err != nil {
-			return "", b.githubError(ctx, cq, err, "update the events")
+			return "", b.githubError(ctx, cq, lang, err, "err.action.update_events")
 		}
-		return "Events updated.", b.renderAdvancedSettings(ctx, cq, payload.ID)
+		return i18n.T(lang, "toast.events_updated"), b.renderAdvancedSettings(ctx, cq, lang, payload.ID)
 	case "sub.edit.settings":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
-		return "", b.renderAdvancedSettings(ctx, cq, payload.ID)
+		return "", b.renderAdvancedSettings(ctx, cq, lang, payload.ID)
 	case "sub.edit.menu":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
-		return "", b.renderSubscriptionEditMenu(ctx, cq, payload.ID)
+		return "", b.renderSubscriptionEditMenu(ctx, cq, lang, payload.ID)
 	case "sub.edit.branch":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
-		return "", b.renderEditBranch(ctx, cq, payload.ID)
+		return "", b.renderEditBranch(ctx, cq, lang, payload.ID)
 	case "sub.edit.branch.save":
 		var payload editBranchPayload
 		if err := decode(token.Payload, &payload); err != nil {
@@ -734,15 +778,15 @@ func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.Cal
 			payload.BranchNames = []string{payload.BranchName}
 		}
 		if err := b.subs.SetBranch(ctx, cq.From.ID, payload.ID, payload.BranchMode, payload.BranchNames); err != nil {
-			return "", b.respond(ctx, cq, esc(b.userMessage(err, "update the branch filter")), backHome())
+			return "", b.respond(ctx, cq, errorPanel(lang, b.userMessage(err, lang, "err.action.update_branch")), backHome(lang, cq.Message.Chat))
 		}
-		return "Branch filter updated.", b.renderAdvancedSettings(ctx, cq, payload.ID)
+		return i18n.T(lang, "toast.branch_updated"), b.renderAdvancedSettings(ctx, cq, lang, payload.ID)
 	case "sub.edit.branch.selected":
 		var payload editBranchPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
-		return "", b.renderEditBranchList(ctx, cq, payload)
+		return "", b.renderEditBranchList(ctx, cq, lang, payload)
 	case "sub.edit.branch.toggle":
 		var payload editBranchPayload
 		if err := decode(token.Payload, &payload); err != nil {
@@ -752,13 +796,13 @@ func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.Cal
 			payload.BranchNames = toggleString(payload.BranchNames, payload.ToggleBranchName)
 			payload.ToggleBranchName = ""
 		}
-		return "", b.renderEditBranchList(ctx, cq, payload)
+		return "", b.renderEditBranchList(ctx, cq, lang, payload)
 	case "sub.edit.pr":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
-		return "", b.renderEditPullRequestSettings(ctx, cq, payload.ID, nil)
+		return "", b.renderEditPullRequestSettings(ctx, cq, lang, payload.ID, nil)
 	case "sub.edit.pr.toggle":
 		var payload editPullRequestPayload
 		if err := decode(token.Payload, &payload); err != nil {
@@ -768,37 +812,37 @@ func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.Cal
 			payload.Actions = togglePullRequestAction(payload.Actions, payload.ToggleAction)
 			payload.ToggleAction = ""
 		}
-		return "", b.renderEditPullRequestSettings(ctx, cq, payload.ID, payload.Actions)
+		return "", b.renderEditPullRequestSettings(ctx, cq, lang, payload.ID, payload.Actions)
 	case "sub.edit.pr.save":
 		var payload editPullRequestPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
 		if err := b.subs.SetPullRequestActions(ctx, cq.From.ID, payload.ID, payload.Actions); err != nil {
-			return "", b.respond(ctx, cq, esc(b.userMessage(err, "update pull request settings")), backHome())
+			return "", b.respond(ctx, cq, errorPanel(lang, b.userMessage(err, lang, "err.action.update_pr")), backHome(lang, cq.Message.Chat))
 		}
-		return "Pull request settings updated.", b.renderAdvancedSettings(ctx, cq, payload.ID)
+		return i18n.T(lang, "toast.pr_updated"), b.renderAdvancedSettings(ctx, cq, lang, payload.ID)
 	case "sub.edit.release":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
-		return "", b.renderEditReleaseSettings(ctx, cq, payload.ID)
+		return "", b.renderEditReleaseSettings(ctx, cq, lang, payload.ID)
 	case "sub.edit.release.save":
 		var payload editReleasePayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
 		if err := b.subs.SetReleaseMode(ctx, cq.From.ID, payload.ID, payload.ReleaseMode); err != nil {
-			return "", b.respond(ctx, cq, esc(b.userMessage(err, "update release settings")), backHome())
+			return "", b.respond(ctx, cq, errorPanel(lang, b.userMessage(err, lang, "err.action.update_release")), backHome(lang, cq.Message.Chat))
 		}
-		return "Release settings updated.", b.renderAdvancedSettings(ctx, cq, payload.ID)
+		return i18n.T(lang, "toast.release_updated"), b.renderAdvancedSettings(ctx, cq, lang, payload.ID)
 	case "sub.edit.dest":
 		var payload subscriptionPayload
 		if err := decode(token.Payload, &payload); err != nil {
 			return "", err
 		}
-		return "", b.renderDestinationPicker(ctx, cq, subDraft{EditSubscriptionID: payload.ID}, true, payload.ID)
+		return "", b.renderDestinationPicker(ctx, cq, lang, subDraft{EditSubscriptionID: payload.ID}, true, payload.ID)
 	case "sub.edit.dest.save":
 		var payload editDestinationPayload
 		if err := decode(token.Payload, &payload); err != nil {
@@ -806,49 +850,49 @@ func (b *Bot) handleToken(ctx context.Context, cq tg.CallbackQuery, token db.Cal
 		}
 		if payload.DestinationType == "group" {
 			if err := b.requireGroupAdmin(ctx, payload.DestinationChatID, cq.From.ID); err != nil {
-				return b.groupAdminFailure(ctx, cq, err, func() error {
-					return b.renderDestinationPicker(ctx, cq, subDraft{EditSubscriptionID: payload.ID}, true, payload.ID)
+				return b.groupAdminFailure(ctx, cq, lang, err, func() error {
+					return b.renderDestinationPicker(ctx, cq, lang, subDraft{EditSubscriptionID: payload.ID}, true, payload.ID)
 				})
 			}
 		}
 		if err := b.subs.SetDestination(ctx, cq.From.ID, payload.ID, payload.DestinationType, payload.DestinationChatID); err != nil {
-			return "", b.respond(ctx, cq, esc(b.userMessage(err, "update the destination")), backHome())
+			return "", b.respond(ctx, cq, errorPanel(lang, b.userMessage(err, lang, "err.action.update_destination")), backHome(lang, cq.Message.Chat))
 		}
-		return "Destination updated.", b.renderSubscription(ctx, cq, payload.ID)
+		return i18n.T(lang, "toast.dest_updated"), b.renderSubscription(ctx, cq, lang, payload.ID)
 	}
 	return "", nil
 }
 
-func (b *Bot) mainMenu(ctx context.Context, telegramUserID int64) (string, *tg.InlineKeyboardMarkup, error) {
+func (b *Bot) mainMenu(ctx context.Context, telegramUserID int64, lang string) (string, *tg.InlineKeyboardMarkup, error) {
 	connectURL, err := b.oauth.CreateAuthURL(ctx, telegramUserID)
 	if err != nil {
 		return "", nil, err
 	}
 	connected := false
-	lines := []string{"<b>Branchy</b>"}
+	var lines []string
 	if conn, err := b.store.GetGitHubConnection(ctx, telegramUserID); err == nil {
 		connected = true
-		lines = append(lines, "Connected as "+esc(conn.GitHubLogin))
+		lines = append(lines, i18n.T(lang, "home.connected", "login", esc(conn.GitHubLogin)))
 	} else {
-		lines = append(lines, "Not connected to GitHub")
+		lines = append(lines, i18n.T(lang, "home.not_connected"))
 	}
-	connectLabel := "Connect GitHub"
+	connectLabel := i18n.T(lang, "btn.connect")
 	if connected {
-		connectLabel = "Reconnect GitHub"
+		connectLabel = i18n.T(lang, "btn.reconnect")
 		subs, err := b.store.ListSubscriptionsByUser(ctx, telegramUserID)
 		if err != nil {
 			return "", nil, err
 		}
 		switch len(subs) {
 		case 0:
-			lines = append(lines, "No subscriptions yet. Tap New subscription to begin.")
+			lines = append(lines, i18n.T(lang, "home.subs.none"))
 		case 1:
-			lines = append(lines, "1 subscription.")
+			lines = append(lines, i18n.T(lang, "home.subs.one"))
 		default:
-			lines = append(lines, fmt.Sprintf("%d subscriptions.", len(subs)))
+			lines = append(lines, i18n.T(lang, "home.subs.many", "count", strconv.Itoa(len(subs))))
 		}
 	} else {
-		lines = append(lines, "Connect GitHub to choose repositories and events.")
+		lines = append(lines, i18n.T(lang, "home.connect_hint"))
 	}
 	// When disconnected, connecting is the one call to action; once connected it
 	// becomes a secondary "Reconnect" and "New subscription" is the accent.
@@ -861,25 +905,25 @@ func (b *Bot) mainMenu(ctx context.Context, telegramUserID int64) (string, *tg.I
 	// once connected; until then the menu is just the connect button.
 	if connected {
 		rows = append(rows,
-			[]tg.InlineKeyboardButton{{Text: "Repositories", CallbackData: "repo:list"}, {Text: "Subscriptions", CallbackData: "sub:list"}},
-			[]tg.InlineKeyboardButton{{Text: "New subscription", CallbackData: "sub:new", Style: tg.StylePrimary}},
+			[]tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.repositories"), CallbackData: "repo:list"}, {Text: i18n.T(lang, "btn.subscriptions"), CallbackData: "sub:list"}},
+			[]tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.sub_new"), CallbackData: "sub:new", Style: tg.StylePrimary}},
 		)
 	}
 	// About sits last: it answers a question rather than doing anything, so it
 	// should not compete with the call to action above it.
-	rows = append(rows, []tg.InlineKeyboardButton{{Text: "About", CallbackData: "about"}})
-	return strings.Join(lines, "\n"), &tg.InlineKeyboardMarkup{InlineKeyboard: rows}, nil
+	rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.about"), CallbackData: "about"}})
+	return panel(i18n.T(lang, "home.title"), "", i18n.T(lang, "home.hint"), strings.Join(lines, "\n")), &tg.InlineKeyboardMarkup{InlineKeyboard: rows}, nil
 }
 
-func (b *Bot) renderHome(ctx context.Context, cq tg.CallbackQuery) error {
+func (b *Bot) renderHome(ctx context.Context, cq tg.CallbackQuery, lang string) error {
 	// A callback arriving from a group belongs to the group panel. Rebuilding
 	// the DM menu here would put one person's GitHub login and subscription
 	// count into a chat they share with everyone else, so the group gets the
 	// group panel back instead.
 	if inGroup(cq.Message.Chat) {
-		return b.respond(ctx, cq, groupPanelText, b.groupPanel())
+		return b.respond(ctx, cq, groupPanelText(lang), b.groupPanel(lang))
 	}
-	text, markup, err := b.mainMenu(ctx, cq.From.ID)
+	text, markup, err := b.mainMenu(ctx, cq.From.ID, lang)
 	if err != nil {
 		return err
 	}
@@ -887,9 +931,9 @@ func (b *Bot) renderHome(ctx context.Context, cq tg.CallbackQuery) error {
 }
 
 // renderAbout states what Branchy is and which build is answering.
-func (b *Bot) renderAbout(ctx context.Context, cq tg.CallbackQuery) error {
-	rows := [][]tg.InlineKeyboardButton{panelFooter(cq.Message.Chat, "home")}
-	return b.respond(ctx, cq, aboutText(b.buildVersion()), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+func (b *Bot) renderAbout(ctx context.Context, cq tg.CallbackQuery, lang string) error {
+	rows := [][]tg.InlineKeyboardButton{panelFooter(lang, cq.Message.Chat, "home")}
+	return b.respond(ctx, cq, aboutText(lang, b.buildVersion()), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 // buildVersion reports exactly what /healthz reports. A binary built without the
@@ -927,36 +971,52 @@ func inGroup(chat tg.Chat) bool {
 // groups, where the panel sits in a feed shared with people who never asked for
 // it and whoever summoned it needs a way to withdraw it. A DM has nothing to
 // close: there the conversation is the panel.
-func panelFooter(chat tg.Chat, backCallback string) []tg.InlineKeyboardButton {
-	row := []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCallback}}
+func panelFooter(lang string, chat tg.Chat, backCallback string) []tg.InlineKeyboardButton {
+	row := []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.back"), CallbackData: backCallback}}
 	if inGroup(chat) {
-		row = append(row, tg.InlineKeyboardButton{Text: "Close", CallbackData: "close"})
+		row = append(row, tg.InlineKeyboardButton{Text: i18n.T(lang, "btn.close"), CallbackData: "close"})
 	}
 	return row
 }
 
-func (b *Bot) renderRepoList(ctx context.Context, cq tg.CallbackQuery, subscribeMode bool, page int) error {
+// errorPanel is the shape a failure gets: the same title-hint-quote panel as
+// every other screen, with the specific failure as its substance. An error is
+// still a screen, and giving it a different shape is what makes a bot feel like
+// it was assembled by several people.
+func errorPanel(lang, message string) string {
+	return panel(i18n.T(lang, "err.title"), "", "", message)
+}
+
+// currentOption is the choice a single-select screen is already on. It is
+// disabled because tapping it would change nothing, and it is named rather than
+// inlined so the five screens that draw one cannot drift apart.
+func currentOption(label string) tg.InlineKeyboardButton {
+	return disabledButton(label)
+}
+
+func (b *Bot) renderRepoList(ctx context.Context, cq tg.CallbackQuery, lang string, subscribeMode bool, page int) error {
 	token, err := b.accessToken(ctx, cq.From.ID)
 	if err != nil {
-		return b.respond(ctx, cq, "Connect GitHub first.", backHome())
+		return b.respond(ctx, cq, notConnectedPanel(lang), backHome(lang, cq.Message.Chat))
 	}
 	repos, err := b.github.ListRepositories(ctx, token)
 	if err != nil {
-		return b.githubError(ctx, cq, err, "list your repositories")
+		return b.githubError(ctx, cq, lang, err, "err.action.list_repositories")
 	}
 	repos = visibleRepositories(repos, subscribeMode)
 	if len(repos) == 0 {
+		hintKey := "repo.empty.hint"
 		if subscribeMode {
-			return b.respond(ctx, cq, "No repositories where you can add a webhook. You need admin rights on a repository to subscribe.", backHome())
+			hintKey = "repo.empty.subscribe.hint"
 		}
-		return b.respond(ctx, cq, "No repositories found for this GitHub account.", backHome())
+		return b.respond(ctx, cq, panel(i18n.T(lang, "repo.empty.title"), "", i18n.T(lang, hintKey), ""), backHome(lang, cq.Message.Chat))
 	}
 
 	prefix := "repo:list"
-	title := "Repositories"
+	titleKey, hintKey := "repo.list.title", "repo.list.hint"
 	if subscribeMode {
 		prefix = "sub:new"
-		title = "Choose a repository"
+		titleKey, hintKey = "repo.choose.title", "repo.choose.hint"
 	}
 
 	pages := (len(repos) + repoPageSize - 1) / repoPageSize
@@ -974,7 +1034,7 @@ func (b *Bot) renderRepoList(ctx context.Context, cq tg.CallbackQuery, subscribe
 		}
 		text := repo.FullName
 		if !subscribeMode && !repo.HasAdminPermission {
-			text = text + "  ·  no access"
+			text = text + "  ·  " + i18n.T(lang, "repo.no_access")
 		}
 		callback, err := b.token(ctx, cq.From.ID, action, repoPayload{Repo: repo})
 		if err != nil {
@@ -982,34 +1042,30 @@ func (b *Bot) renderRepoList(ctx context.Context, cq tg.CallbackQuery, subscribe
 		}
 		rows = append(rows, []tg.InlineKeyboardButton{{Text: text, CallbackData: callback}})
 	}
-	if nav := paginationRow(prefix, page, pages); len(nav) > 0 {
+	if nav := paginationRow(lang, prefix, page, pages); len(nav) > 0 {
 		rows = append(rows, nav)
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: "home"}})
-	header := "<b>" + esc(title) + "</b>"
-	if pages > 1 {
-		header += fmt.Sprintf("\nPage %d of %d", page+1, pages)
-	}
-	return b.respond(ctx, cq, header, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, "home"))
+	return b.respond(ctx, cq, panel(i18n.T(lang, titleKey), "", i18n.T(lang, hintKey), pageNote(lang, page, pages)), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderRepoInfo(ctx context.Context, cq tg.CallbackQuery, repo github.Repository) error {
+func (b *Bot) renderRepoInfo(ctx context.Context, cq tg.CallbackQuery, lang string, repo github.Repository) error {
 	rows := [][]tg.InlineKeyboardButton{}
 	if repo.HasAdminPermission && !repo.Archived {
 		callback, err := b.token(ctx, cq.From.ID, "sub.repo", subDraft{Repo: repo})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Create subscription", CallbackData: callback, Style: tg.StylePrimary}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.sub_create"), CallbackData: callback, Style: tg.StylePrimary}})
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: "repo:list"}})
-	text := "<b>" + esc(repo.FullName) + "</b>\nDefault branch: " + esc(repo.DefaultBranch)
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, "repo:list"))
+	body := i18n.T(lang, "repo.default_branch", "branch", esc(repo.DefaultBranch))
 	if repo.Archived {
-		text += "\nThis repository is archived, so GitHub webhooks cannot be configured."
+		body += "\n" + i18n.T(lang, "repo.archived")
 	} else if !repo.HasAdminPermission {
-		text += "\nYou need admin rights here to add a webhook, so you cannot subscribe to this repository."
+		body += "\n" + i18n.T(lang, "repo.no_admin")
 	}
-	return b.respond(ctx, cq, text, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, panel(esc(repo.FullName), "", i18n.T(lang, "repo.info.hint"), body), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 func visibleRepositories(repos []github.Repository, subscribeMode bool) []github.Repository {
@@ -1033,14 +1089,14 @@ func visibleRepositories(repos []github.Repository, subscribeMode bool) []github
 	return filtered
 }
 
-func (b *Bot) renderDestinationPicker(ctx context.Context, cq tg.CallbackQuery, draft subDraft, edit bool, editID string) error {
+func (b *Bot) renderDestinationPicker(ctx context.Context, cq tg.CallbackQuery, lang string, draft subDraft, edit bool, editID string) error {
 	rows := [][]tg.InlineKeyboardButton{}
 	if edit {
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.dest.save", editDestinationPayload{ID: editID, DestinationType: "dm", DestinationChatID: cq.From.ID})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Direct message", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "dest.dm"), CallbackData: callback}})
 	} else {
 		draft.DestinationType = "dm"
 		draft.DestinationChatID = cq.From.ID
@@ -1048,7 +1104,7 @@ func (b *Bot) renderDestinationPicker(ctx context.Context, cq tg.CallbackQuery, 
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Direct message", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "dest.dm"), CallbackData: callback}})
 	}
 
 	groups, err := b.store.ListKnownGroups(ctx, cq.From.ID)
@@ -1058,7 +1114,7 @@ func (b *Bot) renderDestinationPicker(ctx context.Context, cq tg.CallbackQuery, 
 	for _, group := range groups {
 		label := group.Title
 		if label == "" {
-			label = fmt.Sprintf("Group %d", group.ID)
+			label = groupFallbackLabel(lang, group.ID)
 		}
 		if edit {
 			callback, err := b.token(ctx, cq.From.ID, "sub.edit.dest.save", editDestinationPayload{ID: editID, DestinationType: "group", DestinationChatID: group.ID})
@@ -1077,16 +1133,15 @@ func (b *Bot) renderDestinationPicker(ctx context.Context, cq tg.CallbackQuery, 
 		}
 		rows = append(rows, []tg.InlineKeyboardButton{{Text: label, CallbackData: callback}})
 	}
-	backButton, err := b.stepBackButton(ctx, cq.From.ID, edit, editID, "sub:new")
+	backCB, err := b.stepBackCallback(ctx, cq.From.ID, edit, editID, "sub:new")
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{backButton})
-	text := "<b>Choose destination</b>\nGroups appear here after Branchy is added to them."
-	return b.respond(ctx, cq, text, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, backCB))
+	return b.respond(ctx, cq, panel(i18n.T(lang, "dest.title"), "", i18n.T(lang, "dest.hint"), ""), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEventPicker(ctx context.Context, cq tg.CallbackQuery, draft subDraft) error {
+func (b *Bot) renderEventPicker(ctx context.Context, cq tg.CallbackQuery, lang string, draft subDraft) error {
 	draft = withDraftDefaults(draft)
 	rows := [][]tg.InlineKeyboardButton{}
 	for _, event := range []string{"push", "pull_request", "release"} {
@@ -1096,27 +1151,27 @@ func (b *Bot) renderEventPicker(ctx context.Context, cq tg.CallbackQuery, draft 
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(draft.Events, event), eventLabel(event)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(draft.Events, event), eventLabel(lang, event)), CallbackData: callback}})
 	}
 	if len(draft.Events) > 0 {
 		callback, err := b.token(ctx, cq.From.ID, "sub.settings", draft)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Continue", CallbackData: callback, Style: tg.StylePrimary}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.continue"), CallbackData: callback, Style: tg.StylePrimary}})
 	} else {
-		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Continue")})
+		rows = append(rows, []tg.InlineKeyboardButton{disabledButton(i18n.T(lang, "btn.continue"))})
 	}
 	// Back returns to the destination step, preserving the draft.
 	backCB, err := b.token(ctx, cq.From.ID, "sub.repo", draft)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
-	return b.respond(ctx, cq, "<b>Choose events</b>\nSelect at least one event, then continue.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, backCB))
+	return b.respond(ctx, cq, panel(i18n.T(lang, "sub.events.title"), "", i18n.T(lang, "sub.events.hint"), ""), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEventSettings(ctx context.Context, cq tg.CallbackQuery, draft subDraft) error {
+func (b *Bot) renderEventSettings(ctx context.Context, cq tg.CallbackQuery, lang string, draft subDraft) error {
 	draft = normalizeDraftForEvents(draft)
 	rows := [][]tg.InlineKeyboardButton{}
 	if usesBranchFilter(draft.Events) {
@@ -1124,21 +1179,21 @@ func (b *Bot) renderEventSettings(ctx context.Context, cq tg.CallbackQuery, draf
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Branch filter", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.branch_filter"), CallbackData: callback}})
 	}
 	if contains(draft.Events, "pull_request") {
 		callback, err := b.token(ctx, cq.From.ID, "sub.settings.pr", draft)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Pull request actions", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.pr_actions"), CallbackData: callback}})
 	}
 	if contains(draft.Events, "release") {
 		callback, err := b.token(ctx, cq.From.ID, "sub.settings.release", draft)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Release notifications", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.release_settings"), CallbackData: callback}})
 	}
 	backCB, err := b.token(ctx, cq.From.ID, "sub.dest", draft)
 	if err != nil {
@@ -1149,34 +1204,34 @@ func (b *Bot) renderEventSettings(ctx context.Context, cq tg.CallbackQuery, draf
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Create subscription", CallbackData: createCB, Style: tg.StyleSuccess}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.sub_create"), CallbackData: createCB, Style: tg.StyleSuccess}})
 	} else {
-		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Create subscription")})
+		rows = append(rows, []tg.InlineKeyboardButton{disabledButton(i18n.T(lang, "btn.sub_create"))})
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
-	text := "<b>Event settings</b>\n" + settingsSummary(draft.Events, draft.BranchMode, draft.BranchNames, draft.PullRequestActions, draft.ReleaseMode)
-	if hint := settingsBlockingHint(draft); hint != "" {
-		text += "\n\n⚠ " + hint
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, backCB))
+	body := settingsSummary(lang, draft.Events, draft.BranchMode, draft.BranchNames, draft.PullRequestActions, draft.ReleaseMode)
+	if hint := settingsBlockingHint(lang, draft); hint != "" {
+		body += "\n\n⚠ " + hint
 	}
-	return b.respond(ctx, cq, text, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, panel(i18n.T(lang, "sub.settings.title"), "", i18n.T(lang, "sub.settings.hint"), body), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 // settingsBlockingHint explains why "Create subscription" stays disabled,
 // so a greyed-out button never looks like a dead end. Returns "" when ready.
-func settingsBlockingHint(draft subDraft) string {
+func settingsBlockingHint(lang string, draft subDraft) string {
 	if settingsReady(draft) {
 		return ""
 	}
 	if usesBranchFilter(draft.Events) && draft.BranchMode == "selected" && len(draft.BranchNames) == 0 {
-		return "Pick at least one branch to finish."
+		return i18n.T(lang, "sub.settings.need_branch")
 	}
 	if contains(draft.Events, "pull_request") && len(draft.PullRequestActions) == 0 {
-		return "Pick at least one pull request action to finish."
+		return i18n.T(lang, "sub.settings.need_pr")
 	}
-	return "Finish the settings above to create the subscription."
+	return i18n.T(lang, "sub.settings.need_more")
 }
 
-func (b *Bot) renderBranchSettings(ctx context.Context, cq tg.CallbackQuery, draft subDraft) error {
+func (b *Bot) renderBranchSettings(ctx context.Context, cq tg.CallbackQuery, lang string, draft subDraft) error {
 	draft = normalizeDraftForEvents(draft)
 	rows := [][]tg.InlineKeyboardButton{}
 	for _, mode := range []string{"all", "default", "selected"} {
@@ -1186,7 +1241,7 @@ func (b *Bot) renderBranchSettings(ctx context.Context, cq tg.CallbackQuery, dra
 			next.BranchNames = nil
 		}
 		if draft.BranchMode == mode && mode != "selected" {
-			rows = append(rows, []tg.InlineKeyboardButton{disabledButton(radio(true, branchModeLabel(mode, draft.BranchNames)))})
+			rows = append(rows, []tg.InlineKeyboardButton{currentOption(radio(true, branchModeLabel(lang, mode, draft.BranchNames)))})
 			continue
 		}
 		action := "sub.settings.branch.mode"
@@ -1194,7 +1249,7 @@ func (b *Bot) renderBranchSettings(ctx context.Context, cq tg.CallbackQuery, dra
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: radio(draft.BranchMode == mode, branchModeLabel(mode, draft.BranchNames)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: radio(draft.BranchMode == mode, branchModeLabel(lang, mode, draft.BranchNames)), CallbackData: callback}})
 	}
 	backCB, err := b.token(ctx, cq.From.ID, "sub.settings", draft)
 	if err != nil {
@@ -1203,27 +1258,27 @@ func (b *Bot) renderBranchSettings(ctx context.Context, cq tg.CallbackQuery, dra
 	// Back, not Done: a branch mode is always set, this screen saves nothing of
 	// its own, and the settings hub it returns to is the screen the user came
 	// from. Its twin — release notifications — has always said Back.
-	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
-	return b.respond(ctx, cq, "<b>Branch filter</b>", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, backCB))
+	return b.respond(ctx, cq, panel(i18n.T(lang, "branch.title"), "", i18n.T(lang, "branch.hint"), ""), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderBranchList(ctx context.Context, cq tg.CallbackQuery, draft subDraft) error {
+func (b *Bot) renderBranchList(ctx context.Context, cq tg.CallbackQuery, lang string, draft subDraft) error {
 	draft = normalizeDraftForEvents(draft)
 	draft.BranchMode = "selected"
 	draft.BranchNames = db.NormalizeBranchNames(draft.BranchNames)
 	token, err := b.accessToken(ctx, cq.From.ID)
 	if err != nil {
-		return b.respond(ctx, cq, "Connect GitHub first.", backHome())
+		return b.respond(ctx, cq, notConnectedPanel(lang), backHome(lang, cq.Message.Chat))
 	}
 	branches, err := b.github.ListBranches(ctx, token, draft.Repo.FullName)
 	if err != nil {
-		return b.githubError(ctx, cq, err, "list the branches")
+		return b.githubError(ctx, cq, lang, err, "err.action.list_branches")
 	}
 	backCB, err := b.token(ctx, cq.From.ID, "sub.settings.branch", draft)
 	if err != nil {
 		return err
 	}
-	backRow := []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}}
+	backRow := panelFooter(lang, cq.Message.Chat, backCB)
 
 	if len(branches) == 0 {
 		allDraft := draft
@@ -1234,10 +1289,10 @@ func (b *Bot) renderBranchList(ctx context.Context, cq tg.CallbackQuery, draft s
 			return err
 		}
 		rows := [][]tg.InlineKeyboardButton{
-			{{Text: "Use all branches", CallbackData: allCB, Style: tg.StylePrimary}},
+			{{Text: i18n.T(lang, "btn.use_all_branches"), CallbackData: allCB, Style: tg.StylePrimary}},
 			backRow,
 		}
-		return b.respond(ctx, cq, "<b>Choose branch</b>\nThis repository has no branches to choose from.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+		return b.respond(ctx, cq, panel(i18n.T(lang, "branch.choose.title"), "", i18n.T(lang, "branch.choose.hint"), i18n.T(lang, "branch.empty")), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 	}
 
 	pages := (len(branches) + branchPageSize - 1) / branchPageSize
@@ -1261,41 +1316,37 @@ func (b *Bot) renderBranchList(ctx context.Context, cq tg.CallbackQuery, draft s
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Done", CallbackData: doneCB, Style: tg.StylePrimary}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.done"), CallbackData: doneCB, Style: tg.StylePrimary}})
 	} else {
-		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Done")})
+		rows = append(rows, []tg.InlineKeyboardButton{disabledButton(i18n.T(lang, "btn.done"))})
 	}
 	var nav []tg.InlineKeyboardButton
 	if pages > 1 {
 		if page > 0 {
-			button, err := b.branchNavButton(ctx, cq.From.ID, draft, "‹ Prev", page-1, "sub.settings.branch.list")
+			button, err := b.branchNavButton(ctx, cq.From.ID, draft, i18n.T(lang, "btn.prev"), page-1, "sub.settings.branch.list")
 			if err != nil {
 				return err
 			}
 			nav = append(nav, button)
 		} else {
-			nav = append(nav, disabledButton("‹ Prev"))
+			nav = append(nav, disabledButton(i18n.T(lang, "btn.prev")))
 		}
 		if page < pages-1 {
-			button, err := b.branchNavButton(ctx, cq.From.ID, draft, "Next ›", page+1, "sub.settings.branch.list")
+			button, err := b.branchNavButton(ctx, cq.From.ID, draft, i18n.T(lang, "btn.next"), page+1, "sub.settings.branch.list")
 			if err != nil {
 				return err
 			}
 			nav = append(nav, button)
 		} else {
-			nav = append(nav, disabledButton("Next ›"))
+			nav = append(nav, disabledButton(i18n.T(lang, "btn.next")))
 		}
 		rows = append(rows, nav)
 	}
 	rows = append(rows, backRow)
-	header := "<b>Choose branch</b>"
-	if pages > 1 {
-		header += fmt.Sprintf("\nPage %d of %d", page+1, pages)
-	}
-	return b.respond(ctx, cq, header, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, panel(i18n.T(lang, "branch.choose.title"), "", i18n.T(lang, "branch.choose.hint"), pageNote(lang, page, pages)), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderPullRequestSettings(ctx context.Context, cq tg.CallbackQuery, draft subDraft) error {
+func (b *Bot) renderPullRequestSettings(ctx context.Context, cq tg.CallbackQuery, lang string, draft subDraft) error {
 	draft = normalizeDraftForEvents(draft)
 	rows := [][]tg.InlineKeyboardButton{}
 	for _, action := range pullRequestActionOrder() {
@@ -1305,7 +1356,7 @@ func (b *Bot) renderPullRequestSettings(ctx context.Context, cq tg.CallbackQuery
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(draft.PullRequestActions, action), pullRequestActionLabel(action)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(draft.PullRequestActions, action), pullRequestActionLabel(lang, action)), CallbackData: callback}})
 	}
 	// In the draft flow toggles already persist into the draft, so one button is
 	// enough and it is a Back: it returns to the settings hub the user came
@@ -1315,50 +1366,50 @@ func (b *Bot) renderPullRequestSettings(ctx context.Context, cq tg.CallbackQuery
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
-	return b.respond(ctx, cq, "<b>Pull request actions</b>\nSelect at least one action. “Opened” also covers reopened pull requests.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, backCB))
+	return b.respond(ctx, cq, panel(i18n.T(lang, "pr.title"), "", i18n.T(lang, "pr.hint"), ""), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderReleaseSettings(ctx context.Context, cq tg.CallbackQuery, draft subDraft) error {
+func (b *Bot) renderReleaseSettings(ctx context.Context, cq tg.CallbackQuery, lang string, draft subDraft) error {
 	draft = normalizeDraftForEvents(draft)
 	rows := [][]tg.InlineKeyboardButton{}
 	for _, mode := range releaseModeOrder() {
 		next := draft
 		next.ReleaseMode = mode
 		if draft.ReleaseMode == mode {
-			rows = append(rows, []tg.InlineKeyboardButton{disabledButton(radio(true, releaseModeLabel(mode)))})
+			rows = append(rows, []tg.InlineKeyboardButton{currentOption(radio(true, releaseModeLabel(lang, mode)))})
 			continue
 		}
 		callback, err := b.token(ctx, cq.From.ID, "sub.settings.release.mode", next)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: radio(false, releaseModeLabel(mode)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: radio(false, releaseModeLabel(lang, mode)), CallbackData: callback}})
 	}
 	backCB, err := b.token(ctx, cq.From.ID, "sub.settings", draft)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}})
-	return b.respond(ctx, cq, "<b>Release notifications</b>", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, backCB))
+	return b.respond(ctx, cq, panel(i18n.T(lang, "release.title"), "", i18n.T(lang, "release.hint"), ""), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) createSubscription(ctx context.Context, cq tg.CallbackQuery, draft subDraft) (string, error) {
+func (b *Bot) createSubscription(ctx context.Context, cq tg.CallbackQuery, lang string, draft subDraft) (string, error) {
 	draft = normalizeDraftForEvents(draft)
 	id, err := b.subs.Create(ctx, cq.From.ID, draft.Repo, draft.DestinationType, draft.DestinationChatID, draft.Events, draft.BranchMode, draft.BranchNames, draft.PullRequestActions, draft.ReleaseMode)
 	if err != nil {
-		return "", b.githubError(ctx, cq, err, "create the subscription")
+		return "", b.githubError(ctx, cq, lang, err, "err.action.create_subscription")
 	}
-	return "Subscription created.", b.renderSubscription(ctx, cq, id)
+	return i18n.T(lang, "toast.sub_created"), b.renderSubscription(ctx, cq, lang, id)
 }
 
-func (b *Bot) renderSubscriptionList(ctx context.Context, cq tg.CallbackQuery) error {
+func (b *Bot) renderSubscriptionList(ctx context.Context, cq tg.CallbackQuery, lang string) error {
 	subs, err := b.store.ListSubscriptionsByUser(ctx, cq.From.ID)
 	if err != nil {
 		return err
 	}
 	if len(subs) == 0 {
-		return b.respond(ctx, cq, "No subscriptions yet.", backHome())
+		return b.respond(ctx, cq, panel(i18n.T(lang, "sub.list.empty.title"), "", i18n.T(lang, "sub.list.empty.hint"), ""), backHome(lang, cq.Message.Chat))
 	}
 	rows := [][]tg.InlineKeyboardButton{}
 	for _, sub := range subs {
@@ -1368,25 +1419,25 @@ func (b *Bot) renderSubscriptionList(ctx context.Context, cq tg.CallbackQuery) e
 		}
 		label := sub.RepoFullName
 		if sub.Status == "paused" {
-			label += "  ·  paused"
+			label += "  ·  " + i18n.T(lang, "sub.list.paused")
 		}
 		rows = append(rows, []tg.InlineKeyboardButton{{Text: label, CallbackData: callback}})
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{{Text: "Back", CallbackData: "home"}})
-	return b.respond(ctx, cq, "<b>Subscriptions</b>\nTap a subscription to view or edit it.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, "home"))
+	return b.respond(ctx, cq, panel(i18n.T(lang, "sub.list.title"), "", i18n.T(lang, "sub.list.hint"), ""), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderSubscription(ctx context.Context, cq tg.CallbackQuery, id string) error {
+func (b *Bot) renderSubscription(ctx context.Context, cq tg.CallbackQuery, lang string, id string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
-		return b.respond(ctx, cq, "Subscription not found.", backHome())
+		return b.respond(ctx, cq, subNotFoundPanel(lang), backHome(lang, cq.Message.Chat))
 	}
 	rows := [][]tg.InlineKeyboardButton{}
 	nextStatus := "paused"
-	statusLabel := "Pause"
+	statusLabel := i18n.T(lang, "btn.pause")
 	if sub.Status == "paused" {
 		nextStatus = "active"
-		statusLabel = "Resume"
+		statusLabel = i18n.T(lang, "btn.resume")
 	}
 	statusCB, err := b.token(ctx, cq.From.ID, "sub.status", statusPayload{ID: sub.ID, Status: nextStatus})
 	if err != nil {
@@ -1405,35 +1456,35 @@ func (b *Bot) renderSubscription(ctx context.Context, cq tg.CallbackQuery, id st
 		return err
 	}
 	rows = append(rows,
-		[]tg.InlineKeyboardButton{{Text: statusLabel, CallbackData: statusCB}, {Text: "Test", CallbackData: testCB}},
-		[]tg.InlineKeyboardButton{{Text: "Edit", CallbackData: editMenuCB, Style: tg.StylePrimary}},
-		[]tg.InlineKeyboardButton{{Text: "Delete", CallbackData: deleteCB, Style: tg.StyleDanger}},
-		[]tg.InlineKeyboardButton{{Text: "Back", CallbackData: "sub:list"}},
+		[]tg.InlineKeyboardButton{{Text: statusLabel, CallbackData: statusCB}, {Text: i18n.T(lang, "btn.test"), CallbackData: testCB}},
+		[]tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.edit"), CallbackData: editMenuCB, Style: tg.StylePrimary}},
+		[]tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.delete"), CallbackData: deleteCB, Style: tg.StyleDanger}},
+		panelFooter(lang, cq.Message.Chat, "sub:list"),
 	)
-	destLabel, destWarning := b.describeDestination(ctx, cq.From.ID, sub)
-	text := fmt.Sprintf("<b>%s</b>\nStatus: %s\nDestination: %s\n%s",
-		esc(sub.RepoFullName),
-		esc(statusText(sub.Status)),
-		esc(destLabel),
-		settingsSummary(sub.Events, sub.BranchMode, subscriptionBranchNames(sub), sub.PullRequestActions, sub.ReleaseMode),
-	)
-	if note := pauseReasonNote(sub.PauseReason); note != "" {
-		text += "\n⚠ " + esc(note)
+	destLabel, destWarning := b.describeDestination(ctx, lang, cq.From.ID, sub)
+	body := strings.Join([]string{
+		i18n.T(lang, "sub.field.status", "value", esc(statusText(lang, sub.Status))),
+		i18n.T(lang, "sub.field.destination", "value", esc(destLabel)),
+		settingsSummary(lang, sub.Events, sub.BranchMode, subscriptionBranchNames(sub), sub.PullRequestActions, sub.ReleaseMode),
+	}, "\n")
+	if note := pauseReasonNote(lang, sub.PauseReason); note != "" {
+		body += "\n⚠ " + note
 	}
 	if destWarning != "" {
-		text += "\n" + esc(destWarning)
+		body += "\n⚠ " + destWarning
 	}
-	return b.respond(ctx, cq, text, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, panel(esc(sub.RepoFullName), "", i18n.T(lang, "sub.view.hint"), body), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 // renderDeleteConfirm asks for explicit confirmation before deleting a
 // subscription: the destructive action is one fat-finger tap away on the detail
 // screen, so it gets a dedicated yes/no hop. "Delete" issues a fresh consumed
-// sub.delete token; "Cancel" returns to the subscription.
-func (b *Bot) renderDeleteConfirm(ctx context.Context, cq tg.CallbackQuery, id string) error {
+// sub.delete token; the footer's "Back" returns to the subscription. Back, not
+// "Cancel": the family uses one word for going up, whatever the screen.
+func (b *Bot) renderDeleteConfirm(ctx context.Context, cq tg.CallbackQuery, lang string, id string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
-		return b.respond(ctx, cq, "Subscription not found.", backHome())
+		return b.respond(ctx, cq, subNotFoundPanel(lang), backHome(lang, cq.Message.Chat))
 	}
 	deleteCB, err := b.token(ctx, cq.From.ID, "sub.delete", subscriptionPayload{ID: id})
 	if err != nil {
@@ -1444,17 +1495,17 @@ func (b *Bot) renderDeleteConfirm(ctx context.Context, cq tg.CallbackQuery, id s
 		return err
 	}
 	rows := [][]tg.InlineKeyboardButton{
-		{{Text: "Delete", CallbackData: deleteCB, Style: tg.StyleDanger}},
-		{{Text: "Cancel", CallbackData: cancelCB}},
+		{{Text: i18n.T(lang, "btn.delete"), CallbackData: deleteCB, Style: tg.StyleDanger}},
+		panelFooter(lang, cq.Message.Chat, cancelCB),
 	}
-	text := fmt.Sprintf("<b>Delete this subscription?</b>\n%s\nThis permanently removes the subscription and cannot be undone.", esc(sub.RepoFullName))
+	text := panel(i18n.T(lang, "sub.delete.title"), "", i18n.T(lang, "sub.delete.body"), esc(sub.RepoFullName))
 	return b.respond(ctx, cq, text, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderSubscriptionEditMenu(ctx context.Context, cq tg.CallbackQuery, id string) error {
+func (b *Bot) renderSubscriptionEditMenu(ctx context.Context, cq tg.CallbackQuery, lang string, id string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
-		return b.respond(ctx, cq, "Subscription not found.", backHome())
+		return b.respond(ctx, cq, subNotFoundPanel(lang), backHome(lang, cq.Message.Chat))
 	}
 	editEventsCB, err := b.token(ctx, cq.From.ID, "sub.edit.events", editEventsPayload{ID: sub.ID, Events: sub.Events})
 	if err != nil {
@@ -1468,20 +1519,20 @@ func (b *Bot) renderSubscriptionEditMenu(ctx context.Context, cq tg.CallbackQuer
 	if err != nil {
 		return err
 	}
-	backButton, err := b.viewButton(ctx, cq.From.ID, id)
+	backCB, err := b.viewCallback(ctx, cq.From.ID, id)
 	if err != nil {
 		return err
 	}
 	rows := [][]tg.InlineKeyboardButton{
-		{{Text: "Event", CallbackData: editEventsCB}},
-		{{Text: "Destination", CallbackData: editDestCB}},
-		{{Text: "Advanced", CallbackData: advancedCB}},
-		{backButton},
+		{{Text: i18n.T(lang, "btn.events"), CallbackData: editEventsCB}},
+		{{Text: i18n.T(lang, "btn.destination"), CallbackData: editDestCB}},
+		{{Text: i18n.T(lang, "btn.advanced"), CallbackData: advancedCB}},
+		panelFooter(lang, cq.Message.Chat, backCB),
 	}
-	return b.respond(ctx, cq, "<b>Edit subscription</b>\nChoose what to change.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, panel(i18n.T(lang, "sub.edit.title"), "", i18n.T(lang, "sub.edit.hint"), ""), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEditEvents(ctx context.Context, cq tg.CallbackQuery, id string, events []string) error {
+func (b *Bot) renderEditEvents(ctx context.Context, cq tg.CallbackQuery, lang string, id string, events []string) error {
 	rows := [][]tg.InlineKeyboardButton{}
 	for _, event := range []string{"push", "pull_request", "release"} {
 		payload := editEventsPayload{ID: id, Events: events, ToggleEvent: event}
@@ -1489,29 +1540,29 @@ func (b *Bot) renderEditEvents(ctx context.Context, cq tg.CallbackQuery, id stri
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(events, event), eventLabel(event)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(events, event), eventLabel(lang, event)), CallbackData: callback}})
 	}
 	if len(events) > 0 {
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.events.save", editEventsPayload{ID: id, Events: events})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Save", CallbackData: callback, Style: tg.StylePrimary}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.save"), CallbackData: callback, Style: tg.StylePrimary}})
 	} else {
-		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Save")})
+		rows = append(rows, []tg.InlineKeyboardButton{disabledButton(i18n.T(lang, "btn.save"))})
 	}
-	backButton, err := b.editMenuButton(ctx, cq.From.ID, id)
+	backCB, err := b.editMenuCallback(ctx, cq.From.ID, id)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{backButton})
-	return b.respond(ctx, cq, "<b>Edit events</b>\nSelect at least one event, then tap Save.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, backCB))
+	return b.respond(ctx, cq, panel(i18n.T(lang, "sub.edit.events.title"), "", i18n.T(lang, "sub.edit.events.hint"), ""), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderAdvancedSettings(ctx context.Context, cq tg.CallbackQuery, id string) error {
+func (b *Bot) renderAdvancedSettings(ctx context.Context, cq tg.CallbackQuery, lang string, id string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
-		return b.respond(ctx, cq, "Subscription not found.", backHome())
+		return b.respond(ctx, cq, subNotFoundPanel(lang), backHome(lang, cq.Message.Chat))
 	}
 	rows := [][]tg.InlineKeyboardButton{}
 	if usesBranchFilter(sub.Events) {
@@ -1519,37 +1570,38 @@ func (b *Bot) renderAdvancedSettings(ctx context.Context, cq tg.CallbackQuery, i
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Branch filter", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.branch_filter"), CallbackData: callback}})
 	}
 	if contains(sub.Events, "pull_request") {
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.pr", subscriptionPayload{ID: id})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Pull request actions", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.pr_actions"), CallbackData: callback}})
 	}
 	if contains(sub.Events, "release") {
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.release", subscriptionPayload{ID: id})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Release notifications", CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.release_settings"), CallbackData: callback}})
 	}
-	backButton, err := b.editMenuButton(ctx, cq.From.ID, id)
+	backCB, err := b.editMenuCallback(ctx, cq.From.ID, id)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{backButton})
-	return b.respond(ctx, cq, "<b>Advanced settings</b>\n"+settingsSummary(sub.Events, sub.BranchMode, subscriptionBranchNames(sub), sub.PullRequestActions, sub.ReleaseMode), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, backCB))
+	body := settingsSummary(lang, sub.Events, sub.BranchMode, subscriptionBranchNames(sub), sub.PullRequestActions, sub.ReleaseMode)
+	return b.respond(ctx, cq, panel(i18n.T(lang, "sub.advanced.title"), "", i18n.T(lang, "sub.advanced.hint"), body), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEditBranch(ctx context.Context, cq tg.CallbackQuery, id string) error {
+func (b *Bot) renderEditBranch(ctx context.Context, cq tg.CallbackQuery, lang string, id string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
-		return b.respond(ctx, cq, "Subscription not found.", backHome())
+		return b.respond(ctx, cq, subNotFoundPanel(lang), backHome(lang, cq.Message.Chat))
 	}
 	if !usesBranchFilter(sub.Events) {
-		return b.renderAdvancedSettings(ctx, cq, id)
+		return b.renderAdvancedSettings(ctx, cq, lang, id)
 	}
 	currentBranches := subscriptionBranchNames(sub)
 	rows := [][]tg.InlineKeyboardButton{}
@@ -1561,27 +1613,27 @@ func (b *Bot) renderEditBranch(ctx context.Context, cq tg.CallbackQuery, id stri
 			payload.BranchNames = currentBranches
 		}
 		if sub.BranchMode == mode && mode != "selected" {
-			rows = append(rows, []tg.InlineKeyboardButton{disabledButton(radio(true, branchModeLabel(mode, currentBranches)))})
+			rows = append(rows, []tg.InlineKeyboardButton{currentOption(radio(true, branchModeLabel(lang, mode, currentBranches)))})
 			continue
 		}
 		callback, err := b.token(ctx, cq.From.ID, action, payload)
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: radio(sub.BranchMode == mode, branchModeLabel(mode, currentBranches)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: radio(sub.BranchMode == mode, branchModeLabel(lang, mode, currentBranches)), CallbackData: callback}})
 	}
-	backButton, err := b.advancedButton(ctx, cq.From.ID, id)
+	backCB, err := b.advancedCallback(ctx, cq.From.ID, id)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{backButton})
-	return b.respond(ctx, cq, "<b>Edit branch filter</b>", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, backCB))
+	return b.respond(ctx, cq, panel(i18n.T(lang, "branch.edit.title"), "", i18n.T(lang, "branch.hint"), ""), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEditBranchList(ctx context.Context, cq tg.CallbackQuery, payload editBranchPayload) error {
+func (b *Bot) renderEditBranchList(ctx context.Context, cq tg.CallbackQuery, lang string, payload editBranchPayload) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, payload.ID)
 	if err != nil {
-		return b.respond(ctx, cq, "Subscription not found.", backHome())
+		return b.respond(ctx, cq, subNotFoundPanel(lang), backHome(lang, cq.Message.Chat))
 	}
 	selected := payload.BranchNames
 	if payload.BranchName != "" && len(selected) == 0 {
@@ -1593,18 +1645,18 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq tg.CallbackQuery, pay
 	selected = db.NormalizeBranchNames(selected)
 	token, err := b.accessToken(ctx, cq.From.ID)
 	if err != nil {
-		return b.respond(ctx, cq, "Connect GitHub first.", backHome())
+		return b.respond(ctx, cq, notConnectedPanel(lang), backHome(lang, cq.Message.Chat))
 	}
 	branches, err := b.github.ListBranches(ctx, token, sub.RepoFullName)
 	if err != nil {
-		return b.githubError(ctx, cq, err, "list the branches")
+		return b.githubError(ctx, cq, lang, err, "err.action.list_branches")
 	}
 	// Back returns to the branch-mode picker for this subscription.
 	backCB, err := b.token(ctx, cq.From.ID, "sub.edit.branch", subscriptionPayload{ID: payload.ID})
 	if err != nil {
 		return err
 	}
-	backRow := []tg.InlineKeyboardButton{{Text: "Back", CallbackData: backCB}}
+	backRow := panelFooter(lang, cq.Message.Chat, backCB)
 
 	if len(branches) == 0 {
 		allCB, err := b.token(ctx, cq.From.ID, "sub.edit.branch.save", editBranchPayload{ID: payload.ID, BranchMode: "all"})
@@ -1612,10 +1664,10 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq tg.CallbackQuery, pay
 			return err
 		}
 		rows := [][]tg.InlineKeyboardButton{
-			{{Text: "Use all branches", CallbackData: allCB, Style: tg.StylePrimary}},
+			{{Text: i18n.T(lang, "btn.use_all_branches"), CallbackData: allCB, Style: tg.StylePrimary}},
 			backRow,
 		}
-		return b.respond(ctx, cq, "<b>Choose branch</b>\nThis repository has no branches to choose from.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+		return b.respond(ctx, cq, panel(i18n.T(lang, "branch.choose.title"), "", i18n.T(lang, "branch.choose.hint"), i18n.T(lang, "branch.empty")), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 	}
 
 	pages := (len(branches) + branchPageSize - 1) / branchPageSize
@@ -1637,9 +1689,9 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq tg.CallbackQuery, pay
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Save", CallbackData: saveCB, Style: tg.StylePrimary}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.save"), CallbackData: saveCB, Style: tg.StylePrimary}})
 	} else {
-		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Save")})
+		rows = append(rows, []tg.InlineKeyboardButton{disabledButton(i18n.T(lang, "btn.save"))})
 	}
 	var nav []tg.InlineKeyboardButton
 	if pages > 1 {
@@ -1648,8 +1700,8 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq tg.CallbackQuery, pay
 			page    int
 			enabled bool
 		}{
-			{"‹ Prev", page - 1, page > 0},
-			{"Next ›", page + 1, page < pages-1},
+			{i18n.T(lang, "btn.prev"), page - 1, page > 0},
+			{i18n.T(lang, "btn.next"), page + 1, page < pages-1},
 		} {
 			if !step.enabled {
 				nav = append(nav, disabledButton(step.text))
@@ -1664,20 +1716,16 @@ func (b *Bot) renderEditBranchList(ctx context.Context, cq tg.CallbackQuery, pay
 		rows = append(rows, nav)
 	}
 	rows = append(rows, backRow)
-	header := "<b>Choose branch</b>"
-	if pages > 1 {
-		header += fmt.Sprintf("\nPage %d of %d", page+1, pages)
-	}
-	return b.respond(ctx, cq, header, &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	return b.respond(ctx, cq, panel(i18n.T(lang, "branch.choose.title"), "", i18n.T(lang, "branch.choose.hint"), pageNote(lang, page, pages)), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEditPullRequestSettings(ctx context.Context, cq tg.CallbackQuery, id string, actions []string) error {
+func (b *Bot) renderEditPullRequestSettings(ctx context.Context, cq tg.CallbackQuery, lang string, id string, actions []string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
-		return b.respond(ctx, cq, "Subscription not found.", backHome())
+		return b.respond(ctx, cq, subNotFoundPanel(lang), backHome(lang, cq.Message.Chat))
 	}
 	if !contains(sub.Events, "pull_request") {
-		return b.renderAdvancedSettings(ctx, cq, id)
+		return b.renderAdvancedSettings(ctx, cq, lang, id)
 	}
 	if actions == nil {
 		actions = normalizedPullRequestActions(sub.PullRequestActions)
@@ -1689,52 +1737,52 @@ func (b *Bot) renderEditPullRequestSettings(ctx context.Context, cq tg.CallbackQ
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(actions, action), pullRequestActionLabel(action)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: checkbox(contains(actions, action), pullRequestActionLabel(lang, action)), CallbackData: callback}})
 	}
 	if len(actions) > 0 {
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.pr.save", editPullRequestPayload{ID: id, Actions: actions})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: "Save", CallbackData: callback, Style: tg.StylePrimary}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.save"), CallbackData: callback, Style: tg.StylePrimary}})
 	} else {
-		rows = append(rows, []tg.InlineKeyboardButton{disabledButton("Save")})
+		rows = append(rows, []tg.InlineKeyboardButton{disabledButton(i18n.T(lang, "btn.save"))})
 	}
-	backButton, err := b.advancedButton(ctx, cq.From.ID, id)
+	backCB, err := b.advancedCallback(ctx, cq.From.ID, id)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{backButton})
-	return b.respond(ctx, cq, "<b>Pull request actions</b>\nSelect at least one action. “Opened” also covers reopened pull requests.", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, backCB))
+	return b.respond(ctx, cq, panel(i18n.T(lang, "pr.title"), "", i18n.T(lang, "pr.hint"), ""), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-func (b *Bot) renderEditReleaseSettings(ctx context.Context, cq tg.CallbackQuery, id string) error {
+func (b *Bot) renderEditReleaseSettings(ctx context.Context, cq tg.CallbackQuery, lang string, id string) error {
 	sub, err := b.store.GetSubscriptionForUser(ctx, cq.From.ID, id)
 	if err != nil {
-		return b.respond(ctx, cq, "Subscription not found.", backHome())
+		return b.respond(ctx, cq, subNotFoundPanel(lang), backHome(lang, cq.Message.Chat))
 	}
 	if !contains(sub.Events, "release") {
-		return b.renderAdvancedSettings(ctx, cq, id)
+		return b.renderAdvancedSettings(ctx, cq, lang, id)
 	}
 	rows := [][]tg.InlineKeyboardButton{}
 	mode := normalizeReleaseMode(sub.ReleaseMode)
 	for _, candidate := range releaseModeOrder() {
 		if mode == candidate {
-			rows = append(rows, []tg.InlineKeyboardButton{disabledButton(radio(true, releaseModeLabel(candidate)))})
+			rows = append(rows, []tg.InlineKeyboardButton{currentOption(radio(true, releaseModeLabel(lang, candidate)))})
 			continue
 		}
 		callback, err := b.token(ctx, cq.From.ID, "sub.edit.release.save", editReleasePayload{ID: id, ReleaseMode: candidate})
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: radio(false, releaseModeLabel(candidate)), CallbackData: callback}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: radio(false, releaseModeLabel(lang, candidate)), CallbackData: callback}})
 	}
-	backButton, err := b.advancedButton(ctx, cq.From.ID, id)
+	backCB, err := b.advancedCallback(ctx, cq.From.ID, id)
 	if err != nil {
 		return err
 	}
-	rows = append(rows, []tg.InlineKeyboardButton{backButton})
-	return b.respond(ctx, cq, "<b>Release notifications</b>", &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
+	rows = append(rows, panelFooter(lang, cq.Message.Chat, backCB))
+	return b.respond(ctx, cq, panel(i18n.T(lang, "release.title"), "", i18n.T(lang, "release.hint"), ""), &tg.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
 func (b *Bot) respond(ctx context.Context, cq tg.CallbackQuery, text string, markup *tg.InlineKeyboardMarkup) error {
@@ -1826,11 +1874,11 @@ func (b *Bot) requireGroupAdmin(ctx context.Context, chatID, userID int64) error
 // non-admin is told so, a transient lookup failure is not. It re-renders the
 // destination picker so fresh callback tokens are issued (the tapped token may
 // already be consumed), letting the user retry.
-func (b *Bot) groupAdminFailure(ctx context.Context, cq tg.CallbackQuery, err error, rerender func() error) (string, error) {
-	toast := "You must be a group administrator."
+func (b *Bot) groupAdminFailure(ctx context.Context, cq tg.CallbackQuery, lang string, err error, rerender func() error) (string, error) {
+	toast := i18n.T(lang, "toast.not_group_admin")
 	if !errors.Is(err, errNotGroupAdmin) {
 		slog.Error("group admin check failed", "error", err)
-		toast = "Couldn't verify group access. Please try again."
+		toast = i18n.T(lang, "toast.group_check_failed")
 	}
 	return toast, rerender()
 }
@@ -1858,10 +1906,36 @@ func decode(raw json.RawMessage, out any) error {
 	return json.Unmarshal(raw, out)
 }
 
-func backHome() *tg.InlineKeyboardMarkup {
+func backHome(lang string, chat tg.Chat) *tg.InlineKeyboardMarkup {
 	return &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{
-		{{Text: "Back", CallbackData: "home"}},
+		panelFooter(lang, chat, "home"),
 	}}
+}
+
+// notConnectedPanel and subNotFoundPanel are the two dead ends Branchy reaches
+// from several screens at once. They are named rather than inlined so the same
+// wording cannot drift apart across the six call sites.
+func notConnectedPanel(lang string) string {
+	return panel(i18n.T(lang, "err.not_connected.title"), "", i18n.T(lang, "err.not_connected.hint"), "")
+}
+
+func subNotFoundPanel(lang string) string {
+	return panel(i18n.T(lang, "err.sub.not_found.title"), "", i18n.T(lang, "err.sub.not_found.hint"), "")
+}
+
+// pageNote is the one thing a paginated keyboard cannot say about itself. It is
+// empty for a single page, which keeps the quote off screens that do not need
+// one.
+func pageNote(lang string, page, pages int) string {
+	if pages <= 1 {
+		return ""
+	}
+	return i18n.T(lang, "page.indicator", "page", strconv.Itoa(page+1), "pages", strconv.Itoa(pages))
+}
+
+// groupFallbackLabel names a group Branchy knows the id of but not the title.
+func groupFallbackLabel(lang string, chatID int64) string {
+	return i18n.T(lang, "dest.group_fallback", "id", strconv.FormatInt(chatID, 10))
 }
 
 func esc(value string) string {
@@ -1871,17 +1945,17 @@ func esc(value string) string {
 // branchLabel describes the current branch filter in summary text (e.g.
 // "Branches: main, dev"). For tappable mode buttons use branchModeLabel, which
 // reads as an action rather than a status.
-func branchLabel(mode string, branches []string) string {
+func branchLabel(lang, mode string, branches []string) string {
 	switch mode {
 	case "all":
-		return "All branches"
+		return i18n.T(lang, "branch.all")
 	case "default":
-		return "Default branch"
+		return i18n.T(lang, "branch.default")
 	case "selected":
 		if len(branches) > 0 {
-			return branchNamesLabel(branches)
+			return branchNamesLabel(lang, branches)
 		}
-		return "Specific branches (none yet)"
+		return i18n.T(lang, "branch.selected.empty")
 	default:
 		return mode
 	}
@@ -1890,41 +1964,43 @@ func branchLabel(mode string, branches []string) string {
 // branchModeLabel is the action-oriented label for the branch-mode radio
 // buttons. "Specific branches" invites the tap into the picker; a count keeps
 // the button short and stable regardless of branch name lengths.
-func branchModeLabel(mode string, branches []string) string {
+func branchModeLabel(lang, mode string, branches []string) string {
 	switch mode {
 	case "all":
-		return "All branches"
+		return i18n.T(lang, "branch.all")
 	case "default":
-		return "Default branch"
+		return i18n.T(lang, "branch.default")
 	case "selected":
 		branches = db.NormalizeBranchNames(branches)
 		if len(branches) == 0 {
-			return "Specific branches"
+			return i18n.T(lang, "branch.selected")
 		}
-		return fmt.Sprintf("Specific branches · %d", len(branches))
+		return i18n.T(lang, "branch.selected.count", "count", strconv.Itoa(len(branches)))
 	default:
 		return mode
 	}
 }
 
-func branchNamesLabel(branches []string) string {
+func branchNamesLabel(lang string, branches []string) string {
 	branches = db.NormalizeBranchNames(branches)
 	switch len(branches) {
 	case 0:
-		return "Selected branches"
+		return i18n.T(lang, "branch.selected.label")
 	case 1, 2, 3:
 		return strings.Join(branches, ", ")
 	default:
-		return strings.Join(branches[:3], ", ") + fmt.Sprintf(" +%d more", len(branches)-3)
+		return i18n.T(lang, "branch.names_more",
+			"names", strings.Join(branches[:3], ", "),
+			"count", strconv.Itoa(len(branches)-3))
 	}
 }
 
 // describeDestination returns a human label for a subscription's destination
 // and an optional warning when a group destination is no longer reachable
 // (the bot was removed or the group is unknown).
-func (b *Bot) describeDestination(ctx context.Context, telegramUserID int64, sub db.Subscription) (string, string) {
+func (b *Bot) describeDestination(ctx context.Context, lang string, telegramUserID int64, sub db.Subscription) (string, string) {
 	if sub.DestinationType == "dm" {
-		return "Direct message", ""
+		return i18n.T(lang, "dest.dm"), ""
 	}
 	groups, err := b.store.ListKnownGroups(ctx, telegramUserID)
 	if err == nil {
@@ -1933,19 +2009,19 @@ func (b *Bot) describeDestination(ctx context.Context, telegramUserID int64, sub
 				if group.Title != "" {
 					return group.Title, ""
 				}
-				return fmt.Sprintf("Group %d", group.ID), ""
+				return groupFallbackLabel(lang, group.ID), ""
 			}
 		}
 	}
-	return "Group (unavailable)", "⚠ Branchy may no longer be in this group, so deliveries here can fail."
+	return i18n.T(lang, "dest.unavailable"), i18n.T(lang, "dest.unavailable.warning")
 }
 
-func statusText(status string) string {
+func statusText(lang, status string) string {
 	switch status {
 	case "active":
-		return "Active"
+		return i18n.T(lang, "status.active")
 	case "paused":
-		return "Paused"
+		return i18n.T(lang, "status.paused")
 	default:
 		return status
 	}
@@ -1953,32 +2029,32 @@ func statusText(status string) string {
 
 // pauseReasonNote explains an automatic pause so the user knows what to fix
 // before resuming. Manual pauses carry no reason and return "".
-func pauseReasonNote(reason string) string {
+func pauseReasonNote(lang, reason string) string {
 	switch reason {
 	case "telegram_blocked":
-		return "Paused automatically. Branchy could not deliver here. Restore access, then Resume."
+		return i18n.T(lang, "sub.pause.telegram_blocked")
 	default:
 		return ""
 	}
 }
 
-func eventLabel(event string) string {
+func eventLabel(lang, event string) string {
 	switch event {
 	case "push":
-		return "Push"
+		return i18n.T(lang, "event.push")
 	case "pull_request":
-		return "Pull requests"
+		return i18n.T(lang, "event.pull_request")
 	case "release":
-		return "Releases"
+		return i18n.T(lang, "event.release")
 	default:
 		return event
 	}
 }
 
-func humanEvents(events []string) []string {
+func humanEvents(lang string, events []string) []string {
 	out := make([]string, len(events))
 	for i, event := range events {
-		out[i] = eventLabel(event)
+		out[i] = eventLabel(lang, event)
 	}
 	return out
 }
@@ -2001,18 +2077,18 @@ func radio(on bool, label string) string {
 	return "◎ " + label
 }
 
-func settingsSummary(events []string, branchMode string, branchNames []string, pullRequestActions []string, releaseMode string) string {
+func settingsSummary(lang string, events []string, branchMode string, branchNames []string, pullRequestActions []string, releaseMode string) string {
 	events = db.NormalizeEvents(events)
 	var lines []string
-	lines = append(lines, "Events: "+esc(strings.Join(humanEvents(events), ", ")))
+	lines = append(lines, i18n.T(lang, "sum.events", "value", esc(strings.Join(humanEvents(lang, events), ", "))))
 	if usesBranchFilter(events) {
-		lines = append(lines, "Branches: "+esc(branchLabel(branchMode, branchNames)))
+		lines = append(lines, i18n.T(lang, "sum.branches", "value", esc(branchLabel(lang, branchMode, branchNames))))
 	}
 	if contains(events, "pull_request") {
-		lines = append(lines, "Pull requests: "+esc(strings.Join(humanPullRequestActions(pullRequestActions), ", ")))
+		lines = append(lines, i18n.T(lang, "sum.pull_requests", "value", esc(strings.Join(humanPullRequestActions(lang, pullRequestActions), ", "))))
 	}
 	if contains(events, "release") {
-		lines = append(lines, "Releases: "+esc(releaseModeLabel(releaseMode)))
+		lines = append(lines, i18n.T(lang, "sum.releases", "value", esc(releaseModeLabel(lang, releaseMode))))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -2093,27 +2169,27 @@ func normalizedPullRequestActions(actions []string) []string {
 	return actions
 }
 
-func pullRequestActionLabel(action string) string {
+func pullRequestActionLabel(lang, action string) string {
 	switch action {
 	case "opened":
-		return "Opened"
+		return i18n.T(lang, "pr.opened")
 	case "merged":
-		return "Merged"
+		return i18n.T(lang, "pr.merged")
 	case "closed":
-		return "Closed"
+		return i18n.T(lang, "pr.closed")
 	default:
 		return action
 	}
 }
 
-func humanPullRequestActions(actions []string) []string {
+func humanPullRequestActions(lang string, actions []string) []string {
 	actions = db.NormalizePullRequestActions(actions)
 	if len(actions) == 0 {
-		return []string{"None selected"}
+		return []string{i18n.T(lang, "pr.none")}
 	}
 	out := make([]string, 0, len(actions))
 	for _, action := range actions {
-		out = append(out, pullRequestActionLabel(action))
+		out = append(out, pullRequestActionLabel(lang, action))
 	}
 	return out
 }
@@ -2131,14 +2207,14 @@ func normalizeReleaseMode(mode string) string {
 	}
 }
 
-func releaseModeLabel(mode string) string {
+func releaseModeLabel(lang, mode string) string {
 	switch normalizeReleaseMode(mode) {
 	case "releases":
-		return "Releases only"
+		return i18n.T(lang, "release.releases")
 	case "prereleases":
-		return "Pre-releases only"
+		return i18n.T(lang, "release.prereleases")
 	default:
-		return "Releases and pre-releases"
+		return i18n.T(lang, "release.all")
 	}
 }
 
@@ -2185,74 +2261,74 @@ func (b *Bot) cachedBotUsername() string {
 
 // userMessage maps an error to text safe to show the user: validation errors
 // pass through, everything else is logged and shown as a generic message.
-func (b *Bot) userMessage(err error, action string) string {
+func (b *Bot) userMessage(err error, lang, actionKey string) string {
 	var v *subscriptions.ValidationError
 	if errors.As(err, &v) {
-		return v.Error()
+		// The service names the sentence and supplies the data; only the data
+		// can carry HTML metacharacters, so only the odd (value) slots are
+		// escaped.
+		args := make([]string, len(v.Args))
+		for i, arg := range v.Args {
+			if i%2 == 1 {
+				arg = esc(arg)
+			}
+			args[i] = arg
+		}
+		return i18n.T(lang, v.Key, args...)
 	}
-	slog.Error("bot action failed", "action", action, "error", err)
-	return "Something went wrong while trying to " + action + ". Please try again."
+	slog.Error("bot action failed", "action", actionKey, "error", err)
+	return i18n.T(lang, "err.generic", "action", i18n.T(lang, actionKey))
 }
 
 // githubError renders the response for an error from a GitHub-backed action. A
 // revoked token (401) gets the reconnect prompt; anything else falls back to the
 // standard user message.
-func (b *Bot) githubError(ctx context.Context, cq tg.CallbackQuery, err error, action string) error {
+func (b *Bot) githubError(ctx context.Context, cq tg.CallbackQuery, lang string, err error, actionKey string) error {
 	if github.IsAuthError(err) {
-		return b.renderReconnect(ctx, cq)
+		return b.renderReconnect(ctx, cq, lang)
 	}
-	return b.respond(ctx, cq, esc(b.userMessage(err, action)), backHome())
+	return b.respond(ctx, cq, errorPanel(lang, b.userMessage(err, lang, actionKey)), backHome(lang, cq.Message.Chat))
 }
 
 // renderReconnect shows a single reconnect call to action when a GitHub call
 // fails with an invalid token. It mutates no state: a revoked authorization
 // already stops GitHub deliveries, so no dead jobs accumulate, and reconnecting
 // restores the connection (a later edit re-syncs the webhook).
-func (b *Bot) renderReconnect(ctx context.Context, cq tg.CallbackQuery) error {
+func (b *Bot) renderReconnect(ctx context.Context, cq tg.CallbackQuery, lang string) error {
 	connectURL, err := b.oauth.CreateAuthURL(ctx, cq.From.ID)
 	if err != nil {
 		return err
 	}
-	text := "<b>GitHub connection expired</b>\nReconnect to continue."
+	text := panel(i18n.T(lang, "err.github.expired.title"), "", i18n.T(lang, "err.github.expired.hint"), "")
 	markup := &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{
-		{{Text: "Reconnect GitHub", URL: connectURL, Style: tg.StylePrimary}},
-		{{Text: "Back", CallbackData: "home"}},
+		{{Text: i18n.T(lang, "btn.reconnect"), URL: connectURL, Style: tg.StylePrimary}},
+		panelFooter(lang, cq.Message.Chat, "home"),
 	}}
 	return b.respond(ctx, cq, text, markup)
 }
 
-// viewButton builds a "Back" button that returns to a subscription's detail view.
-func (b *Bot) viewButton(ctx context.Context, telegramUserID int64, id string) (tg.InlineKeyboardButton, error) {
-	callback, err := b.token(ctx, telegramUserID, "sub.view", subscriptionPayload{ID: id})
-	if err != nil {
-		return tg.InlineKeyboardButton{}, err
-	}
-	return tg.InlineKeyboardButton{Text: "Back", CallbackData: callback}, nil
+// These mint the callback a "Back" button carries, not the button itself: the
+// row it sits in is built by panelFooter, which is the only place that decides
+// what "going up" looks like — one word, and a Close beside it only in a group.
+func (b *Bot) viewCallback(ctx context.Context, telegramUserID int64, id string) (string, error) {
+	return b.token(ctx, telegramUserID, "sub.view", subscriptionPayload{ID: id})
 }
 
-func (b *Bot) editMenuButton(ctx context.Context, telegramUserID int64, id string) (tg.InlineKeyboardButton, error) {
-	callback, err := b.token(ctx, telegramUserID, "sub.edit.menu", subscriptionPayload{ID: id})
-	if err != nil {
-		return tg.InlineKeyboardButton{}, err
-	}
-	return tg.InlineKeyboardButton{Text: "Back", CallbackData: callback}, nil
+func (b *Bot) editMenuCallback(ctx context.Context, telegramUserID int64, id string) (string, error) {
+	return b.token(ctx, telegramUserID, "sub.edit.menu", subscriptionPayload{ID: id})
 }
 
-func (b *Bot) advancedButton(ctx context.Context, telegramUserID int64, id string) (tg.InlineKeyboardButton, error) {
-	callback, err := b.token(ctx, telegramUserID, "sub.edit.settings", subscriptionPayload{ID: id})
-	if err != nil {
-		return tg.InlineKeyboardButton{}, err
-	}
-	return tg.InlineKeyboardButton{Text: "Back", CallbackData: callback}, nil
+func (b *Bot) advancedCallback(ctx context.Context, telegramUserID int64, id string) (string, error) {
+	return b.token(ctx, telegramUserID, "sub.edit.settings", subscriptionPayload{ID: id})
 }
 
-// stepBackButton returns the destination-picker's Back button: to the
-// subscription detail when editing, or to the repository list when creating.
-func (b *Bot) stepBackButton(ctx context.Context, telegramUserID int64, edit bool, editID, createTarget string) (tg.InlineKeyboardButton, error) {
+// stepBackCallback is where the destination picker goes up to: the subscription
+// edit menu when editing, or the repository list when creating.
+func (b *Bot) stepBackCallback(ctx context.Context, telegramUserID int64, edit bool, editID, createTarget string) (string, error) {
 	if edit {
-		return b.editMenuButton(ctx, telegramUserID, editID)
+		return b.editMenuCallback(ctx, telegramUserID, editID)
 	}
-	return tg.InlineKeyboardButton{Text: "Back", CallbackData: createTarget}, nil
+	return createTarget, nil
 }
 
 func (b *Bot) branchNavButton(ctx context.Context, telegramUserID int64, draft subDraft, text string, page int, action string) (tg.InlineKeyboardButton, error) {
@@ -2266,20 +2342,21 @@ func (b *Bot) branchNavButton(ctx context.Context, telegramUserID int64, draft s
 	return tg.InlineKeyboardButton{Text: text, CallbackData: callback}, nil
 }
 
-func paginationRow(prefix string, page, pages int) []tg.InlineKeyboardButton {
+func paginationRow(lang, prefix string, page, pages int) []tg.InlineKeyboardButton {
 	if pages <= 1 {
 		return nil
 	}
+	prev, next := i18n.T(lang, "btn.prev"), i18n.T(lang, "btn.next")
 	var row []tg.InlineKeyboardButton
 	if page > 0 {
-		row = append(row, tg.InlineKeyboardButton{Text: "‹ Prev", CallbackData: fmt.Sprintf("%s:%d", prefix, page-1)})
+		row = append(row, tg.InlineKeyboardButton{Text: prev, CallbackData: fmt.Sprintf("%s:%d", prefix, page-1)})
 	} else {
-		row = append(row, disabledButton("‹ Prev"))
+		row = append(row, disabledButton(prev))
 	}
 	if page < pages-1 {
-		row = append(row, tg.InlineKeyboardButton{Text: "Next ›", CallbackData: fmt.Sprintf("%s:%d", prefix, page+1)})
+		row = append(row, tg.InlineKeyboardButton{Text: next, CallbackData: fmt.Sprintf("%s:%d", prefix, page+1)})
 	} else {
-		row = append(row, disabledButton("Next ›"))
+		row = append(row, disabledButton(next))
 	}
 	return row
 }

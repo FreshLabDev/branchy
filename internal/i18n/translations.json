@@ -17,6 +17,9 @@
  "branch.choose.hint": {
   "en": "Tap the branches you want notifications for."
  },
+ "branch.choose.title": {
+  "en": "Choose branch"
+ },
  "branch.default": {
   "en": "Default branch"
  },
@@ -82,12 +85,6 @@
  },
  "btn.events": {
   "en": "Event"
- },
- "btn.follow_telegram": {
-  "en": "Follow Telegram"
- },
- "btn.language": {
-  "en": "Language"
  },
  "btn.next": {
   "en": "Next ›"
@@ -230,6 +227,9 @@
  "err.not_connected.title": {
   "en": "GitHub not connected"
  },
+ "err.repo.gone": {
+  "en": "{repo} is no longer accessible on GitHub."
+ },
  "err.sub.duplicate": {
   "en": "You already have a subscription with these exact settings."
  },
@@ -283,12 +283,6 @@
  },
  "home.title": {
   "en": "Branchy"
- },
- "lang.hint": {
-  "en": "Applies to this bot's replies, and is shared with the other bots."
- },
- "lang.title": {
-  "en": "Language"
  },
  "page.indicator": {
   "en": "Page {page} of {pages}"
@@ -376,9 +370,6 @@
  },
  "sub.delete.body": {
   "en": "This permanently removes the subscription and cannot be undone."
- },
- "sub.delete.hint": {
-  "en": "This cannot be undone."
  },
  "sub.delete.title": {
   "en": "Delete this subscription?"
@@ -478,12 +469,6 @@
  },
  "toast.group_check_failed": {
   "en": "Couldn't verify group access. Please try again."
- },
- "toast.lang_follow": {
-  "en": "Following your Telegram language."
- },
- "toast.lang_set": {
-  "en": "Language updated."
  },
  "toast.not_group_admin": {
   "en": "You must be a group administrator."

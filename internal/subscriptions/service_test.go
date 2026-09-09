@@ -4,7 +4,6 @@ package subscriptions
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"branchy/internal/db"
@@ -185,8 +184,8 @@ func TestTranslateGitHubErr(t *testing.T) {
 	if !errors.As(translateGitHubErr(rateLimited, "acme/repo"), &rl) {
 		t.Fatal("rate-limited 403 should become a ValidationError")
 	}
-	if !strings.Contains(rl.Message, "rate limit") {
-		t.Fatalf("rate-limit message = %q, want it to mention the rate limit", rl.Message)
+	if rl.Key != "err.github.rate_limited" {
+		t.Fatalf("rate-limit key = %q, want the rate-limit message key", rl.Key)
 	}
 
 	// 401 must pass through unchanged so the bot can detect it and prompt a
