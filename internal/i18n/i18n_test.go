@@ -3,6 +3,7 @@ package i18n
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -141,6 +142,46 @@ func TestTranslationsFileIsCanonical(t *testing.T) {
 	for i := 1; i < len(keys); i++ {
 		if keys[i-1] >= keys[i] {
 			t.Fatalf("keys are not sorted: %q before %q", keys[i-1], keys[i])
+		}
+	}
+}
+
+// A translation may reorder a sentence but not lose the data in it. Nothing in
+// this repository checked that until a locale silently dropped a placeholder
+// would have shipped as an empty slot in one of sixteen languages.
+func TestEveryLanguageKeepsThePlaceholdersEnglishHas(t *testing.T) {
+	placeholders := func(s string) map[string]bool {
+		found := map[string]bool{}
+		for _, m := range regexp.MustCompile(`\{([a-z_]+)\}`).FindAllStringSubmatch(s, -1) {
+			found[m[1]] = true
+		}
+		return found
+	}
+	for key, byLang := range translations {
+		want := placeholders(byLang[DefaultLang])
+		for lang, text := range byLang {
+			got := placeholders(text)
+			for name := range want {
+				if !got[name] {
+					t.Errorf("%s [%s] drops {%s}: %q", key, lang, name, text)
+				}
+			}
+			for name := range got {
+				if !want[name] {
+					t.Errorf("%s [%s] invents {%s}: %q", key, lang, name, text)
+				}
+			}
+		}
+	}
+}
+
+// The separator between list items is language's, not ASCII's: Chinese and
+// Japanese use an ideographic comma and Arabic its own, and a Latin comma
+// inside those reads as a typo rather than as punctuation.
+func TestTheListSeparatorIsNotAlwaysAComma(t *testing.T) {
+	for lang, want := range map[string]string{"en": ", ", "zh": "、", "ja": "、", "ar": "، "} {
+		if got := T(lang, "list.separator"); got != want {
+			t.Errorf("list.separator [%s] = %q, want %q", lang, got, want)
 		}
 	}
 }

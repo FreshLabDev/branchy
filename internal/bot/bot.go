@@ -2077,10 +2077,10 @@ func branchNamesLabel(lang string, branches []string) string {
 	case 0:
 		return i18n.T(lang, "branch.selected.label")
 	case 1, 2, 3:
-		return strings.Join(branches, ", ")
+		return joinList(lang, branches)
 	default:
 		return i18n.T(lang, "branch.names_more",
-			"names", strings.Join(branches[:3], ", "),
+			"names", joinList(lang, branches[:3]),
 			"count", strconv.Itoa(len(branches)-3))
 	}
 }
@@ -2141,6 +2141,13 @@ func eventLabel(lang, event string) string {
 	}
 }
 
+// joinList glues a list the way the language glues one. A comma-space is the
+// separator in thirteen of the sixteen; Chinese and Japanese use an ideographic
+// comma and Arabic its own, and a Latin comma inside those reads as a typo.
+func joinList(lang string, parts []string) string {
+	return strings.Join(parts, i18n.T(lang, "list.separator"))
+}
+
 func humanEvents(lang string, events []string) []string {
 	out := make([]string, len(events))
 	for i, event := range events {
@@ -2170,12 +2177,12 @@ func radio(on bool, label string) string {
 func settingsSummary(lang string, events []string, branchMode string, branchNames []string, pullRequestActions []string, releaseMode string) string {
 	events = db.NormalizeEvents(events)
 	var lines []string
-	lines = append(lines, i18n.T(lang, "sum.events", "value", esc(strings.Join(humanEvents(lang, events), ", "))))
+	lines = append(lines, i18n.T(lang, "sum.events", "value", esc(joinList(lang, humanEvents(lang, events)))))
 	if usesBranchFilter(events) {
 		lines = append(lines, i18n.T(lang, "sum.branches", "value", esc(branchLabel(lang, branchMode, branchNames))))
 	}
 	if contains(events, "pull_request") {
-		lines = append(lines, i18n.T(lang, "sum.pull_requests", "value", esc(strings.Join(humanPullRequestActions(lang, pullRequestActions), ", "))))
+		lines = append(lines, i18n.T(lang, "sum.pull_requests", "value", esc(joinList(lang, humanPullRequestActions(lang, pullRequestActions)))))
 	}
 	if contains(events, "release") {
 		lines = append(lines, i18n.T(lang, "sum.releases", "value", esc(releaseModeLabel(lang, releaseMode))))

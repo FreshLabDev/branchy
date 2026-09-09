@@ -509,7 +509,7 @@
   "ca": "Esdeveniments",
   "cs": "Události",
   "de": "Events",
-  "en": "Event",
+  "en": "Events",
   "es": "Eventos",
   "fr": "Événements",
   "it": "Eventi",
@@ -1798,6 +1798,24 @@
   "tr": "Dil",
   "uk": "Мова",
   "zh": "语言"
+ },
+ "list.separator": {
+  "ar": "، ",
+  "be": ", ",
+  "ca": ", ",
+  "cs": ", ",
+  "de": ", ",
+  "en": ", ",
+  "es": ", ",
+  "fr": ", ",
+  "it": ", ",
+  "ja": "、",
+  "pl": ", ",
+  "ru": ", ",
+  "sv": ", ",
+  "tr": ", ",
+  "uk": ", ",
+  "zh": "、"
  },
  "page.indicator": {
   "ar": "صفحة {page} من {pages}",
