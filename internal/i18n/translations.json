@@ -198,7 +198,7 @@
   "en": "update the subscription"
  },
  "err.generic": {
-  "en": "Something went wrong while trying to {action}. Please try again."
+  "en": "Branchy could not {action}. Please try again."
  },
  "err.github.expired.hint": {
   "en": "Reconnect to continue."
