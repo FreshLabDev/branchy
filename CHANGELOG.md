@@ -13,6 +13,12 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+## v1.3.0-alpha.1 - 2026-09-09
+
+An About card, a group panel that can be closed, and the fix for a hole that let
+any group member delete Branchy's notification cards.
+
+
 ### Added
 
 - `docs/releases.md` gained a **Deploying** section, and `AGENTS.md` points at it.
