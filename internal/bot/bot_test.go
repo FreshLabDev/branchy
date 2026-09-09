@@ -1221,14 +1221,105 @@ func TestLanguageIsReachableFromHome(t *testing.T) {
 	t.Fatalf("no way into the language screen from home: %#v", markup.InlineKeyboard)
 }
 
-type homeStore struct{ Store }
+type homeStore struct {
+	Store
+	connected bool
+	subs      []db.Subscription
+}
 
-func (homeStore) GetGitHubConnection(context.Context, int64) (db.GitHubConnection, error) {
-	return db.GitHubConnection{}, db.ErrNotFound
+func (s homeStore) GetGitHubConnection(context.Context, int64) (db.GitHubConnection, error) {
+	if !s.connected {
+		return db.GitHubConnection{}, db.ErrNotFound
+	}
+	return db.GitHubConnection{TelegramUserID: 42, GitHubLogin: "octocat"}, nil
+}
+
+func (s homeStore) ListSubscriptionsByUser(context.Context, int64) ([]db.Subscription, error) {
+	return s.subs, nil
 }
 
 type stubOAuth struct{}
 
 func (stubOAuth) CreateAuthURL(context.Context, int64) (string, error) {
 	return "https://github.com/login/oauth/authorize", nil
+}
+
+// assertStyleContract checks one screen's keyboard against the family colour
+// rules: at most one Primary, Success only on the option you are currently on,
+// and Close destructive and offered only where there is something to close.
+func assertStyleContract(t *testing.T, screen string, group bool, rows [][]tg.InlineKeyboardButton) {
+	t.Helper()
+	primaries := 0
+	for _, row := range rows {
+		for _, button := range row {
+			switch button.Style {
+			case tg.StylePrimary:
+				primaries++
+			case tg.StyleSuccess:
+				// Success reports state, never an action, so it only ever lands
+				// on the option already marked as chosen.
+				if !strings.HasPrefix(button.Text, "◉ ") {
+					t.Errorf("%s: Success on %q, which is an action rather than the state you are in", screen, button.Text)
+				}
+			case tg.StyleDanger:
+				if button.CallbackData != "close" && !strings.Contains(button.CallbackData, "t:") {
+					t.Errorf("%s: Danger on %q, which destroys nothing", screen, button.Text)
+				}
+			}
+			if button.CallbackData == "close" {
+				if !group {
+					t.Errorf("%s: a direct chat has nothing to close, yet offers %q", screen, button.Text)
+				}
+				if button.Style != tg.StyleDanger {
+					t.Errorf("%s: Close must be painted destructive, got style %q", screen, button.Style)
+				}
+			}
+		}
+	}
+	if primaries > 1 {
+		t.Errorf("%s: %d Primary buttons; two primaries single out neither", screen, primaries)
+	}
+}
+
+// TestScreensObeyTheColourContract walks the screens whose keyboards can be
+// built without a live GitHub. The rule this pins hardest is the one Branchy
+// broke: "Create subscription" was Primary on the repository screen and Success
+// on the settings screen, so the same action changed colour depending on how
+// you arrived at it.
+func TestScreensObeyTheColourContract(t *testing.T) {
+	ctx := context.Background()
+
+	group := &Bot{}
+	group.username.Store("branchybot")
+	assertStyleContract(t, "group panel", true, group.groupPanel(i18n.DefaultLang).InlineKeyboard)
+
+	for _, c := range []struct {
+		name  string
+		store homeStore
+	}{
+		{"home (disconnected)", homeStore{}},
+		{"home (connected)", homeStore{connected: true, subs: []db.Subscription{{ID: "s1"}}}},
+	} {
+		b := &Bot{store: c.store, oauth: stubOAuth{}}
+		_, markup, err := b.mainMenu(ctx, 42, i18n.DefaultLang)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertStyleContract(t, c.name, false, markup.InlineKeyboard)
+	}
+
+	// The language grid is the screen with the most Success buttons by far, and
+	// exactly one of them is allowed.
+	var rows [][]tg.InlineKeyboardButton
+	for _, option := range i18n.LANGUAGE_OPTIONS {
+		rows = append(rows, []tg.InlineKeyboardButton{languageButton(option, "uk")})
+	}
+	rows = append(rows, panelFooter(i18n.DefaultLang, tg.Chat{Type: "supergroup"}, "home"))
+	assertStyleContract(t, "language", true, rows)
+
+	// And the option a single-select screen is already on is state, not action.
+	current := currentOption(radio(true, "All branches"))
+	if current.Style != tg.StyleSuccess || current.Disabled == nil {
+		t.Fatalf("current option = %#v, want a disabled Success button", current)
+	}
 }

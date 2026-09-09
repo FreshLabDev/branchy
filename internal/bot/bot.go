@@ -331,11 +331,11 @@ func (b *Bot) groupPanel(lang string) *tg.InlineKeyboardMarkup {
 	// The DM link needs the bot's own @username, which is resolved in the
 	// background; until it lands the panel is still worth showing without it.
 	if username := b.cachedBotUsername(); username != "" {
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.open_dm"), URL: "https://t.me/" + username}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.open_dm"), URL: "https://t.me/" + username, Style: tg.StylePrimary}})
 	}
 	rows = append(rows, []tg.InlineKeyboardButton{
 		{Text: i18n.T(lang, "btn.about"), CallbackData: "about"},
-		{Text: i18n.T(lang, "btn.close"), CallbackData: "close"},
+		{Text: i18n.T(lang, "btn.close"), CallbackData: "close", Style: tg.StyleDanger},
 	})
 	return &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
@@ -1054,11 +1054,13 @@ func inGroup(chat tg.Chat) bool {
 // panelFooter is the navigation row a panel ends with. Close appears only in
 // groups, where the panel sits in a feed shared with people who never asked for
 // it and whoever summoned it needs a way to withdraw it. A DM has nothing to
-// close: there the conversation is the panel.
+// close: there the conversation is the panel. It is painted destructive because
+// that is what it does — the panel goes away, and nothing brings that instance
+// of it back.
 func panelFooter(lang string, chat tg.Chat, backCallback string) []tg.InlineKeyboardButton {
 	row := []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.back"), CallbackData: backCallback}}
 	if inGroup(chat) {
-		row = append(row, tg.InlineKeyboardButton{Text: i18n.T(lang, "btn.close"), CallbackData: "close"})
+		row = append(row, tg.InlineKeyboardButton{Text: i18n.T(lang, "btn.close"), CallbackData: "close", Style: tg.StyleDanger})
 	}
 	return row
 }
@@ -1071,11 +1073,15 @@ func errorPanel(lang, message string) string {
 	return panel(i18n.T(lang, "err.title"), "", "", message)
 }
 
-// currentOption is the choice a single-select screen is already on. It is
-// disabled because tapping it would change nothing, and it is named rather than
-// inlined so the five screens that draw one cannot drift apart.
+// currentOption is the choice a single-select screen is already on: disabled,
+// because tapping it would change nothing, and Success, because Success is the
+// family's word for "this is the state you are in". It is the same treatment
+// the language grid gives the current language, and for the same reason — one
+// coloured button in a column answers "which am I on?" at a glance.
 func currentOption(label string) tg.InlineKeyboardButton {
-	return disabledButton(label)
+	button := disabledButton(label)
+	button.Style = tg.StyleSuccess
+	return button
 }
 
 func (b *Bot) renderRepoList(ctx context.Context, cq tg.CallbackQuery, lang string, subscribeMode bool, page int) error {
@@ -1288,7 +1294,7 @@ func (b *Bot) renderEventSettings(ctx context.Context, cq tg.CallbackQuery, lang
 		if err != nil {
 			return err
 		}
-		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.sub_create"), CallbackData: createCB, Style: tg.StyleSuccess}})
+		rows = append(rows, []tg.InlineKeyboardButton{{Text: i18n.T(lang, "btn.sub_create"), CallbackData: createCB, Style: tg.StylePrimary}})
 	} else {
 		rows = append(rows, []tg.InlineKeyboardButton{disabledButton(i18n.T(lang, "btn.sub_create"))})
 	}
