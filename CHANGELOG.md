@@ -17,6 +17,15 @@ Use this section for changes that are merged but not released yet.
   expects stops being counted and logged as a transport failure. All four bots
   on the shared client now run the same version.
 
+### Added
+
+- `deploy/ws04/compose.yaml`, the production stack, pulling the image the
+  release workflow publishes to GHCR. The stack on the host built its own image
+  from a working copy, so what served users was not the artifact CI had tested,
+  scanned and published, and nothing on the host could say which commit it came
+  from. `BRANCHY_IMAGE` has no default: an unset one stops the stack instead of
+  quietly starting something else.
+
 ## v1.2.1-alpha.1 - 2026-09-08
 
 Internal, with one visible consequence: Branchy will not start against a

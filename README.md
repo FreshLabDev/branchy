@@ -264,6 +264,22 @@ only; restrict them at your reverse proxy if you do not want them public.
 
 ---
 
+## Production
+
+`deploy/ws04/compose.yaml` is the production stack. It pulls the image the
+release workflow published to GHCR and never builds one:
+
+```sh
+# in the stack directory, alongside .env
+BRANCHY_IMAGE=ghcr.io/freshlabdev/branchy@sha256:<digest> docker compose up -d
+```
+
+Pin `BRANCHY_IMAGE` by digest rather than tag. A digest names one exact build,
+so a rollback is a one-line change with nothing to rebuild, and `docker
+inspect` on the running container answers which commit it came from.
+
+---
+
 ## Testing
 
 ```sh
