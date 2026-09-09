@@ -1,5 +1,6 @@
 {
  "about.admin": {
+  "ar": "المشرف",
   "be": "Адмін",
   "ca": "Admin",
   "cs": "Správce",
@@ -17,6 +18,7 @@
   "zh": "管理员"
  },
  "about.events": {
+  "ar": "الأحداث",
   "be": "Падзеі",
   "ca": "Esdeveniments",
   "cs": "Události",
@@ -34,6 +36,7 @@
   "zh": "事件"
  },
  "about.source": {
+  "ar": "الشيفرة",
   "be": "Зыходнікі",
   "ca": "Codi font",
   "cs": "Zdrojový kód",
@@ -51,6 +54,7 @@
   "zh": "源码"
  },
  "about.tagline": {
+  "ar": "إشعارات GitHub نظيفة داخل Telegram.",
   "be": "Ахайныя апавяшчэнні GitHub у Telegram.",
   "ca": "Notificacions de GitHub netes a Telegram.",
   "cs": "Čisté notifikace z GitHubu v Telegramu.",
@@ -68,6 +72,7 @@
   "zh": "在 Telegram 里收到干净的 GitHub 通知。"
  },
  "branch.all": {
+  "ar": "كل الفروع",
   "be": "Усе галіны",
   "ca": "Totes les branques",
   "cs": "Všechny větve",
@@ -85,6 +90,7 @@
   "zh": "所有分支"
  },
  "branch.choose.hint": {
+  "ar": "اضغط على الفروع التي تريد إشعارات عنها.",
   "be": "Адзнач галіны, пра якія хочаш атрымліваць апавяшчэнні.",
   "ca": "Toca les branques de les quals vols notificacions.",
   "cs": "Klepni na větve, o kterých chceš dostávat notifikace.",
@@ -102,6 +108,7 @@
   "zh": "点选你想收到通知的分支。"
  },
  "branch.choose.title": {
+  "ar": "اختر فرعًا",
   "be": "Выбар галіны",
   "ca": "Tria una branca",
   "cs": "Vyber větev",
@@ -119,6 +126,7 @@
   "zh": "选择分支"
  },
  "branch.default": {
+  "ar": "الفرع الافتراضي",
   "be": "Прадвызначаная галіна",
   "ca": "Branca per defecte",
   "cs": "Výchozí větev",
@@ -136,6 +144,7 @@
   "zh": "默认分支"
  },
  "branch.edit.title": {
+  "ar": "تعديل تصفية الفروع",
   "be": "Змяніць фільтр галін",
   "ca": "Edita el filtre de branques",
   "cs": "Upravit filtr větví",
@@ -153,6 +162,7 @@
   "zh": "修改分支筛选"
  },
  "branch.empty": {
+  "ar": "لا توجد في هذا المستودع فروع للاختيار.",
   "be": "У гэтым рэпазіторыі няма галін на выбар.",
   "ca": "Aquest repositori no té cap branca per triar.",
   "cs": "Tenhle repozitář nemá žádné větve na výběr.",
@@ -170,6 +180,7 @@
   "zh": "这个仓库没有可选的分支。"
  },
  "branch.hint": {
+  "ar": "اختر الفروع التي يبلّغ عنها هذا الاشتراك.",
   "be": "Абяры, пра якія галіны паведамляе гэтая падпіска.",
   "ca": "Tria de quines branques t’informa aquesta subscripció.",
   "cs": "Vyber, o kterých větvích tenhle odběr hlásí.",
@@ -187,6 +198,7 @@
   "zh": "选择这个订阅要报告哪些分支。"
  },
  "branch.names_more": {
+  "ar": "{names} و{count} غيرها",
   "be": "{names} і яшчэ {count}",
   "ca": "{names} i {count} més",
   "cs": "{names} a {count} dalších",
@@ -204,6 +216,7 @@
   "zh": "{names} 等另外 {count} 个"
  },
  "branch.selected": {
+  "ar": "فروع محددة",
   "be": "Асобныя галіны",
   "ca": "Branques concretes",
   "cs": "Konkrétní větve",
@@ -221,6 +234,7 @@
   "zh": "指定分支"
  },
  "branch.selected.count": {
+  "ar": "فروع محددة · {count}",
   "be": "Асобныя галіны · {count}",
   "ca": "Branques concretes · {count}",
   "cs": "Konkrétní větve · {count}",
@@ -238,6 +252,7 @@
   "zh": "指定分支 · {count}"
  },
  "branch.selected.empty": {
+  "ar": "فروع محددة (لا شيء بعد)",
   "be": "Асобныя галіны (пакуль ніводнай)",
   "ca": "Branques concretes (cap encara)",
   "cs": "Konkrétní větve (zatím žádná)",
@@ -255,6 +270,7 @@
   "zh": "指定分支（还没有）"
  },
  "branch.selected.label": {
+  "ar": "الفروع المختارة",
   "be": "Абраныя галіны",
   "ca": "Branques seleccionades",
   "cs": "Vybrané větve",
@@ -272,6 +288,7 @@
   "zh": "已选分支"
  },
  "branch.title": {
+  "ar": "تصفية الفروع",
   "be": "Фільтр галін",
   "ca": "Filtre de branques",
   "cs": "Filtr větví",
@@ -289,6 +306,7 @@
   "zh": "分支筛选"
  },
  "btn.about": {
+  "ar": "حول",
   "be": "Пра бота",
   "ca": "Quant a",
   "cs": "O botovi",
@@ -306,6 +324,7 @@
   "zh": "关于"
  },
  "btn.advanced": {
+  "ar": "متقدم",
   "be": "Дадаткова",
   "ca": "Avançat",
   "cs": "Pokročilé",
@@ -323,6 +342,7 @@
   "zh": "高级"
  },
  "btn.back": {
+  "ar": "رجوع",
   "be": "Назад",
   "ca": "Enrere",
   "cs": "Zpět",
@@ -340,6 +360,7 @@
   "zh": "返回"
  },
  "btn.branch_filter": {
+  "ar": "تصفية الفروع",
   "be": "Фільтр галін",
   "ca": "Filtre de branques",
   "cs": "Filtr větví",
@@ -357,6 +378,7 @@
   "zh": "分支筛选"
  },
  "btn.close": {
+  "ar": "إغلاق",
   "be": "Закрыць",
   "ca": "Tanca",
   "cs": "Zavřít",
@@ -374,6 +396,7 @@
   "zh": "关闭"
  },
  "btn.connect": {
+  "ar": "ربط GitHub",
   "be": "Падлучыць GitHub",
   "ca": "Connecta GitHub",
   "cs": "Připojit GitHub",
@@ -391,6 +414,7 @@
   "zh": "连接 GitHub"
  },
  "btn.continue": {
+  "ar": "متابعة",
   "be": "Далей",
   "ca": "Continua",
   "cs": "Pokračovat",
@@ -408,6 +432,7 @@
   "zh": "继续"
  },
  "btn.delete": {
+  "ar": "حذف",
   "be": "Выдаліць",
   "ca": "Elimina",
   "cs": "Smazat",
@@ -425,6 +450,7 @@
   "zh": "删除"
  },
  "btn.destination": {
+  "ar": "الوجهة",
   "be": "Куды дасылаць",
   "ca": "Destinació",
   "cs": "Cíl",
@@ -442,6 +468,7 @@
   "zh": "发送目标"
  },
  "btn.done": {
+  "ar": "تم",
   "be": "Гатова",
   "ca": "Fet",
   "cs": "Hotovo",
@@ -459,6 +486,7 @@
   "zh": "完成"
  },
  "btn.edit": {
+  "ar": "تعديل",
   "be": "Змяніць",
   "ca": "Edita",
   "cs": "Upravit",
@@ -476,6 +504,7 @@
   "zh": "编辑"
  },
  "btn.events": {
+  "ar": "الأحداث",
   "be": "Падзеі",
   "ca": "Esdeveniments",
   "cs": "Události",
@@ -493,6 +522,7 @@
   "zh": "事件"
  },
  "btn.follow_telegram": {
+  "ar": "مثل Telegram",
   "be": "Як у Telegram",
   "ca": "Com a Telegram",
   "cs": "Jako v Telegramu",
@@ -510,6 +540,7 @@
   "zh": "跟随 Telegram"
  },
  "btn.language": {
+  "ar": "اللغة",
   "be": "Мова",
   "ca": "Idioma",
   "cs": "Jazyk",
@@ -527,6 +558,7 @@
   "zh": "语言"
  },
  "btn.next": {
+  "ar": "التالية ›",
   "be": "Наступная ›",
   "ca": "Següent ›",
   "cs": "Další ›",
@@ -544,6 +576,7 @@
   "zh": "下一页 ›"
  },
  "btn.open_dm": {
+  "ar": "افتح Branchy في الخاص",
   "be": "Адкрыць Branchy у асабістых",
   "ca": "Obre Branchy en privat",
   "cs": "Otevřít Branchy v soukromí",
@@ -561,6 +594,7 @@
   "zh": "在私聊中打开 Branchy"
  },
  "btn.pause": {
+  "ar": "إيقاف مؤقت",
   "be": "Паўза",
   "ca": "Pausa",
   "cs": "Pozastavit",
@@ -578,6 +612,7 @@
   "zh": "暂停"
  },
  "btn.pr_actions": {
+  "ar": "إجراءات طلبات السحب",
   "be": "Дзеянні з пул-рэквестамі",
   "ca": "Accions de pull request",
   "cs": "Akce pull requestů",
@@ -595,6 +630,7 @@
   "zh": "拉取请求动作"
  },
  "btn.prev": {
+  "ar": "‹ السابقة",
   "be": "‹ Папярэдняя",
   "ca": "‹ Anterior",
   "cs": "‹ Předchozí",
@@ -612,6 +648,7 @@
   "zh": "‹ 上一页"
  },
  "btn.reconnect": {
+  "ar": "إعادة ربط GitHub",
   "be": "Перападлучыць GitHub",
   "ca": "Reconnecta GitHub",
   "cs": "Znovu připojit GitHub",
@@ -629,6 +666,7 @@
   "zh": "重新连接 GitHub"
  },
  "btn.release_settings": {
+  "ar": "إشعارات الإصدارات",
   "be": "Апавяшчэнні пра рэлізы",
   "ca": "Notificacions de releases",
   "cs": "Notifikace o vydáních",
@@ -646,6 +684,7 @@
   "zh": "发行版通知"
  },
  "btn.repositories": {
+  "ar": "المستودعات",
   "be": "Рэпазіторыі",
   "ca": "Repositoris",
   "cs": "Repozitáře",
@@ -663,6 +702,7 @@
   "zh": "仓库"
  },
  "btn.resume": {
+  "ar": "استئناف",
   "be": "Аднавіць",
   "ca": "Reprèn",
   "cs": "Obnovit",
@@ -680,6 +720,7 @@
   "zh": "恢复"
  },
  "btn.save": {
+  "ar": "حفظ",
   "be": "Захаваць",
   "ca": "Desa",
   "cs": "Uložit",
@@ -697,6 +738,7 @@
   "zh": "保存"
  },
  "btn.sub_create": {
+  "ar": "إنشاء اشتراك",
   "be": "Стварыць падпіску",
   "ca": "Crea la subscripció",
   "cs": "Vytvořit odběr",
@@ -714,6 +756,7 @@
   "zh": "创建订阅"
  },
  "btn.sub_new": {
+  "ar": "اشتراك جديد",
   "be": "Новая падпіска",
   "ca": "Nova subscripció",
   "cs": "Nový odběr",
@@ -731,6 +774,7 @@
   "zh": "新建订阅"
  },
  "btn.subscriptions": {
+  "ar": "الاشتراكات",
   "be": "Падпіскі",
   "ca": "Subscripcions",
   "cs": "Odběry",
@@ -748,6 +792,7 @@
   "zh": "订阅"
  },
  "btn.test": {
+  "ar": "تجربة",
   "be": "Тэст",
   "ca": "Prova",
   "cs": "Test",
@@ -765,6 +810,7 @@
   "zh": "测试"
  },
  "btn.use_all_branches": {
+  "ar": "استخدام كل الفروع",
   "be": "Узяць усе галіны",
   "ca": "Fes servir totes les branques",
   "cs": "Použít všechny větve",
@@ -782,6 +828,7 @@
   "zh": "使用所有分支"
  },
  "cmd.group": {
+  "ar": "افتح Branchy في الخاص",
   "be": "Адкрыць Branchy у асабістых",
   "ca": "Obre Branchy en privat",
   "cs": "Otevřít Branchy v soukromí",
@@ -799,6 +846,7 @@
   "zh": "私下打开 Branchy"
  },
  "cmd.private": {
+  "ar": "افتح قائمة Branchy",
   "be": "Адкрыць меню Branchy",
   "ca": "Obre el menú de Branchy",
   "cs": "Otevřít menu Branchy",
@@ -816,6 +864,7 @@
   "zh": "打开 Branchy 菜单"
  },
  "dest.dm": {
+  "ar": "رسالة خاصة",
   "be": "Асабістыя паведамленні",
   "ca": "Missatge privat",
   "cs": "Soukromá zpráva",
@@ -833,6 +882,7 @@
   "zh": "私聊消息"
  },
  "dest.group_fallback": {
+  "ar": "مجموعة {id}",
   "be": "Група {id}",
   "ca": "Grup {id}",
   "cs": "Skupina {id}",
@@ -850,6 +900,7 @@
   "zh": "群组 {id}"
  },
  "dest.hint": {
+  "ar": "تظهر المجموعات هنا بعد إضافة Branchy إليها.",
   "be": "Групы з’явяцца тут, калі дадасі ў іх Branchy.",
   "ca": "Els grups apareixen aquí quan hi afegeixes Branchy.",
   "cs": "Skupiny se tu objeví, jakmile do nich přidáš Branchy.",
@@ -867,6 +918,7 @@
   "zh": "把 Branchy 加进群组后，群组会出现在这里。"
  },
  "dest.title": {
+  "ar": "اختر الوجهة",
   "be": "Куды дасылаць",
   "ca": "Tria la destinació",
   "cs": "Vyber cíl",
@@ -884,6 +936,7 @@
   "zh": "选择发送目标"
  },
  "dest.unavailable": {
+  "ar": "مجموعة (غير متاحة)",
   "be": "Група (недаступная)",
   "ca": "Grup (no disponible)",
   "cs": "Skupina (nedostupná)",
@@ -901,6 +954,7 @@
   "zh": "群组（不可用）"
  },
  "dest.unavailable.warning": {
+  "ar": "ربما لم يعد Branchy في هذه المجموعة، لذا قد يفشل الإرسال إلى هنا.",
   "be": "Магчыма, Branchy больш няма ў гэтай групе, і дастаўка сюды можа не спрацаваць.",
   "ca": "Pot ser que Branchy ja no sigui en aquest grup, així que els enviaments aquí poden fallar.",
   "cs": "Branchy už v téhle skupině nemusí být, takže doručování sem může selhat.",
@@ -918,6 +972,7 @@
   "zh": "Branchy 可能已经不在这个群组里了，发送到这里可能会失败。"
  },
  "err.action.create_subscription": {
+  "ar": "إنشاء الاشتراك",
   "be": "стварыць падпіску",
   "ca": "crear la subscripció",
   "cs": "vytvořit odběr",
@@ -935,6 +990,7 @@
   "zh": "创建订阅"
  },
  "err.action.delete_subscription": {
+  "ar": "حذف الاشتراك",
   "be": "выдаліць падпіску",
   "ca": "eliminar la subscripció",
   "cs": "smazat odběr",
@@ -952,6 +1008,7 @@
   "zh": "删除订阅"
  },
  "err.action.list_branches": {
+  "ar": "جلب الفروع",
   "be": "атрымаць спіс галін",
   "ca": "llistar les branques",
   "cs": "načíst větve",
@@ -969,6 +1026,7 @@
   "zh": "列出分支"
  },
  "err.action.list_repositories": {
+  "ar": "جلب مستودعاتك",
   "be": "атрымаць спіс тваіх рэпазіторыяў",
   "ca": "llistar els teus repositoris",
   "cs": "načíst tvoje repozitáře",
@@ -986,6 +1044,7 @@
   "zh": "列出你的仓库"
  },
  "err.action.send_test": {
+  "ar": "إرسال إشعار التجربة",
   "be": "даслаць тэставае апавяшчэнне",
   "ca": "enviar la notificació de prova",
   "cs": "odeslat testovací notifikaci",
@@ -1003,6 +1062,7 @@
   "zh": "发送测试通知"
  },
  "err.action.set_language": {
+  "ar": "تغيير اللغة",
   "be": "змяніць мову",
   "ca": "canviar l’idioma",
   "cs": "změnit jazyk",
@@ -1020,6 +1080,7 @@
   "zh": "更改语言"
  },
  "err.action.update_branch": {
+  "ar": "تحديث تصفية الفروع",
   "be": "абнавіць фільтр галін",
   "ca": "actualitzar el filtre de branques",
   "cs": "aktualizovat filtr větví",
@@ -1037,6 +1098,7 @@
   "zh": "更新分支筛选"
  },
  "err.action.update_destination": {
+  "ar": "تحديث الوجهة",
   "be": "абнавіць адрас дастаўкі",
   "ca": "actualitzar la destinació",
   "cs": "aktualizovat cíl",
@@ -1054,6 +1116,7 @@
   "zh": "更新发送目标"
  },
  "err.action.update_events": {
+  "ar": "تحديث الأحداث",
   "be": "абнавіць падзеі",
   "ca": "actualitzar els esdeveniments",
   "cs": "aktualizovat události",
@@ -1071,6 +1134,7 @@
   "zh": "更新事件"
  },
  "err.action.update_pr": {
+  "ar": "تحديث إعدادات طلبات السحب",
   "be": "абнавіць налады пул-рэквестаў",
   "ca": "actualitzar la configuració de pull requests",
   "cs": "aktualizovat nastavení pull requestů",
@@ -1088,6 +1152,7 @@
   "zh": "更新拉取请求设置"
  },
  "err.action.update_release": {
+  "ar": "تحديث إعدادات الإصدارات",
   "be": "абнавіць налады рэлізаў",
   "ca": "actualitzar la configuració de releases",
   "cs": "aktualizovat nastavení vydání",
@@ -1105,6 +1170,7 @@
   "zh": "更新发行版设置"
  },
  "err.action.update_subscription": {
+  "ar": "تحديث الاشتراك",
   "be": "абнавіць падпіску",
   "ca": "actualitzar la subscripció",
   "cs": "aktualizovat odběr",
@@ -1122,6 +1188,7 @@
   "zh": "更新订阅"
  },
  "err.generic": {
+  "ar": "تعذّر {action}. حاول مرة أخرى.",
   "be": "Не атрымалася {action}. Паспрабуй яшчэ раз.",
   "ca": "Branchy no ha pogut {action}. Torna-ho a provar.",
   "cs": "Nepodařilo se {action}. Zkus to znovu.",
@@ -1139,6 +1206,7 @@
   "zh": "Branchy 无法{action}。请重试。"
  },
  "err.github.expired.hint": {
+  "ar": "أعد الربط للمتابعة.",
   "be": "Перападлучыся, каб працягнуць.",
   "ca": "Torna a connectar per continuar.",
   "cs": "Připoj se znovu a pokračuj.",
@@ -1156,6 +1224,7 @@
   "zh": "重新连接后继续。"
  },
  "err.github.expired.title": {
+  "ar": "انتهت صلاحية الاتصال بـ GitHub",
   "be": "Падлучэнне да GitHub скончылася",
   "ca": "La connexió amb GitHub ha caducat",
   "cs": "Připojení k GitHubu vypršelo",
@@ -1173,6 +1242,7 @@
   "zh": "GitHub 连接已过期"
  },
  "err.github.rate_limited": {
+  "ar": "يحدّ GitHub من طلبات Branchy. حاول بعد بضع دقائق.",
   "be": "GitHub абмяжоўвае запыты Branchy. Паспрабуй праз некалькі хвілін.",
   "ca": "GitHub està limitant les peticions de Branchy. Torna-ho a provar d’aquí a uns minuts.",
   "cs": "GitHub omezuje požadavky Branchy. Zkus to za pár minut.",
@@ -1190,6 +1260,7 @@
   "zh": "GitHub 正在限制 Branchy 的请求频率。请过几分钟再试。"
  },
  "err.invalid.branch": {
+  "ar": "تصفية الفروع غير صالحة.",
   "be": "Няправільны фільтр галін.",
   "ca": "Filtre de branques no vàlid.",
   "cs": "Neplatný filtr větví.",
@@ -1207,6 +1278,7 @@
   "zh": "分支筛选无效。"
  },
  "err.invalid.destination": {
+  "ar": "الوجهة غير صالحة.",
   "be": "Няправільны адрас дастаўкі.",
   "ca": "Destinació no vàlida.",
   "cs": "Neplatný cíl.",
@@ -1224,6 +1296,7 @@
   "zh": "发送目标无效。"
  },
  "err.invalid.release": {
+  "ar": "إعداد الإصدارات غير صالح.",
   "be": "Няправільная налада рэлізаў.",
   "ca": "Configuració de releases no vàlida.",
   "cs": "Neplatné nastavení vydání.",
@@ -1241,6 +1314,7 @@
   "zh": "发行版设置无效。"
  },
  "err.invalid.status": {
+  "ar": "الحالة غير صالحة.",
   "be": "Няправільны статус.",
   "ca": "Estat no vàlid.",
   "cs": "Neplatný stav.",
@@ -1258,6 +1332,7 @@
   "zh": "状态无效。"
  },
  "err.need.branch": {
+  "ar": "اختر فرعًا واحدًا على الأقل.",
   "be": "Абяры хоць адну галіну.",
   "ca": "Tria com a mínim una branca.",
   "cs": "Vyber aspoň jednu větev.",
@@ -1275,6 +1350,7 @@
   "zh": "至少选择一个分支。"
  },
  "err.need.event": {
+  "ar": "اختر حدثًا واحدًا على الأقل.",
   "be": "Абяры хоць адну падзею.",
   "ca": "Tria com a mínim un esdeveniment.",
   "cs": "Vyber aspoň jednu událost.",
@@ -1292,6 +1368,7 @@
   "zh": "至少选择一个事件。"
  },
  "err.need.pr_action": {
+  "ar": "اختر إجراءً واحدًا على الأقل لطلبات السحب.",
   "be": "Абяры хоць адно дзеянне з пул-рэквестамі.",
   "ca": "Tria com a mínim una acció de pull request.",
   "cs": "Vyber aspoň jednu akci pull requestu.",
@@ -1309,6 +1386,7 @@
   "zh": "至少选择一个拉取请求动作。"
  },
  "err.not_connected.hint": {
+  "ar": "اربط GitHub من القائمة ثم حاول مرة أخرى.",
   "be": "Падлучы GitHub у меню і паспрабуй зноў.",
   "ca": "Connecta GitHub des del menú i torna-ho a provar.",
   "cs": "Připoj GitHub z menu a zkus to znovu.",
@@ -1326,6 +1404,7 @@
   "zh": "在菜单里连接 GitHub，然后再试一次。"
  },
  "err.not_connected.title": {
+  "ar": "لم يتم ربط GitHub",
   "be": "GitHub не падлучаны",
   "ca": "GitHub no està connectat",
   "cs": "GitHub není připojený",
@@ -1343,6 +1422,7 @@
   "zh": "GitHub 未连接"
  },
  "err.repo.gone": {
+  "ar": "لم يعد {repo} متاحًا على GitHub.",
   "be": "Рэпазіторый {repo} больш недаступны на GitHub.",
   "ca": "Ja no es pot accedir a {repo} a GitHub.",
   "cs": "Repozitář {repo} už na GitHubu není dostupný.",
@@ -1360,6 +1440,7 @@
   "zh": "在 GitHub 上已经无法访问 {repo}。"
  },
  "err.sub.duplicate": {
+  "ar": "لديك بالفعل اشتراك بهذه الإعدادات تمامًا.",
   "be": "У цябе ўжо ёсць падпіска роўна з такімі наладамі.",
   "ca": "Ja tens una subscripció amb exactament aquesta configuració.",
   "cs": "Odběr přesně s tímhle nastavením už máš.",
@@ -1377,6 +1458,7 @@
   "zh": "你已经有一个设置完全相同的订阅了。"
  },
  "err.sub.not_found.hint": {
+  "ar": "ربما تم حذفه بالفعل.",
   "be": "Магчыма, яе ўжо выдалілі.",
   "ca": "Potser ja s’ha eliminat.",
   "cs": "Možná už byl smazaný.",
@@ -1394,6 +1476,7 @@
   "zh": "它可能已经被删除了。"
  },
  "err.sub.not_found.title": {
+  "ar": "لم يتم العثور على الاشتراك",
   "be": "Падпіска не знойдзена",
   "ca": "No s’ha trobat la subscripció",
   "cs": "Odběr nenalezen",
@@ -1411,6 +1494,7 @@
   "zh": "找不到订阅"
  },
  "err.title": {
+  "ar": "حدث خطأ ما",
   "be": "Нешта пайшло не так",
   "ca": "Alguna cosa ha anat malament",
   "cs": "Něco se pokazilo",
@@ -1428,6 +1512,7 @@
   "zh": "出问题了"
  },
  "err.webhook.failed": {
+  "ar": "تعذّر إعداد webhook على {repo}. تأكد أن لديك صلاحيات الإدارة على المستودع ثم حاول مرة أخرى.",
   "be": "Не атрымалася наладзіць вэбхук у {repo}. Правер, ці маеш ты правы адміністратара на рэпазіторый, і паспрабуй зноў.",
   "ca": "No s’ha pogut gestionar el webhook de {repo}. Comprova que tens drets d’administració al repositori i torna-ho a provar.",
   "cs": "Nepodařilo se nastavit webhook v {repo}. Zkontroluj, že máš na repozitáři práva správce, a zkus to znovu.",
@@ -1445,6 +1530,7 @@
   "zh": "无法管理 {repo} 上的 webhook。请确认你对该仓库有管理员权限，然后再试一次。"
  },
  "event.pull_request": {
+  "ar": "طلبات السحب",
   "be": "Пул-рэквесты",
   "ca": "Pull requests",
   "cs": "Pull requesty",
@@ -1462,6 +1548,7 @@
   "zh": "拉取请求"
  },
  "event.push": {
+  "ar": "Push",
   "be": "Пушы",
   "ca": "Push",
   "cs": "Push",
@@ -1479,6 +1566,7 @@
   "zh": "推送"
  },
  "event.release": {
+  "ar": "الإصدارات",
   "be": "Рэлізы",
   "ca": "Releases",
   "cs": "Vydání",
@@ -1496,6 +1584,7 @@
   "zh": "发行版"
  },
  "home.connect_hint": {
+  "ar": "اربط GitHub لاختيار المستودعات والأحداث.",
   "be": "Падлучы GitHub, каб абраць рэпазіторыі і падзеі.",
   "ca": "Connecta GitHub per triar repositoris i esdeveniments.",
   "cs": "Připoj GitHub a vyber repozitáře a události.",
@@ -1513,6 +1602,7 @@
   "zh": "连接 GitHub 后即可选择仓库和事件。"
  },
  "home.connected": {
+  "ar": "متصل باسم {login}",
   "be": "Падлучаны як {login}",
   "ca": "Connectat com a {login}",
   "cs": "Připojeno jako {login}",
@@ -1530,6 +1620,7 @@
   "zh": "已连接为 {login}"
  },
  "home.group.body": {
+  "ar": "الإعدادات تعيش في المحادثة الخاصة. افتح واحدة لربط GitHub واختيار ما تستقبله هذه المحادثة.",
   "be": "Налады жывуць у асабістых паведамленнях. Адкрый іх, каб падлучыць GitHub і абраць, што будзе прыходзіць у гэты чат.",
   "ca": "La configuració viu en un missatge privat. Obre’n un per connectar GitHub i triar què rep aquest xat.",
   "cs": "Nastavení žije v soukromé konverzaci. Otevři si ji, připoj GitHub a vyber, co bude chodit do tohohle chatu.",
@@ -1547,6 +1638,7 @@
   "zh": "设置在私聊里。打开私聊连接 GitHub，并选择这个聊天要收到什么。"
  },
  "home.hint": {
+  "ar": "إشعارات GitHub، تصل حيث تريد.",
   "be": "Апавяшчэнні GitHub — там, дзе табе зручна.",
   "ca": "Notificacions de GitHub, allà on les vulguis.",
   "cs": "Notifikace z GitHubu tam, kde je chceš.",
@@ -1564,6 +1656,7 @@
   "zh": "GitHub 通知，送到你想要的地方。"
  },
  "home.not_connected": {
+  "ar": "غير متصل بـ GitHub",
   "be": "GitHub не падлучаны",
   "ca": "No connectat a GitHub",
   "cs": "GitHub není připojený",
@@ -1581,6 +1674,7 @@
   "zh": "未连接 GitHub"
  },
  "home.nudge": {
+  "ar": "أرسل /start لفتح قائمة Branchy.",
   "be": "Дашлі /start, каб адкрыць меню Branchy.",
   "ca": "Envia /start per obrir el menú de Branchy.",
   "cs": "Napiš /start a otevře se menu Branchy.",
@@ -1598,6 +1692,7 @@
   "zh": "发送 /start 打开 Branchy 菜单。"
  },
  "home.subs.many": {
+  "ar": "الاشتراكات: {count}.",
   "be": "Падпісак: {count}.",
   "ca": "{count} subscripcions.",
   "cs": "Odběrů: {count}.",
@@ -1615,6 +1710,7 @@
   "zh": "{count} 个订阅。"
  },
  "home.subs.none": {
+  "ar": "لا توجد اشتراكات بعد. اضغط «اشتراك جديد» للبدء.",
   "be": "Пакуль няма падпісак. Націсні «Новая падпіска», каб пачаць.",
   "ca": "Encara no hi ha subscripcions. Toca Nova subscripció per començar.",
   "cs": "Zatím žádné odběry. Klepni na Nový odběr a začni.",
@@ -1632,6 +1728,7 @@
   "zh": "还没有订阅。点「新建订阅」开始。"
  },
  "home.subs.one": {
+  "ar": "اشتراك واحد.",
   "be": "1 падпіска.",
   "ca": "1 subscripció.",
   "cs": "1 odběr.",
@@ -1649,6 +1746,7 @@
   "zh": "1 个订阅。"
  },
  "home.title": {
+  "ar": "Branchy",
   "be": "Branchy",
   "ca": "Branchy",
   "cs": "Branchy",
@@ -1666,6 +1764,7 @@
   "zh": "Branchy"
  },
  "lang.hint": {
+  "ar": "تنطبق على ردود هذا البوت، وهي مشتركة مع بقية البوتات.",
   "be": "Уплывае на адказы гэтага бота; налада агульная з астатнімі ботамі.",
   "ca": "S’aplica a les respostes d’aquest bot i es comparteix amb els altres bots.",
   "cs": "Platí pro odpovědi tohohle bota a sdílí se s ostatními boty.",
@@ -1683,6 +1782,7 @@
   "zh": "适用于这个机器人的回复，并与其他机器人共享。"
  },
  "lang.title": {
+  "ar": "اللغة",
   "be": "Мова",
   "ca": "Idioma",
   "cs": "Jazyk",
@@ -1700,6 +1800,7 @@
   "zh": "语言"
  },
  "page.indicator": {
+  "ar": "صفحة {page} من {pages}",
   "be": "Старонка {page} з {pages}",
   "ca": "Pàgina {page} de {pages}",
   "cs": "Strana {page} z {pages}",
@@ -1717,6 +1818,7 @@
   "zh": "第 {page} 页，共 {pages} 页"
  },
  "pr.closed": {
+  "ar": "الإغلاق",
   "be": "Закрыццё",
   "ca": "Tancament",
   "cs": "Zavření",
@@ -1734,6 +1836,7 @@
   "zh": "关闭"
  },
  "pr.hint": {
+  "ar": "اختر إجراءً واحدًا على الأقل. «الفتح» يشمل أيضًا طلبات السحب المُعاد فتحها.",
   "be": "Абяры хоць адно дзеянне. «Адкрыццё» ахоплівае і пераадкрытыя пул-рэквесты.",
   "ca": "Tria com a mínim una acció. «Obertura» també inclou les pull requests reobertes.",
   "cs": "Vyber aspoň jednu akci. „Otevření“ zahrnuje i znovu otevřené pull requesty.",
@@ -1751,6 +1854,7 @@
   "zh": "至少选择一个动作。「打开」也包含重新打开的拉取请求。"
  },
  "pr.merged": {
+  "ar": "الدمج",
   "be": "Зліццё",
   "ca": "Fusió",
   "cs": "Sloučení",
@@ -1768,6 +1872,7 @@
   "zh": "合并"
  },
  "pr.none": {
+  "ar": "لم يُختر شيء",
   "be": "Нічога не абрана",
   "ca": "Cap de seleccionada",
   "cs": "Nic nevybráno",
@@ -1785,6 +1890,7 @@
   "zh": "未选择"
  },
  "pr.opened": {
+  "ar": "الفتح",
   "be": "Адкрыццё",
   "ca": "Obertura",
   "cs": "Otevření",
@@ -1802,6 +1908,7 @@
   "zh": "打开"
  },
  "pr.title": {
+  "ar": "إجراءات طلبات السحب",
   "be": "Дзеянні з пул-рэквестамі",
   "ca": "Accions de pull request",
   "cs": "Akce pull requestů",
@@ -1819,6 +1926,7 @@
   "zh": "拉取请求动作"
  },
  "release.all": {
+  "ar": "الإصدارات والإصدارات الأولية",
   "be": "Рэлізы і перадрэлізы",
   "ca": "Releases i pre-releases",
   "cs": "Vydání a předběžná vydání",
@@ -1836,6 +1944,7 @@
   "zh": "发行版和预发行版"
  },
  "release.hint": {
+  "ar": "اختر الإصدارات التي يبلّغ عنها هذا الاشتراك.",
   "be": "Абяры, пра якія рэлізы паведамляе гэтая падпіска.",
   "ca": "Tria de quines releases t’informa aquesta subscripció.",
   "cs": "Vyber, o kterých vydáních tenhle odběr hlásí.",
@@ -1853,6 +1962,7 @@
   "zh": "选择这个订阅要报告哪些发行版。"
  },
  "release.prereleases": {
+  "ar": "الإصدارات الأولية فقط",
   "be": "Толькі перадрэлізы",
   "ca": "Només pre-releases",
   "cs": "Jen předběžná vydání",
@@ -1870,6 +1980,7 @@
   "zh": "仅预发行版"
  },
  "release.releases": {
+  "ar": "الإصدارات فقط",
   "be": "Толькі рэлізы",
   "ca": "Només releases",
   "cs": "Jen vydání",
@@ -1887,6 +1998,7 @@
   "zh": "仅发行版"
  },
  "release.title": {
+  "ar": "إشعارات الإصدارات",
   "be": "Апавяшчэнні пра рэлізы",
   "ca": "Notificacions de releases",
   "cs": "Notifikace o vydáních",
@@ -1904,6 +2016,7 @@
   "zh": "发行版通知"
  },
  "repo.archived": {
+  "ar": "هذا المستودع مؤرشف، لذا لا يمكن إعداد webhook فيه.",
   "be": "Рэпазіторый у архіве, таму вэбхукі GitHub тут наладзіць нельга.",
   "ca": "Aquest repositori està arxivat, així que no s’hi poden configurar webhooks de GitHub.",
   "cs": "Tenhle repozitář je archivovaný, takže webhooky GitHubu tu nastavit nejdou.",
@@ -1921,6 +2034,7 @@
   "zh": "这个仓库已归档，无法配置 GitHub webhook。"
  },
  "repo.choose.hint": {
+  "ar": "اختر المستودع الذي يراقبه هذا الاشتراك.",
   "be": "Абяры рэпазіторый, за якім будзе сачыць гэтая падпіска.",
   "ca": "Tria el repositori que vigila aquesta subscripció.",
   "cs": "Vyber repozitář, který tenhle odběr sleduje.",
@@ -1938,6 +2052,7 @@
   "zh": "选择这个订阅要盯着的仓库。"
  },
  "repo.choose.title": {
+  "ar": "اختر مستودعًا",
   "be": "Выбар рэпазіторыя",
   "ca": "Tria un repositori",
   "cs": "Vyber repozitář",
@@ -1955,6 +2070,7 @@
   "zh": "选择一个仓库"
  },
  "repo.default_branch": {
+  "ar": "الفرع الافتراضي: {branch}",
   "be": "Прадвызначаная галіна: {branch}",
   "ca": "Branca per defecte: {branch}",
   "cs": "Výchozí větev: {branch}",
@@ -1972,6 +2088,7 @@
   "zh": "默认分支：{branch}"
  },
  "repo.empty.hint": {
+  "ar": "لا يملك حساب GitHub هذا مستودعات يستطيع Branchy عرضها.",
   "be": "У гэтага акаўнта GitHub няма рэпазіторыяў, якія Branchy можа паказаць.",
   "ca": "Aquest compte de GitHub no té cap repositori que Branchy pugui mostrar.",
   "cs": "Tenhle GitHub účet nemá repozitáře, které by Branchy mohl ukázat.",
@@ -1989,6 +2106,7 @@
   "zh": "这个 GitHub 账号没有 Branchy 能显示的仓库。"
  },
  "repo.empty.subscribe.hint": {
+  "ar": "تحتاج إلى صلاحيات الإدارة على المستودع للاشتراك فيه.",
   "be": "Каб падпісацца на рэпазіторый, патрэбныя правы адміністратара.",
   "ca": "Necessites drets d’administració en un repositori per subscriure-t’hi.",
   "cs": "K odběru repozitáře potřebuješ práva správce.",
@@ -2006,6 +2124,7 @@
   "zh": "订阅一个仓库需要你在该仓库有管理员权限。"
  },
  "repo.empty.title": {
+  "ar": "لا توجد مستودعات",
   "be": "Няма рэпазіторыяў",
   "ca": "Cap repositori",
   "cs": "Žádné repozitáře",
@@ -2023,6 +2142,7 @@
   "zh": "没有仓库"
  },
  "repo.info.hint": {
+  "ar": "ما يستطيع Branchy فعله بهذا المستودع.",
   "be": "Што Branchy умее з гэтым рэпазіторыем.",
   "ca": "Què pot fer Branchy amb aquest repositori.",
   "cs": "Co s tímhle repozitářem Branchy umí.",
@@ -2040,6 +2160,7 @@
   "zh": "Branchy 能对这个仓库做什么。"
  },
  "repo.list.hint": {
+  "ar": "اضغط على مستودع لترى ما يستطيع Branchy فعله به.",
   "be": "Націсні на рэпазіторый, каб убачыць, што Branchy з ім умее.",
   "ca": "Toca un repositori per veure què hi pot fer Branchy.",
   "cs": "Klepni na repozitář a uvidíš, co s ním Branchy umí.",
@@ -2057,6 +2178,7 @@
   "zh": "点一个仓库，看看 Branchy 能对它做什么。"
  },
  "repo.list.title": {
+  "ar": "المستودعات",
   "be": "Рэпазіторыі",
   "ca": "Repositoris",
   "cs": "Repozitáře",
@@ -2074,6 +2196,7 @@
   "zh": "仓库"
  },
  "repo.no_access": {
+  "ar": "لا صلاحية",
   "be": "няма доступу",
   "ca": "sense accés",
   "cs": "bez přístupu",
@@ -2091,6 +2214,7 @@
   "zh": "无权限"
  },
  "repo.no_admin": {
+  "ar": "تحتاج هنا إلى صلاحيات الإدارة لإضافة webhook، لذا لا يمكنك الاشتراك في هذا المستودع.",
   "be": "Каб дадаць вэбхук, тут патрэбныя правы адміністратара, таму падпісацца на гэты рэпазіторый не выйдзе.",
   "ca": "Aquí necessites drets d’administració per afegir un webhook, així que no et pots subscriure a aquest repositori.",
   "cs": "Na přidání webhooku tu potřebuješ práva správce, takže tenhle repozitář odebírat nemůžeš.",
@@ -2108,6 +2232,7 @@
   "zh": "这里需要管理员权限才能添加 webhook，所以你无法订阅这个仓库。"
  },
  "status.active": {
+  "ar": "نشط",
   "be": "Актыўная",
   "ca": "Activa",
   "cs": "Aktivní",
@@ -2125,6 +2250,7 @@
   "zh": "启用中"
  },
  "status.paused": {
+  "ar": "متوقف مؤقتًا",
   "be": "На паўзе",
   "ca": "En pausa",
   "cs": "Pozastavený",
@@ -2142,6 +2268,7 @@
   "zh": "已暂停"
  },
  "sub.advanced.hint": {
+  "ar": "اضبط بدقة ما يبلّغ عنه هذا الاشتراك.",
   "be": "Дакладная настройка таго, пра што паведамляе гэтая падпіска.",
   "ca": "Afina de què t’informa aquesta subscripció.",
   "cs": "Dolaď, co přesně tenhle odběr hlásí.",
@@ -2159,6 +2286,7 @@
   "zh": "细调这个订阅要报告什么。"
  },
  "sub.advanced.title": {
+  "ar": "إعدادات متقدمة",
   "be": "Дадатковыя налады",
   "ca": "Configuració avançada",
   "cs": "Pokročilé nastavení",
@@ -2176,6 +2304,7 @@
   "zh": "高级设置"
  },
  "sub.delete.body": {
+  "ar": "هذا يحذف الاشتراك نهائيًا ولا يمكن التراجع عنه.",
   "be": "Падпіска выдаліцца назаўсёды, адмяніць гэта нельга.",
   "ca": "Això elimina la subscripció per sempre i no es pot desfer.",
   "cs": "Tímhle se odběr smaže natrvalo a vrátit to nejde.",
@@ -2193,6 +2322,7 @@
   "zh": "这会永久删除订阅，无法撤销。"
  },
  "sub.delete.title": {
+  "ar": "حذف هذا الاشتراك؟",
   "be": "Выдаліць гэтую падпіску?",
   "ca": "Vols eliminar aquesta subscripció?",
   "cs": "Smazat tenhle odběr?",
@@ -2210,6 +2340,7 @@
   "zh": "删除这个订阅？"
  },
  "sub.edit.events.hint": {
+  "ar": "اختر حدثًا واحدًا على الأقل ثم اضغط «حفظ».",
   "be": "Абяры хоць адну падзею і націсні «Захаваць».",
   "ca": "Tria com a mínim un esdeveniment i toca Desa.",
   "cs": "Vyber aspoň jednu událost a klepni na Uložit.",
@@ -2227,6 +2358,7 @@
   "zh": "至少选择一个事件，然后点「保存」。"
  },
  "sub.edit.events.title": {
+  "ar": "تعديل الأحداث",
   "be": "Змяніць падзеі",
   "ca": "Edita els esdeveniments",
   "cs": "Upravit události",
@@ -2244,6 +2376,7 @@
   "zh": "编辑事件"
  },
  "sub.edit.hint": {
+  "ar": "اختر ما تريد تغييره.",
   "be": "Абяры, што змяніць.",
   "ca": "Tria què vols canviar.",
   "cs": "Vyber, co změnit.",
@@ -2261,6 +2394,7 @@
   "zh": "选择要改什么。"
  },
  "sub.edit.title": {
+  "ar": "تعديل الاشتراك",
   "be": "Змяніць падпіску",
   "ca": "Edita la subscripció",
   "cs": "Upravit odběr",
@@ -2278,6 +2412,7 @@
   "zh": "编辑订阅"
  },
  "sub.events.hint": {
+  "ar": "اختر حدثًا واحدًا على الأقل ثم تابع.",
   "be": "Абяры хоць адну падзею і працягвай.",
   "ca": "Tria com a mínim un esdeveniment i continua.",
   "cs": "Vyber aspoň jednu událost a pokračuj.",
@@ -2295,6 +2430,7 @@
   "zh": "至少选择一个事件，然后继续。"
  },
  "sub.events.title": {
+  "ar": "اختر الأحداث",
   "be": "Выбар падзей",
   "ca": "Tria els esdeveniments",
   "cs": "Vyber události",
@@ -2312,6 +2448,7 @@
   "zh": "选择事件"
  },
  "sub.field.destination": {
+  "ar": "الوجهة: {value}",
   "be": "Куды: {value}",
   "ca": "Destinació: {value}",
   "cs": "Cíl: {value}",
@@ -2329,6 +2466,7 @@
   "zh": "发送目标：{value}"
  },
  "sub.field.status": {
+  "ar": "الحالة: {value}",
   "be": "Статус: {value}",
   "ca": "Estat: {value}",
   "cs": "Stav: {value}",
@@ -2346,6 +2484,7 @@
   "zh": "状态：{value}"
  },
  "sub.list.empty.hint": {
+  "ar": "أنشئ واحدًا من القائمة لتبدأ في استقبال الإشعارات.",
   "be": "Ствары падпіску ў меню, каб пачаць атрымліваць апавяшчэнні.",
   "ca": "Crea’n una des del menú per començar a rebre notificacions.",
   "cs": "Vytvoř si ho z menu a začneš dostávat notifikace.",
@@ -2363,6 +2502,7 @@
   "zh": "从菜单里创建一个，就能开始收到通知。"
  },
  "sub.list.empty.title": {
+  "ar": "لا توجد اشتراكات",
   "be": "Няма падпісак",
   "ca": "Cap subscripció",
   "cs": "Žádné odběry",
@@ -2380,6 +2520,7 @@
   "zh": "没有订阅"
  },
  "sub.list.hint": {
+  "ar": "اضغط على اشتراك لعرضه أو تعديله.",
   "be": "Націсні на падпіску, каб паглядзець ці змяніць яе.",
   "ca": "Toca una subscripció per veure-la o editar-la.",
   "cs": "Klepni na odběr a zobrazíš ho nebo upravíš.",
@@ -2397,6 +2538,7 @@
   "zh": "点一个订阅来查看或编辑。"
  },
  "sub.list.paused": {
+  "ar": "متوقف مؤقتًا",
   "be": "на паўзе",
   "ca": "en pausa",
   "cs": "pozastaveno",
@@ -2414,6 +2556,7 @@
   "zh": "已暂停"
  },
  "sub.list.title": {
+  "ar": "الاشتراكات",
   "be": "Падпіскі",
   "ca": "Subscripcions",
   "cs": "Odběry",
@@ -2431,6 +2574,7 @@
   "zh": "订阅"
  },
  "sub.pause.telegram_blocked": {
+  "ar": "تم الإيقاف المؤقت تلقائيًا: لم يستطع Branchy التسليم هنا. أعد الوصول ثم اضغط «استئناف».",
   "be": "Пастаўлена на паўзу аўтаматычна: Branchy не змог сюды даставіць. Аднаві доступ і націсні «Аднавіць».",
   "ca": "Posada en pausa automàticament. Branchy no ha pogut lliurar aquí. Restaura l’accés i toca Reprèn.",
   "cs": "Automaticky pozastaveno. Branchy sem nedokázal doručit. Obnov přístup a klepni na Obnovit.",
@@ -2448,6 +2592,7 @@
   "zh": "已自动暂停。Branchy 无法送到这里。恢复访问权限后点「恢复」。"
  },
  "sub.settings.hint": {
+  "ar": "راجع الإعدادات ثم أنشئ الاشتراك.",
   "be": "Праверы налады і ствары падпіску.",
   "ca": "Revisa la configuració i crea la subscripció.",
   "cs": "Projdi nastavení a vytvoř odběr.",
@@ -2465,6 +2610,7 @@
   "zh": "检查设置，然后创建订阅。"
  },
  "sub.settings.need_branch": {
+  "ar": "اختر فرعًا واحدًا على الأقل لإتمام الإعداد.",
   "be": "Абяры хоць адну галіну, каб скончыць.",
   "ca": "Tria com a mínim una branca per acabar.",
   "cs": "Vyber aspoň jednu větev, ať to můžeš dokončit.",
@@ -2482,6 +2628,7 @@
   "zh": "至少选择一个分支才能完成。"
  },
  "sub.settings.need_more": {
+  "ar": "أكمل الإعدادات أعلاه لإنشاء الاشتراك.",
   "be": "Скончы налады вышэй, каб стварыць падпіску.",
   "ca": "Acaba la configuració de dalt per crear la subscripció.",
   "cs": "Dokonči nastavení výš, ať můžeš odběr vytvořit.",
@@ -2499,6 +2646,7 @@
   "zh": "完成上面的设置才能创建订阅。"
  },
  "sub.settings.need_pr": {
+  "ar": "اختر إجراءً واحدًا على الأقل لطلبات السحب لإتمام الإعداد.",
   "be": "Абяры хоць адно дзеянне з пул-рэквестамі, каб скончыць.",
   "ca": "Tria com a mínim una acció de pull request per acabar.",
   "cs": "Vyber aspoň jednu akci pull requestu, ať to můžeš dokončit.",
@@ -2516,6 +2664,7 @@
   "zh": "至少选择一个拉取请求动作才能完成。"
  },
  "sub.settings.title": {
+  "ar": "إعدادات الأحداث",
   "be": "Налады падзей",
   "ca": "Configuració dels esdeveniments",
   "cs": "Nastavení událostí",
@@ -2533,6 +2682,7 @@
   "zh": "事件设置"
  },
  "sub.view.hint": {
+  "ar": "ما يبلّغ عنه هذا الاشتراك، وإلى أين.",
   "be": "Пра што паведамляе гэтая падпіска і куды.",
   "ca": "De què t’informa aquesta subscripció, i on.",
   "cs": "Co tenhle odběr hlásí a kam.",
@@ -2550,6 +2700,7 @@
   "zh": "这个订阅报告什么，送到哪里。"
  },
  "sum.branches": {
+  "ar": "الفروع: {value}",
   "be": "Галіны: {value}",
   "ca": "Branques: {value}",
   "cs": "Větve: {value}",
@@ -2567,6 +2718,7 @@
   "zh": "分支：{value}"
  },
  "sum.events": {
+  "ar": "الأحداث: {value}",
   "be": "Падзеі: {value}",
   "ca": "Esdeveniments: {value}",
   "cs": "Události: {value}",
@@ -2584,6 +2736,7 @@
   "zh": "事件：{value}"
  },
  "sum.pull_requests": {
+  "ar": "طلبات السحب: {value}",
   "be": "Пул-рэквесты: {value}",
   "ca": "Pull requests: {value}",
   "cs": "Pull requesty: {value}",
@@ -2601,6 +2754,7 @@
   "zh": "拉取请求：{value}"
  },
  "sum.releases": {
+  "ar": "الإصدارات: {value}",
   "be": "Рэлізы: {value}",
   "ca": "Releases: {value}",
   "cs": "Vydání: {value}",
@@ -2618,6 +2772,7 @@
   "zh": "发行版：{value}"
  },
  "toast.action_already_ran": {
+  "ar": "هذا الإجراء نُفّذ بالفعل.",
   "be": "Гэтае дзеянне ўжо выканана.",
   "ca": "Aquesta acció ja s’ha executat.",
   "cs": "Tahle akce už proběhla.",
@@ -2635,6 +2790,7 @@
   "zh": "这个操作已经执行过了。"
  },
  "toast.action_expired": {
+  "ar": "انتهت صلاحية هذا الإجراء.",
   "be": "Дзеянне састарэла.",
   "ca": "Aquesta acció ha caducat.",
   "cs": "Tahle akce vypršela.",
@@ -2652,6 +2808,7 @@
   "zh": "这个操作已过期。"
  },
  "toast.branch_updated": {
+  "ar": "تم تحديث تصفية الفروع.",
   "be": "Фільтр галін абноўлены.",
   "ca": "Filtre de branques actualitzat.",
   "cs": "Filtr větví aktualizován.",
@@ -2669,6 +2826,7 @@
   "zh": "分支筛选已更新。"
  },
  "toast.dest_updated": {
+  "ar": "تم تحديث الوجهة.",
   "be": "Адрас дастаўкі абноўлены.",
   "ca": "Destinació actualitzada.",
   "cs": "Cíl aktualizován.",
@@ -2686,6 +2844,7 @@
   "zh": "发送目标已更新。"
  },
  "toast.events_updated": {
+  "ar": "تم تحديث الأحداث.",
   "be": "Падзеі абноўлены.",
   "ca": "Esdeveniments actualitzats.",
   "cs": "Události aktualizovány.",
@@ -2703,6 +2862,7 @@
   "zh": "事件已更新。"
  },
  "toast.files_failed": {
+  "ar": "تعذّر تحميل قائمة الملفات.",
   "be": "Не атрымалася загрузіць спіс файлаў.",
   "ca": "No s’ha pogut carregar la llista de fitxers.",
   "cs": "Nepodařilo se načíst seznam souborů.",
@@ -2720,6 +2880,7 @@
   "zh": "无法加载文件列表。"
  },
  "toast.github_expired": {
+  "ar": "انتهت صلاحية الوصول إلى GitHub.",
   "be": "Доступ да GitHub скончыўся.",
   "ca": "L’accés a GitHub ha caducat.",
   "cs": "Přístup ke GitHubu vypršel.",
@@ -2737,6 +2898,7 @@
   "zh": "GitHub 访问权限已过期。"
  },
  "toast.group_check_failed": {
+  "ar": "تعذّر التحقق من الوصول إلى المجموعة. حاول مرة أخرى.",
   "be": "Не атрымалася праверыць доступ да групы. Паспрабуй яшчэ раз.",
   "ca": "No s’ha pogut verificar l’accés al grup. Torna-ho a provar.",
   "cs": "Nepodařilo se ověřit přístup ke skupině. Zkus to znovu.",
@@ -2754,6 +2916,7 @@
   "zh": "无法验证群组访问权限。请重试。"
  },
  "toast.lang_follow": {
+  "ar": "أتّبع لغة Telegram لديك.",
   "be": "Іду за мовай твайго Telegram.",
   "ca": "Seguint l’idioma del teu Telegram.",
   "cs": "Řídím se jazykem tvého Telegramu.",
@@ -2771,6 +2934,7 @@
   "zh": "跟随你的 Telegram 语言。"
  },
  "toast.lang_set": {
+  "ar": "تم تحديث اللغة.",
   "be": "Мова абноўлена.",
   "ca": "Idioma actualitzat.",
   "cs": "Jazyk aktualizován.",
@@ -2788,6 +2952,7 @@
   "zh": "语言已更新。"
  },
  "toast.not_group_admin": {
+  "ar": "يجب أن تكون مشرفًا في المجموعة.",
   "be": "Трэба быць адміністратарам групы.",
   "ca": "Has de ser administrador del grup.",
   "cs": "Musíš být správce skupiny.",
@@ -2805,6 +2970,7 @@
   "zh": "你必须是群组管理员。"
  },
  "toast.pr_updated": {
+  "ar": "تم تحديث إعدادات طلبات السحب.",
   "be": "Налады пул-рэквестаў абноўлены.",
   "ca": "Configuració de pull requests actualitzada.",
   "cs": "Nastavení pull requestů aktualizováno.",
@@ -2822,6 +2988,7 @@
   "zh": "拉取请求设置已更新。"
  },
  "toast.release_updated": {
+  "ar": "تم تحديث إعدادات الإصدارات.",
   "be": "Налады рэлізаў абноўлены.",
   "ca": "Configuració de releases actualitzada.",
   "cs": "Nastavení vydání aktualizováno.",
@@ -2839,6 +3006,7 @@
   "zh": "发行版设置已更新。"
  },
  "toast.snapshot_expired": {
+  "ar": "انتهت صلاحية هذه اللقطة.",
   "be": "Гэты здымак састарэў.",
   "ca": "Aquesta instantània ha caducat.",
   "cs": "Tenhle snímek vypršel.",
@@ -2856,6 +3024,7 @@
   "zh": "这个快照已过期。"
  },
  "toast.sub_created": {
+  "ar": "تم إنشاء الاشتراك.",
   "be": "Падпіска створана.",
   "ca": "Subscripció creada.",
   "cs": "Odběr vytvořen.",
@@ -2873,6 +3042,7 @@
   "zh": "订阅已创建。"
  },
  "toast.sub_deleted": {
+  "ar": "تم حذف الاشتراك.",
   "be": "Падпіска выдалена.",
   "ca": "Subscripció eliminada.",
   "cs": "Odběr smazán.",
@@ -2890,6 +3060,7 @@
   "zh": "订阅已删除。"
  },
  "toast.sub_paused": {
+  "ar": "تم إيقاف الاشتراك مؤقتًا.",
   "be": "Падпіска на паўзе.",
   "ca": "Subscripció en pausa.",
   "cs": "Odběr pozastaven.",
@@ -2907,6 +3078,7 @@
   "zh": "订阅已暂停。"
  },
  "toast.sub_resumed": {
+  "ar": "تم استئناف الاشتراك.",
   "be": "Падпіска адноўлена.",
   "ca": "Subscripció represa.",
   "cs": "Odběr obnoven.",
@@ -2924,6 +3096,7 @@
   "zh": "订阅已恢复。"
  },
  "toast.test_sent": {
+  "ar": "تم إرسال إشعار التجربة.",
   "be": "Тэставае апавяшчэнне дасланае.",
   "ca": "Notificació de prova enviada.",
   "cs": "Testovací notifikace odeslána.",
