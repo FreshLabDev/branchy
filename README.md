@@ -294,6 +294,6 @@ docker compose config
 </p>
 
 <p align="center">
-  Branchy is open source software by FreshLab.<br/>
-  Copyright 2026 FreshLab.
+  Branchy is open source software by Asterfield.<br/>
+  Copyright 2026 Asterfield.
 </p>

@@ -781,7 +781,7 @@ Telegram-first setup flow are unchanged.
   - Subscription view, pause, edit, delete, and test notification actions.
   - Startup SQL migrations tracked in `schema_migrations`.
   - `/healthz` runtime health endpoint.
-- Apache-2.0 license under FreshLab.
+- Apache-2.0 license under Asterfield.
 - Project documentation for architecture, GitHub integration, Telegram behavior,
   versioning, and release process.
 - Pagination for the repository and branch pickers (Prev/Next) instead of
