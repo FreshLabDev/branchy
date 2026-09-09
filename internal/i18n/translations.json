@@ -1,0 +1,515 @@
+{
+ "about.admin": {
+  "en": "Admin"
+ },
+ "about.events": {
+  "en": "Events"
+ },
+ "about.source": {
+  "en": "Source"
+ },
+ "about.tagline": {
+  "en": "Clean GitHub notifications in Telegram."
+ },
+ "branch.all": {
+  "en": "All branches"
+ },
+ "branch.choose.hint": {
+  "en": "Tap the branches you want notifications for."
+ },
+ "branch.default": {
+  "en": "Default branch"
+ },
+ "branch.edit.title": {
+  "en": "Edit branch filter"
+ },
+ "branch.empty": {
+  "en": "This repository has no branches to choose from."
+ },
+ "branch.hint": {
+  "en": "Choose which branches this subscription reports on."
+ },
+ "branch.names_more": {
+  "en": "{names} +{count} more"
+ },
+ "branch.selected": {
+  "en": "Specific branches"
+ },
+ "branch.selected.count": {
+  "en": "Specific branches · {count}"
+ },
+ "branch.selected.empty": {
+  "en": "Specific branches (none yet)"
+ },
+ "branch.selected.label": {
+  "en": "Selected branches"
+ },
+ "branch.title": {
+  "en": "Branch filter"
+ },
+ "btn.about": {
+  "en": "About"
+ },
+ "btn.advanced": {
+  "en": "Advanced"
+ },
+ "btn.back": {
+  "en": "Back"
+ },
+ "btn.branch_filter": {
+  "en": "Branch filter"
+ },
+ "btn.close": {
+  "en": "Close"
+ },
+ "btn.connect": {
+  "en": "Connect GitHub"
+ },
+ "btn.continue": {
+  "en": "Continue"
+ },
+ "btn.delete": {
+  "en": "Delete"
+ },
+ "btn.destination": {
+  "en": "Destination"
+ },
+ "btn.done": {
+  "en": "Done"
+ },
+ "btn.edit": {
+  "en": "Edit"
+ },
+ "btn.events": {
+  "en": "Event"
+ },
+ "btn.follow_telegram": {
+  "en": "Follow Telegram"
+ },
+ "btn.language": {
+  "en": "Language"
+ },
+ "btn.next": {
+  "en": "Next ›"
+ },
+ "btn.open_dm": {
+  "en": "Open Branchy in DM"
+ },
+ "btn.pause": {
+  "en": "Pause"
+ },
+ "btn.pr_actions": {
+  "en": "Pull request actions"
+ },
+ "btn.prev": {
+  "en": "‹ Prev"
+ },
+ "btn.reconnect": {
+  "en": "Reconnect GitHub"
+ },
+ "btn.release_settings": {
+  "en": "Release notifications"
+ },
+ "btn.repositories": {
+  "en": "Repositories"
+ },
+ "btn.resume": {
+  "en": "Resume"
+ },
+ "btn.save": {
+  "en": "Save"
+ },
+ "btn.sub_create": {
+  "en": "Create subscription"
+ },
+ "btn.sub_new": {
+  "en": "New subscription"
+ },
+ "btn.subscriptions": {
+  "en": "Subscriptions"
+ },
+ "btn.test": {
+  "en": "Test"
+ },
+ "btn.use_all_branches": {
+  "en": "Use all branches"
+ },
+ "cmd.group": {
+  "en": "Open Branchy privately"
+ },
+ "cmd.private": {
+  "en": "Open the Branchy menu"
+ },
+ "dest.dm": {
+  "en": "Direct message"
+ },
+ "dest.group_fallback": {
+  "en": "Group {id}"
+ },
+ "dest.hint": {
+  "en": "Groups appear here after Branchy is added to them."
+ },
+ "dest.title": {
+  "en": "Choose destination"
+ },
+ "dest.unavailable": {
+  "en": "Group (unavailable)"
+ },
+ "dest.unavailable.warning": {
+  "en": "Branchy may no longer be in this group, so deliveries here can fail."
+ },
+ "err.action.create_subscription": {
+  "en": "create the subscription"
+ },
+ "err.action.delete_subscription": {
+  "en": "delete the subscription"
+ },
+ "err.action.list_branches": {
+  "en": "list the branches"
+ },
+ "err.action.list_repositories": {
+  "en": "list your repositories"
+ },
+ "err.action.send_test": {
+  "en": "send the test notification"
+ },
+ "err.action.update_branch": {
+  "en": "update the branch filter"
+ },
+ "err.action.update_destination": {
+  "en": "update the destination"
+ },
+ "err.action.update_events": {
+  "en": "update the events"
+ },
+ "err.action.update_pr": {
+  "en": "update pull request settings"
+ },
+ "err.action.update_release": {
+  "en": "update release settings"
+ },
+ "err.action.update_subscription": {
+  "en": "update the subscription"
+ },
+ "err.generic": {
+  "en": "Something went wrong while trying to {action}. Please try again."
+ },
+ "err.github.expired.hint": {
+  "en": "Reconnect to continue."
+ },
+ "err.github.expired.title": {
+  "en": "GitHub connection expired"
+ },
+ "err.github.rate_limited": {
+  "en": "GitHub is rate limiting Branchy. Please try again in a few minutes."
+ },
+ "err.invalid.branch": {
+  "en": "Invalid branch filter."
+ },
+ "err.invalid.destination": {
+  "en": "Invalid destination."
+ },
+ "err.invalid.release": {
+  "en": "Invalid release setting."
+ },
+ "err.invalid.status": {
+  "en": "Invalid status."
+ },
+ "err.need.branch": {
+  "en": "Choose at least one branch."
+ },
+ "err.need.event": {
+  "en": "Choose at least one event."
+ },
+ "err.need.pr_action": {
+  "en": "Choose at least one pull request action."
+ },
+ "err.not_connected.hint": {
+  "en": "Connect GitHub from the menu, then try again."
+ },
+ "err.not_connected.title": {
+  "en": "GitHub not connected"
+ },
+ "err.sub.duplicate": {
+  "en": "You already have a subscription with these exact settings."
+ },
+ "err.sub.not_found.hint": {
+  "en": "It may already have been deleted."
+ },
+ "err.sub.not_found.title": {
+  "en": "Subscription not found"
+ },
+ "err.title": {
+  "en": "Something went wrong"
+ },
+ "err.webhook.failed": {
+  "en": "Couldn't manage the webhook on {repo}. Check that you have admin rights on the repository, then try again."
+ },
+ "event.pull_request": {
+  "en": "Pull requests"
+ },
+ "event.push": {
+  "en": "Push"
+ },
+ "event.release": {
+  "en": "Releases"
+ },
+ "home.connect_hint": {
+  "en": "Connect GitHub to choose repositories and events."
+ },
+ "home.connected": {
+  "en": "Connected as {login}"
+ },
+ "home.group.body": {
+  "en": "Settings live in a direct message. Open one to connect GitHub and choose what this chat receives."
+ },
+ "home.hint": {
+  "en": "GitHub notifications, delivered where you want them."
+ },
+ "home.not_connected": {
+  "en": "Not connected to GitHub"
+ },
+ "home.nudge": {
+  "en": "Send /start to open the Branchy menu."
+ },
+ "home.subs.many": {
+  "en": "{count} subscriptions."
+ },
+ "home.subs.none": {
+  "en": "No subscriptions yet. Tap New subscription to begin."
+ },
+ "home.subs.one": {
+  "en": "1 subscription."
+ },
+ "home.title": {
+  "en": "Branchy"
+ },
+ "lang.hint": {
+  "en": "Applies to this bot's replies, and is shared with the other bots."
+ },
+ "lang.title": {
+  "en": "Language"
+ },
+ "page.indicator": {
+  "en": "Page {page} of {pages}"
+ },
+ "pr.closed": {
+  "en": "Closed"
+ },
+ "pr.hint": {
+  "en": "Select at least one action. “Opened” also covers reopened pull requests."
+ },
+ "pr.merged": {
+  "en": "Merged"
+ },
+ "pr.none": {
+  "en": "None selected"
+ },
+ "pr.opened": {
+  "en": "Opened"
+ },
+ "pr.title": {
+  "en": "Pull request actions"
+ },
+ "release.all": {
+  "en": "Releases and pre-releases"
+ },
+ "release.hint": {
+  "en": "Choose which releases this subscription reports on."
+ },
+ "release.prereleases": {
+  "en": "Pre-releases only"
+ },
+ "release.releases": {
+  "en": "Releases only"
+ },
+ "release.title": {
+  "en": "Release notifications"
+ },
+ "repo.archived": {
+  "en": "This repository is archived, so GitHub webhooks cannot be configured."
+ },
+ "repo.choose.hint": {
+  "en": "Pick the repository this subscription watches."
+ },
+ "repo.choose.title": {
+  "en": "Choose a repository"
+ },
+ "repo.default_branch": {
+  "en": "Default branch: {branch}"
+ },
+ "repo.empty.hint": {
+  "en": "This GitHub account has no repositories Branchy can show."
+ },
+ "repo.empty.subscribe.hint": {
+  "en": "You need admin rights on a repository to subscribe to it."
+ },
+ "repo.empty.title": {
+  "en": "No repositories"
+ },
+ "repo.info.hint": {
+  "en": "What Branchy can do with this repository."
+ },
+ "repo.list.hint": {
+  "en": "Tap a repository to see what Branchy can do with it."
+ },
+ "repo.list.title": {
+  "en": "Repositories"
+ },
+ "repo.no_access": {
+  "en": "no access"
+ },
+ "repo.no_admin": {
+  "en": "You need admin rights here to add a webhook, so you cannot subscribe to this repository."
+ },
+ "status.active": {
+  "en": "Active"
+ },
+ "status.paused": {
+  "en": "Paused"
+ },
+ "sub.advanced.hint": {
+  "en": "Fine-tune what this subscription reports."
+ },
+ "sub.advanced.title": {
+  "en": "Advanced settings"
+ },
+ "sub.delete.body": {
+  "en": "This permanently removes the subscription and cannot be undone."
+ },
+ "sub.delete.hint": {
+  "en": "This cannot be undone."
+ },
+ "sub.delete.title": {
+  "en": "Delete this subscription?"
+ },
+ "sub.edit.events.hint": {
+  "en": "Select at least one event, then tap Save."
+ },
+ "sub.edit.events.title": {
+  "en": "Edit events"
+ },
+ "sub.edit.hint": {
+  "en": "Choose what to change."
+ },
+ "sub.edit.title": {
+  "en": "Edit subscription"
+ },
+ "sub.events.hint": {
+  "en": "Select at least one event, then continue."
+ },
+ "sub.events.title": {
+  "en": "Choose events"
+ },
+ "sub.field.destination": {
+  "en": "Destination: {value}"
+ },
+ "sub.field.status": {
+  "en": "Status: {value}"
+ },
+ "sub.list.empty.hint": {
+  "en": "Create one from the menu to start receiving notifications."
+ },
+ "sub.list.empty.title": {
+  "en": "No subscriptions"
+ },
+ "sub.list.hint": {
+  "en": "Tap a subscription to view or edit it."
+ },
+ "sub.list.paused": {
+  "en": "paused"
+ },
+ "sub.list.title": {
+  "en": "Subscriptions"
+ },
+ "sub.pause.telegram_blocked": {
+  "en": "Paused automatically. Branchy could not deliver here. Restore access, then Resume."
+ },
+ "sub.settings.hint": {
+  "en": "Review the settings, then create the subscription."
+ },
+ "sub.settings.need_branch": {
+  "en": "Pick at least one branch to finish."
+ },
+ "sub.settings.need_more": {
+  "en": "Finish the settings above to create the subscription."
+ },
+ "sub.settings.need_pr": {
+  "en": "Pick at least one pull request action to finish."
+ },
+ "sub.settings.title": {
+  "en": "Event settings"
+ },
+ "sub.view.hint": {
+  "en": "What this subscription reports, and where."
+ },
+ "sum.branches": {
+  "en": "Branches: {value}"
+ },
+ "sum.events": {
+  "en": "Events: {value}"
+ },
+ "sum.pull_requests": {
+  "en": "Pull requests: {value}"
+ },
+ "sum.releases": {
+  "en": "Releases: {value}"
+ },
+ "toast.action_already_ran": {
+  "en": "This action already ran."
+ },
+ "toast.action_expired": {
+  "en": "This action expired."
+ },
+ "toast.branch_updated": {
+  "en": "Branch filter updated."
+ },
+ "toast.dest_updated": {
+  "en": "Destination updated."
+ },
+ "toast.events_updated": {
+  "en": "Events updated."
+ },
+ "toast.files_failed": {
+  "en": "Could not load the file list."
+ },
+ "toast.github_expired": {
+  "en": "GitHub access expired."
+ },
+ "toast.group_check_failed": {
+  "en": "Couldn't verify group access. Please try again."
+ },
+ "toast.lang_follow": {
+  "en": "Following your Telegram language."
+ },
+ "toast.lang_set": {
+  "en": "Language updated."
+ },
+ "toast.not_group_admin": {
+  "en": "You must be a group administrator."
+ },
+ "toast.pr_updated": {
+  "en": "Pull request settings updated."
+ },
+ "toast.release_updated": {
+  "en": "Release settings updated."
+ },
+ "toast.snapshot_expired": {
+  "en": "This snapshot expired."
+ },
+ "toast.sub_created": {
+  "en": "Subscription created."
+ },
+ "toast.sub_deleted": {
+  "en": "Subscription deleted."
+ },
+ "toast.sub_paused": {
+  "en": "Subscription paused."
+ },
+ "toast.sub_resumed": {
+  "en": "Subscription resumed."
+ },
+ "toast.test_sent": {
+  "en": "Test notification sent."
+ }
+}
