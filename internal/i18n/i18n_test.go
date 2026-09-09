@@ -78,11 +78,15 @@ func TestInterpolatesPlaceholders(t *testing.T) {
 	}
 }
 
-// TestFallsBackToEnglish is the behaviour the other fifteen locales depend on
-// while they are still incomplete: an untranslated key renders in English
-// instead of vanishing.
+// TestFallsBackToEnglish is the behaviour a key depends on between the commit
+// that adds it and the commit that translates it: an untranslated key renders
+// in English instead of vanishing. Every key in the file now carries all
+// sixteen languages, so the half-translated state has to be staged here rather
+// than borrowed from a locale that happens to be behind.
 func TestFallsBackToEnglish(t *testing.T) {
-	if got := T("uk", "btn.back"); got != "Back" {
+	translations["test.english.only"] = map[string]string{DefaultLang: "Back"}
+	defer delete(translations, "test.english.only")
+	if got := T("uk", "test.english.only"); got != "Back" {
 		t.Fatalf("untranslated key = %q, want the English fallback", got)
 	}
 	// An unknown language behaves the same way as an untranslated key.
