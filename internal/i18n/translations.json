@@ -1196,7 +1196,7 @@
   "en": "Branchy could not {action}. Please try again.",
   "es": "Branchy no ha podido {action}. Inténtalo de nuevo.",
   "fr": "Branchy n’a pas pu {action}. Réessaie.",
-  "it": "Branchy non è riuscito a {action}. Riprova.",
+  "it": "Non è stato possibile {action}. Riprova.",
   "ja": "{action}に失敗しました。もう一度お試しください。",
   "pl": "Nie udało się {action}. Spróbuj ponownie.",
   "ru": "Не получилось {action}. Попробуй ещё раз.",
@@ -1225,7 +1225,7 @@
  },
  "err.github.expired.title": {
   "ar": "انتهت صلاحية الاتصال بـ GitHub",
-  "be": "Падлучэнне да GitHub скончылася",
+  "be": "Тэрмін падлучэння да GitHub скончыўся",
   "ca": "La connexió amb GitHub ha caducat",
   "cs": "Připojení k GitHubu vypršelo",
   "de": "GitHub-Verbindung abgelaufen",
@@ -1238,7 +1238,7 @@
   "ru": "Подключение к GitHub истекло",
   "sv": "GitHub-anslutningen har gått ut",
   "tr": "GitHub bağlantısının süresi doldu",
-  "uk": "Підключення до GitHub закінчилося",
+  "uk": "Термін підключення до GitHub минув",
   "zh": "GitHub 连接已过期"
  },
  "err.github.rate_limited": {
@@ -1274,7 +1274,7 @@
   "ru": "Неверный фильтр веток.",
   "sv": "Ogiltigt grenfilter.",
   "tr": "Dal filtresi geçersiz.",
-  "uk": "Невірний фільтр гілок.",
+  "uk": "Неправильний фільтр гілок.",
   "zh": "分支筛选无效。"
  },
  "err.invalid.destination": {
@@ -1292,7 +1292,7 @@
   "ru": "Неверный адрес доставки.",
   "sv": "Ogiltigt mål.",
   "tr": "Hedef geçersiz.",
-  "uk": "Невірна адреса доставки.",
+  "uk": "Неправильна адреса доставки.",
   "zh": "发送目标无效。"
  },
  "err.invalid.release": {
@@ -1310,7 +1310,7 @@
   "ru": "Неверная настройка релизов.",
   "sv": "Ogiltig releaseinställning.",
   "tr": "Sürüm ayarı geçersiz.",
-  "uk": "Невірне налаштування релізів.",
+  "uk": "Неправильне налаштування релізів.",
   "zh": "发行版设置无效。"
  },
  "err.invalid.status": {
@@ -1328,7 +1328,7 @@
   "ru": "Неверный статус.",
   "sv": "Ogiltig status.",
   "tr": "Durum geçersiz.",
-  "uk": "Невірний статус.",
+  "uk": "Неправильний статус.",
   "zh": "状态无效。"
  },
  "err.need.branch": {
@@ -1424,9 +1424,9 @@
  "err.repo.gone": {
   "ar": "لم يعد {repo} متاحًا على GitHub.",
   "be": "Рэпазіторый {repo} больш недаступны на GitHub.",
-  "ca": "Ja no es pot accedir a {repo} a GitHub.",
+  "ca": "El repositori {repo} ja no és accessible a GitHub.",
   "cs": "Repozitář {repo} už na GitHubu není dostupný.",
-  "de": "Auf {repo} ist auf GitHub kein Zugriff mehr möglich.",
+  "de": "{repo} ist auf GitHub nicht mehr erreichbar.",
   "en": "{repo} is no longer accessible on GitHub.",
   "es": "Ya no se puede acceder a {repo} en GitHub.",
   "fr": "Le dépôt {repo} n’est plus accessible sur GitHub.",
@@ -1522,12 +1522,12 @@
   "fr": "Impossible de gérer le webhook sur {repo}. Vérifie que tu as les droits d’administration sur le dépôt, puis réessaie.",
   "it": "Non è stato possibile gestire il webhook su {repo}. Controlla di avere i diritti di amministrazione sul repository, poi riprova.",
   "ja": "{repo} の webhook を設定できませんでした。そのリポジトリの管理者権限があるか確認して、もう一度お試しください。",
-  "pl": "Nie udało się zarządzać webhookiem w {repo}. Sprawdź, czy masz uprawnienia administratora do repozytorium, i spróbuj ponownie.",
+  "pl": "Nie udało się skonfigurować webhooka w {repo}. Sprawdź, czy masz uprawnienia administratora do repozytorium, i spróbuj ponownie.",
   "ru": "Не получилось настроить вебхук в {repo}. Проверь, что у тебя есть права администратора на репозиторий, и попробуй снова.",
   "sv": "Kunde inte hantera webhooken på {repo}. Kontrollera att du har adminrättigheter på repot och försök igen.",
-  "tr": "{repo} deposundaki webhook yönetilemedi. Depoda yönetici yetkin olduğunu kontrol et, sonra tekrar dene.",
+  "tr": "{repo} deposundaki webhook ayarlanamadı. Depoda yönetici yetkin olduğunu kontrol et, sonra tekrar dene.",
   "uk": "Не вдалося налаштувати вебхук у {repo}. Перевір, чи маєш права адміністратора на репозиторій, і спробуй ще раз.",
-  "zh": "无法管理 {repo} 上的 webhook。请确认你对该仓库有管理员权限，然后再试一次。"
+  "zh": "无法配置 {repo} 上的 webhook。请确认你对该仓库有管理员权限，然后再试一次。"
  },
  "event.pull_request": {
   "ar": "طلبات السحب",
@@ -1587,7 +1587,7 @@
   "ar": "اربط GitHub لاختيار المستودعات والأحداث.",
   "be": "Падлучы GitHub, каб абраць рэпазіторыі і падзеі.",
   "ca": "Connecta GitHub per triar repositoris i esdeveniments.",
-  "cs": "Připoj GitHub a vyber repozitáře a události.",
+  "cs": "Připoj GitHub, ať můžeš vybrat repozitáře a události.",
   "de": "Verbinde GitHub, um Repositories und Events zu wählen.",
   "en": "Connect GitHub to choose repositories and events.",
   "es": "Conecta GitHub para elegir repositorios y eventos.",
@@ -1642,7 +1642,7 @@
   "be": "Апавяшчэнні GitHub — там, дзе табе зручна.",
   "ca": "Notificacions de GitHub, allà on les vulguis.",
   "cs": "Notifikace z GitHubu tam, kde je chceš.",
-  "de": "GitHub-Benachrichtigungen, zugestellt wo du willst.",
+  "de": "GitHub-Benachrichtigungen dort, wo du sie willst.",
   "en": "GitHub notifications, delivered where you want them.",
   "es": "Notificaciones de GitHub, donde tú quieras.",
   "fr": "Les notifications GitHub, livrées là où tu veux.",
@@ -1874,13 +1874,13 @@
  "pr.none": {
   "ar": "لم يُختر شيء",
   "be": "Нічога не абрана",
-  "ca": "Cap de seleccionada",
+  "ca": "Sense selecció",
   "cs": "Nic nevybráno",
   "de": "Nichts ausgewählt",
   "en": "None selected",
-  "es": "Ninguna seleccionada",
-  "fr": "Aucune sélectionnée",
-  "it": "Nessuna selezionata",
+  "es": "Sin selección",
+  "fr": "Aucune sélection",
+  "it": "Nessuna selezione",
   "ja": "未選択",
   "pl": "Nic nie wybrano",
   "ru": "Ничего не выбрано",
@@ -1936,7 +1936,7 @@
   "fr": "Releases et pré-releases",
   "it": "Release e pre-release",
   "ja": "リリースとプレリリース",
-  "pl": "Wydania i wydania przedpremierowe",
+  "pl": "Wydania i wersje przedpremierowe",
   "ru": "Релизы и пре-релизы",
   "sv": "Releaser och pre-releaser",
   "tr": "Sürümler ve ön sürümler",
@@ -1972,7 +1972,7 @@
   "fr": "Pré-releases uniquement",
   "it": "Solo pre-release",
   "ja": "プレリリースのみ",
-  "pl": "Tylko przedpremierowe",
+  "pl": "Tylko wersje przedpremierowe",
   "ru": "Только пре-релизы",
   "sv": "Bara pre-releaser",
   "tr": "Yalnızca ön sürümler",
@@ -2091,7 +2091,7 @@
   "ar": "لا يملك حساب GitHub هذا مستودعات يستطيع Branchy عرضها.",
   "be": "У гэтага акаўнта GitHub няма рэпазіторыяў, якія Branchy можа паказаць.",
   "ca": "Aquest compte de GitHub no té cap repositori que Branchy pugui mostrar.",
-  "cs": "Tenhle GitHub účet nemá repozitáře, které by Branchy mohl ukázat.",
+  "cs": "Tenhle účet na GitHubu nemá repozitáře, které by Branchy mohl ukázat.",
   "de": "Dieses GitHub-Konto hat keine Repositories, die Branchy zeigen kann.",
   "en": "This GitHub account has no repositories Branchy can show.",
   "es": "Esta cuenta de GitHub no tiene repositorios que Branchy pueda mostrar.",
@@ -2169,11 +2169,11 @@
   "es": "Toca un repositorio para ver qué puede hacer Branchy con él.",
   "fr": "Touche un dépôt pour voir ce que Branchy peut en faire.",
   "it": "Tocca un repository per vedere cosa può farci Branchy.",
-  "ja": "リポジトリをタップすると、Branchy がそれで何をできるか分かります。",
+  "ja": "リポジトリをタップすると、Branchy に何ができるか分かります。",
   "pl": "Dotknij repozytorium, aby zobaczyć, co Branchy z nim potrafi.",
   "ru": "Нажми на репозиторий, чтобы посмотреть, что Branchy с ним умеет.",
   "sv": "Tryck på ett repo för att se vad Branchy kan göra med det.",
-  "tr": "Branchy’nin bir depoyla neler yapabildiğini görmek için ona dokun.",
+  "tr": "Branchy’nin neler yapabildiğini görmek için bir depoya dokun.",
   "uk": "Натисни на репозиторій, щоб побачити, що Branchy з ним уміє.",
   "zh": "点一个仓库，看看 Branchy 能对它做什么。"
  },
@@ -2269,7 +2269,7 @@
  },
  "sub.advanced.hint": {
   "ar": "اضبط بدقة ما يبلّغ عنه هذا الاشتراك.",
-  "be": "Дакладная настройка таго, пра што паведамляе гэтая падпіска.",
+  "be": "Дакладная наладка таго, пра што паведамляе гэтая падпіска.",
   "ca": "Afina de què t’informa aquesta subscripció.",
   "cs": "Dolaď, co přesně tenhle odběr hlásí.",
   "de": "Stell genau ein, worüber dieses Abo berichtet.",
@@ -2574,7 +2574,7 @@
   "zh": "订阅"
  },
  "sub.pause.telegram_blocked": {
-  "ar": "تم الإيقاف المؤقت تلقائيًا: لم يستطع Branchy التسليم هنا. أعد الوصول ثم اضغط «استئناف».",
+  "ar": "تم الإيقاف المؤقت تلقائيًا: لم يستطع Branchy التسليم هنا. أعد منح الوصول ثم اضغط «استئناف».",
   "be": "Пастаўлена на паўзу аўтаматычна: Branchy не змог сюды даставіць. Аднаві доступ і націсні «Аднавіць».",
   "ca": "Posada en pausa automàticament. Branchy no ha pogut lliurar aquí. Restaura l’accés i toca Reprèn.",
   "cs": "Automaticky pozastaveno. Branchy sem nedokázal doručit. Obnov přístup a klepni na Obnovit.",
@@ -2587,7 +2587,7 @@
   "pl": "Wstrzymana automatycznie. Branchy nie mógł tu nic dostarczyć. Przywróć dostęp i dotknij Wznów.",
   "ru": "Поставлена на паузу автоматически: Branchy не смог сюда доставить. Восстанови доступ и нажми «Возобновить».",
   "sv": "Pausad automatiskt. Branchy kunde inte leverera hit. Återställ åtkomsten och tryck sedan på Återuppta.",
-  "tr": "Otomatik olarak duraklatıldı. Branchy buraya teslim edemedi. Erişimi geri ver, sonra Sürdür’e dokun.",
+  "tr": "Otomatik olarak duraklatıldı. Branchy buraya iletemedi. Erişimi geri ver, sonra Sürdür’e dokun.",
   "uk": "Поставлена на паузу автоматично: Branchy не зміг сюди доставити. Віднови доступ і натисни «Відновити».",
   "zh": "已自动暂停。Branchy 无法送到这里。恢复访问权限后点「恢复」。"
  },
@@ -2782,7 +2782,7 @@
   "fr": "Cette action a déjà été exécutée.",
   "it": "Questa azione è già stata eseguita.",
   "ja": "この操作はすでに実行されています。",
-  "pl": "Ta akcja już się wykonała.",
+  "pl": "Ta akcja została już wykonana.",
   "ru": "Это действие уже выполнено.",
   "sv": "Den här åtgärden har redan körts.",
   "tr": "Bu eylem zaten çalıştı.",
@@ -2894,7 +2894,7 @@
   "ru": "Доступ к GitHub истёк.",
   "sv": "GitHub-åtkomsten har gått ut.",
   "tr": "GitHub erişiminin süresi doldu.",
-  "uk": "Доступ до GitHub закінчився.",
+  "uk": "Термін доступу до GitHub минув.",
   "zh": "GitHub 访问权限已过期。"
  },
  "toast.group_check_failed": {
@@ -2923,7 +2923,7 @@
   "de": "Folge der Sprache deines Telegram.",
   "en": "Following your Telegram language.",
   "es": "Siguiendo el idioma de tu Telegram.",
-  "fr": "Je suis la langue de ton Telegram.",
+  "fr": "J’utilise la langue de ton Telegram.",
   "it": "Seguo la lingua del tuo Telegram.",
   "ja": "Telegram の言語に合わせています。",
   "pl": "Podążam za językiem twojego Telegrama.",
@@ -3097,7 +3097,7 @@
  },
  "toast.test_sent": {
   "ar": "تم إرسال إشعار التجربة.",
-  "be": "Тэставае апавяшчэнне дасланае.",
+  "be": "Тэставае апавяшчэнне даслана.",
   "ca": "Notificació de prova enviada.",
   "cs": "Testovací notifikace odeslána.",
   "de": "Testbenachrichtigung gesendet.",
