@@ -1222,6 +1222,36 @@ func TestLanguageChoiceReachesTheSharedHub(t *testing.T) {
 	}
 }
 
+// Follow Telegram withdraws Branchy's claim and nobody else's. If a sibling bot
+// still holds a manual choice for this person, the hub keeps answering that —
+// so the screen has to ask what won rather than assume the Telegram hint, which
+// is what it used to do and what made the panel repaint in a language the very
+// next update would replace.
+func TestFollowTelegramRedrawsInWhatTheHubAnswersNotTheClientHint(t *testing.T) {
+	// The hub keeps answering Russian: another bot's manual choice outlived the
+	// clear. The Telegram client says German.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(telegramStubResult(r.URL.Path)))
+	}))
+	defer server.Close()
+
+	store := &languageStore{effective: "ru"}
+	b := &Bot{store: store, client: telegram.New("token", tg.WithAPIBase(server.URL))}
+	base := tg.Message{MessageID: 7, Chat: tg.Chat{ID: 42, Type: "private"}}
+
+	toast, err := b.dispatchCallback(context.Background(),
+		tg.CallbackQuery{ID: "1", From: tg.User{ID: 42, LanguageCode: "de-DE"}, Data: "lang:follow", Message: base}, "uk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.cleared {
+		t.Fatal("follow did not withdraw the claim")
+	}
+	if toast != i18n.T("ru", "toast.lang_follow") {
+		t.Fatalf("toast = %q, want the Russian the hub still answers, not the German hint", toast)
+	}
+}
+
 // TestLanguageIsReachableFromHome guards the one thing that makes the screen
 // worth having: a way in that does not require knowing a callback string.
 func TestLanguageIsReachableFromHome(t *testing.T) {

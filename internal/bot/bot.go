@@ -994,9 +994,12 @@ func (b *Bot) applyLanguage(ctx context.Context, cq tg.CallbackQuery, lang, choi
 			slog.Error("clear language failed", "user_id", cq.From.ID, "error", err)
 			return "", b.languageFailure(ctx, cq, lang)
 		}
-		// The hub re-resolves to the client hint, which is what Telegram sent
-		// with this very callback.
-		lang = i18n.LangOf(cq.From.LanguageCode)
+		// Ask the hub what answers now rather than assuming the client hint.
+		// clear_language withdraws Branchy's claim and nobody else's, so a
+		// sibling bot's manual choice survives it and then wins — and this
+		// screen has to be drawn in the language the person is about to read,
+		// not the one this bot would have picked on its own.
+		lang = b.resolveLang(ctx, &cq.From)
 		return i18n.T(lang, "toast.lang_follow"), b.renderLanguage(ctx, cq, lang)
 	}
 	code := i18n.Normalize(choice)
