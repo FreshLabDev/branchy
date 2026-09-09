@@ -21,9 +21,19 @@ Use this section for changes that are merged but not released yet.
   `{placeholder}` values and falls back to English. Until now Branchy's copy was
   written inline at each point of display, which fixed the product at one
   language and made "what does this bot actually say" unanswerable without
-  reading the panel code. English is populated; the other fifteen languages of
-  the bot family are a separate pass, and the file is shaped so that pass only
-  adds languages to keys that already exist.
+  reading the panel code.
+- **The panel surface now speaks all sixteen family languages.** Every one of
+  the 173 keys carries English, Russian, Ukrainian, Spanish, French, German,
+  Italian, Polish, Czech, Turkish, Swedish, Belarusian, Catalan, Simplified
+  Chinese, Japanese and Arabic, so a person who picked a language in voicy or
+  searchy is answered in it here too, and nothing falls back. GitHub's nouns —
+  repository, branch, pull request, release, webhook — follow what developers in
+  each language actually write rather than what a dictionary offers, which
+  differs per language and per word: French says dépôt but keeps pull request,
+  German keeps Repository but says Abo, Swedish says bevakning and gren.
+  The boundary is unchanged: GitHub notification cards (`internal/notify`) are
+  still English, because one card is delivered to every subscriber of a
+  repository and has no single reader whose language it could be in.
 - A **Language** screen on the main menu: the sixteen languages the family
   shares, in one fixed order, two per row, flag and native name. The choice is
   recorded in the shared core hub, so a language picked here answers in the
