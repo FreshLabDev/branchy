@@ -138,13 +138,18 @@ All user setup is button-driven inside Telegram.
 5. Choose DM delivery or an eligible Telegram group.
 6. View, pause, edit, delete, or test subscriptions from the inline menus.
 
+`About` on the main menu reports the running version — the same string
+`/healthz` returns — along with the supported events, the repository, and who
+to reach.
+
 Groups become available only after Branchy has seen the group. Before group
 delivery is enabled, Branchy verifies that the Telegram user is a group
 `creator` or `administrator`.
 
 In groups, `/start` is registered as a Bot API 10.2 ephemeral command. Its DM
 prompt is visible only to the user who invoked it; Branchy never posts a public
-fallback into the group.
+fallback into the group. That panel offers `About` and `Close`; `Close` removes
+it from the chat.
 
 ---
 

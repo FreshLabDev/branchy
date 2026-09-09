@@ -11,10 +11,43 @@ registration retries after transient Telegram failures. The private reply is
 sent before the best-effort presence write so database latency cannot consume
 the 15-second ephemeral reply window.
 
+Both command descriptions live in `internal/bot/copy.go` with the rest of
+Branchy's fixed copy. One list is registered per scope and none per
+`language_code`: the interface is English only, which is a product boundary,
+not an unfinished localization.
+
 All setup happens through inline keyboards. Unrecognized private-chat text
 nudges the user to send `/start`. Groups stay quiet.
 
+## Panels
+
+The DM main menu ends with `About`. The card states the build version — the
+same string `/healthz` reports, stamped in at link time and `dev` for an
+unstamped build — the tagline, and a quote with the supported events, the
+repository as a link, the license, and the admin contact. The repository is a
+link inside the text, never a second button.
+
+Navigation labels are `Back` and `Close`, plus `Done` where a screen finishes a
+step rather than returning to the one before it. `Close` appears only in group
+panels, where the panel sits in a shared feed; a DM has nothing to close. It
+acts only on ephemeral messages, because callback data can be sent for any
+visible message and a public `close` would let anyone delete a notification
+card.
+
+Single-select options are marked `◉` (chosen) and `◎` (not chosen);
+multi-select options keep the square `■`/`□` pair, so the two kinds of list
+never look alike.
+
 ## Groups
+
+The group panel is Branchy's whole group interface: a link into DM, plus
+`About` and `Close`. It is an ephemeral message, so it is visible only to the
+person who typed `/start`, and callbacks on it are answered with
+`editEphemeralMessageText` — `editMessageText` cannot address an ephemeral
+message, and a callback answered the wrong way would leave the panel frozen and
+reply in DM. A `home` callback from a group returns the group panel, never the
+DM menu: rebuilding the DM menu there would put one person's GitHub login and
+subscription count into a shared chat.
 
 Subscription settings are managed in DM. Group delivery works after:
 
@@ -114,3 +147,9 @@ Continue, Create, Save, and Done actions, plus pagination edges and the current
 all/default branch or release radio, stay on screen as Bot API 10.3 disabled
 buttons. The selected-branch radio stays tappable so the user can open the
 branch list.
+
+Every sub-screen that returns to the screen above it says `Back`, in both the
+creation draft and the edit flow. `Done` is used once, on the draft branch
+list, where it skips the branch-mode picker and lands on the settings hub —
+that is a different destination from its `Back`. `Save` is the label for
+committing an edit, on all three edit screens that have one.

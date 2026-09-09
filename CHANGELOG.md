@@ -35,9 +35,50 @@ Use this section for changes that are merged but not released yet.
   a preflight probe is marked as a probe, so the `404 method not found` it
   expects stops being counted and logged as a transport failure. All four bots
   on the shared client now run the same version.
+- The same action is now called the same thing on every screen. Three sibling
+  settings screens all returned to the settings hub and each named it
+  differently: the draft branch-filter screen said `Done`, the draft release
+  screen said `Back`, and the draft pull-request screen flipped between the two
+  depending on how many actions were selected. All three now say `Back`, which
+  is what they do — nothing on them is committed, and the hub is the screen the
+  user came from. `Done` survives in exactly one place, the draft branch list,
+  where it skips a level rather than stepping back. `Save branches` on the edit
+  branch list is now `Save`, matching the other two edit screens that commit.
+- Single-select options are marked `◉` and `◎` instead of `●` and `○`, the pair
+  the rest of the bot family uses. Multi-select options keep `■`/`□`, so the two
+  kinds of list still cannot be confused for each other.
+- Callbacks arriving from a group are answered on the ephemeral panel itself
+  (`editEphemeralMessageText`) rather than through `editMessageText`, which
+  cannot address an ephemeral message. Before this, a button on the group panel
+  would have left the panel frozen and answered in DM. A `home` callback from a
+  group now returns the group panel instead of building the DM menu, which
+  would have put one person's GitHub login and subscription count into a chat
+  they share with everyone else. A public group message is never edited into a
+  panel at all: every panel Branchy shows in a group is ephemeral, so a public
+  one is a delivered notification card, and callback data can be sent for any
+  visible message. Such a callback is answered in DM.
+- Both Telegram command descriptions moved out of `cmd/branchy/main.go` into
+  `internal/bot/copy.go`, next to the rest of Branchy's fixed copy. Behaviour is
+  unchanged — one list per scope, still `all_private_chats` plus an ephemeral
+  `all_group_chats`. The file records why there is no list per `language_code`:
+  the English-only interface is a product boundary, not missing work.
 
 ### Added
 
+- An **About** card, reachable from the main menu and from the group panel. It
+  states the running version — the same string `/healthz` reports — plus the
+  supported events, the repository, the license, and the admin contact. Until
+  now nothing in the interface could answer "which version are you running",
+  which is the first question any complaint has to answer. The repository is a
+  link in the text rather than a second button, because two ways to reach one
+  place is duplication.
+- **Close** on the group panel, and on the About card when it is opened from a
+  group. Branchy had no way to take a panel back out of a group chat. Close acts
+  only on ephemeral messages: Telegram lets a client send any callback data for
+  any message it can see, so honouring `close` against a public message would
+  have let anyone in a group delete Branchy's notification cards. There is no
+  Close in DM, where the conversation is the panel and there is nothing to
+  close.
 - `deploy/ws04/compose.yaml`, the production stack, pulling the image the
   release workflow publishes to GHCR. The stack on the host built its own image
   from a working copy, so what served users was not the artifact CI had tested,
