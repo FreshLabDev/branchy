@@ -1,521 +1,1040 @@
 {
  "about.admin": {
-  "en": "Admin"
+  "be": "Адмін",
+  "en": "Admin",
+  "ru": "Админ",
+  "uk": "Адмін"
  },
  "about.events": {
-  "en": "Events"
+  "be": "Падзеі",
+  "en": "Events",
+  "ru": "События",
+  "uk": "Події"
  },
  "about.source": {
-  "en": "Source"
+  "be": "Зыходнікі",
+  "en": "Source",
+  "ru": "Исходники",
+  "uk": "Вихідники"
  },
  "about.tagline": {
-  "en": "Clean GitHub notifications in Telegram."
+  "be": "Ахайныя апавяшчэнні GitHub у Telegram.",
+  "en": "Clean GitHub notifications in Telegram.",
+  "ru": "Аккуратные уведомления GitHub в Telegram.",
+  "uk": "Охайні сповіщення GitHub у Telegram."
  },
  "branch.all": {
-  "en": "All branches"
+  "be": "Усе галіны",
+  "en": "All branches",
+  "ru": "Все ветки",
+  "uk": "Усі гілки"
  },
  "branch.choose.hint": {
-  "en": "Tap the branches you want notifications for."
+  "be": "Адзнач галіны, пра якія хочаш атрымліваць апавяшчэнні.",
+  "en": "Tap the branches you want notifications for.",
+  "ru": "Отметь ветки, о которых хочешь получать уведомления.",
+  "uk": "Познач гілки, про які хочеш отримувати сповіщення."
  },
  "branch.choose.title": {
-  "en": "Choose branch"
+  "be": "Выбар галіны",
+  "en": "Choose branch",
+  "ru": "Выбор ветки",
+  "uk": "Вибір гілки"
  },
  "branch.default": {
-  "en": "Default branch"
+  "be": "Прадвызначаная галіна",
+  "en": "Default branch",
+  "ru": "Ветка по умолчанию",
+  "uk": "Гілка за замовчуванням"
  },
  "branch.edit.title": {
-  "en": "Edit branch filter"
+  "be": "Змяніць фільтр галін",
+  "en": "Edit branch filter",
+  "ru": "Изменить фильтр веток",
+  "uk": "Змінити фільтр гілок"
  },
  "branch.empty": {
-  "en": "This repository has no branches to choose from."
+  "be": "У гэтым рэпазіторыі няма галін на выбар.",
+  "en": "This repository has no branches to choose from.",
+  "ru": "В этом репозитории нет веток на выбор.",
+  "uk": "У цьому репозиторії немає гілок на вибір."
  },
  "branch.hint": {
-  "en": "Choose which branches this subscription reports on."
+  "be": "Абяры, пра якія галіны паведамляе гэтая падпіска.",
+  "en": "Choose which branches this subscription reports on.",
+  "ru": "Выбери, о каких ветках сообщает эта подписка.",
+  "uk": "Обери, про які гілки повідомляє ця підписка."
  },
  "branch.names_more": {
-  "en": "{names} +{count} more"
+  "be": "{names} і яшчэ {count}",
+  "en": "{names} +{count} more",
+  "ru": "{names} и ещё {count}",
+  "uk": "{names} і ще {count}"
  },
  "branch.selected": {
-  "en": "Specific branches"
+  "be": "Асобныя галіны",
+  "en": "Specific branches",
+  "ru": "Отдельные ветки",
+  "uk": "Окремі гілки"
  },
  "branch.selected.count": {
-  "en": "Specific branches · {count}"
+  "be": "Асобныя галіны · {count}",
+  "en": "Specific branches · {count}",
+  "ru": "Отдельные ветки · {count}",
+  "uk": "Окремі гілки · {count}"
  },
  "branch.selected.empty": {
-  "en": "Specific branches (none yet)"
+  "be": "Асобныя галіны (пакуль ніводнай)",
+  "en": "Specific branches (none yet)",
+  "ru": "Отдельные ветки (пока ни одной)",
+  "uk": "Окремі гілки (поки жодної)"
  },
  "branch.selected.label": {
-  "en": "Selected branches"
+  "be": "Абраныя галіны",
+  "en": "Selected branches",
+  "ru": "Выбранные ветки",
+  "uk": "Вибрані гілки"
  },
  "branch.title": {
-  "en": "Branch filter"
+  "be": "Фільтр галін",
+  "en": "Branch filter",
+  "ru": "Фильтр веток",
+  "uk": "Фільтр гілок"
  },
  "btn.about": {
-  "en": "About"
+  "be": "Пра бота",
+  "en": "About",
+  "ru": "О боте",
+  "uk": "Про бота"
  },
  "btn.advanced": {
-  "en": "Advanced"
+  "be": "Дадаткова",
+  "en": "Advanced",
+  "ru": "Дополнительно",
+  "uk": "Додатково"
  },
  "btn.back": {
-  "en": "Back"
+  "be": "Назад",
+  "en": "Back",
+  "ru": "Назад",
+  "uk": "Назад"
  },
  "btn.branch_filter": {
-  "en": "Branch filter"
+  "be": "Фільтр галін",
+  "en": "Branch filter",
+  "ru": "Фильтр веток",
+  "uk": "Фільтр гілок"
  },
  "btn.close": {
-  "en": "Close"
+  "be": "Закрыць",
+  "en": "Close",
+  "ru": "Закрыть",
+  "uk": "Закрити"
  },
  "btn.connect": {
-  "en": "Connect GitHub"
+  "be": "Падлучыць GitHub",
+  "en": "Connect GitHub",
+  "ru": "Подключить GitHub",
+  "uk": "Підключити GitHub"
  },
  "btn.continue": {
-  "en": "Continue"
+  "be": "Далей",
+  "en": "Continue",
+  "ru": "Далее",
+  "uk": "Продовжити"
  },
  "btn.delete": {
-  "en": "Delete"
+  "be": "Выдаліць",
+  "en": "Delete",
+  "ru": "Удалить",
+  "uk": "Видалити"
  },
  "btn.destination": {
-  "en": "Destination"
+  "be": "Куды дасылаць",
+  "en": "Destination",
+  "ru": "Куда отправлять",
+  "uk": "Куди надсилати"
  },
  "btn.done": {
-  "en": "Done"
+  "be": "Гатова",
+  "en": "Done",
+  "ru": "Готово",
+  "uk": "Готово"
  },
  "btn.edit": {
-  "en": "Edit"
+  "be": "Змяніць",
+  "en": "Edit",
+  "ru": "Изменить",
+  "uk": "Змінити"
  },
  "btn.events": {
-  "en": "Event"
+  "be": "Падзеі",
+  "en": "Event",
+  "ru": "События",
+  "uk": "Події"
  },
  "btn.follow_telegram": {
-  "en": "Follow Telegram"
+  "be": "Як у Telegram",
+  "en": "Follow Telegram",
+  "ru": "Как в Telegram",
+  "uk": "Як у Telegram"
  },
  "btn.language": {
-  "en": "Language"
+  "be": "Мова",
+  "en": "Language",
+  "ru": "Язык",
+  "uk": "Мова"
  },
  "btn.next": {
-  "en": "Next ›"
+  "be": "Наступная ›",
+  "en": "Next ›",
+  "ru": "Следующая ›",
+  "uk": "Наступна ›"
  },
  "btn.open_dm": {
-  "en": "Open Branchy in DM"
+  "be": "Адкрыць Branchy у асабістых",
+  "en": "Open Branchy in DM",
+  "ru": "Открыть Branchy в личке",
+  "uk": "Відкрити Branchy в особистих"
  },
  "btn.pause": {
-  "en": "Pause"
+  "be": "Паўза",
+  "en": "Pause",
+  "ru": "Пауза",
+  "uk": "Пауза"
  },
  "btn.pr_actions": {
-  "en": "Pull request actions"
+  "be": "Дзеянні з пул-рэквестамі",
+  "en": "Pull request actions",
+  "ru": "Действия с пул-реквестами",
+  "uk": "Дії з пул-реквестами"
  },
  "btn.prev": {
-  "en": "‹ Prev"
+  "be": "‹ Папярэдняя",
+  "en": "‹ Prev",
+  "ru": "‹ Предыдущая",
+  "uk": "‹ Попередня"
  },
  "btn.reconnect": {
-  "en": "Reconnect GitHub"
+  "be": "Перападлучыць GitHub",
+  "en": "Reconnect GitHub",
+  "ru": "Переподключить GitHub",
+  "uk": "Перепідключити GitHub"
  },
  "btn.release_settings": {
-  "en": "Release notifications"
+  "be": "Апавяшчэнні пра рэлізы",
+  "en": "Release notifications",
+  "ru": "Уведомления о релизах",
+  "uk": "Сповіщення про релізи"
  },
  "btn.repositories": {
-  "en": "Repositories"
+  "be": "Рэпазіторыі",
+  "en": "Repositories",
+  "ru": "Репозитории",
+  "uk": "Репозиторії"
  },
  "btn.resume": {
-  "en": "Resume"
+  "be": "Аднавіць",
+  "en": "Resume",
+  "ru": "Возобновить",
+  "uk": "Відновити"
  },
  "btn.save": {
-  "en": "Save"
+  "be": "Захаваць",
+  "en": "Save",
+  "ru": "Сохранить",
+  "uk": "Зберегти"
  },
  "btn.sub_create": {
-  "en": "Create subscription"
+  "be": "Стварыць падпіску",
+  "en": "Create subscription",
+  "ru": "Создать подписку",
+  "uk": "Створити підписку"
  },
  "btn.sub_new": {
-  "en": "New subscription"
+  "be": "Новая падпіска",
+  "en": "New subscription",
+  "ru": "Новая подписка",
+  "uk": "Нова підписка"
  },
  "btn.subscriptions": {
-  "en": "Subscriptions"
+  "be": "Падпіскі",
+  "en": "Subscriptions",
+  "ru": "Подписки",
+  "uk": "Підписки"
  },
  "btn.test": {
-  "en": "Test"
+  "be": "Тэст",
+  "en": "Test",
+  "ru": "Тест",
+  "uk": "Тест"
  },
  "btn.use_all_branches": {
-  "en": "Use all branches"
+  "be": "Узяць усе галіны",
+  "en": "Use all branches",
+  "ru": "Использовать все ветки",
+  "uk": "Використати всі гілки"
  },
  "cmd.group": {
-  "en": "Open Branchy privately"
+  "be": "Адкрыць Branchy у асабістых",
+  "en": "Open Branchy privately",
+  "ru": "Открыть Branchy в личке",
+  "uk": "Відкрити Branchy в особистих"
  },
  "cmd.private": {
-  "en": "Open the Branchy menu"
+  "be": "Адкрыць меню Branchy",
+  "en": "Open the Branchy menu",
+  "ru": "Открыть меню Branchy",
+  "uk": "Відкрити меню Branchy"
  },
  "dest.dm": {
-  "en": "Direct message"
+  "be": "Асабістыя паведамленні",
+  "en": "Direct message",
+  "ru": "Личные сообщения",
+  "uk": "Особисті повідомлення"
  },
  "dest.group_fallback": {
-  "en": "Group {id}"
+  "be": "Група {id}",
+  "en": "Group {id}",
+  "ru": "Группа {id}",
+  "uk": "Група {id}"
  },
  "dest.hint": {
-  "en": "Groups appear here after Branchy is added to them."
+  "be": "Групы з’явяцца тут, калі дадасі ў іх Branchy.",
+  "en": "Groups appear here after Branchy is added to them.",
+  "ru": "Группы появятся здесь, когда добавишь в них Branchy.",
+  "uk": "Групи з’являться тут, коли додаси до них Branchy."
  },
  "dest.title": {
-  "en": "Choose destination"
+  "be": "Куды дасылаць",
+  "en": "Choose destination",
+  "ru": "Куда отправлять",
+  "uk": "Куди надсилати"
  },
  "dest.unavailable": {
-  "en": "Group (unavailable)"
+  "be": "Група (недаступная)",
+  "en": "Group (unavailable)",
+  "ru": "Группа (недоступна)",
+  "uk": "Група (недоступна)"
  },
  "dest.unavailable.warning": {
-  "en": "Branchy may no longer be in this group, so deliveries here can fail."
+  "be": "Магчыма, Branchy больш няма ў гэтай групе, і дастаўка сюды можа не спрацаваць.",
+  "en": "Branchy may no longer be in this group, so deliveries here can fail.",
+  "ru": "Возможно, Branchy больше нет в этой группе, и доставка сюда может не сработать.",
+  "uk": "Можливо, Branchy більше немає в цій групі, і доставка сюди може не спрацювати."
  },
  "err.action.create_subscription": {
-  "en": "create the subscription"
+  "be": "стварыць падпіску",
+  "en": "create the subscription",
+  "ru": "создать подписку",
+  "uk": "створити підписку"
  },
  "err.action.delete_subscription": {
-  "en": "delete the subscription"
+  "be": "выдаліць падпіску",
+  "en": "delete the subscription",
+  "ru": "удалить подписку",
+  "uk": "видалити підписку"
  },
  "err.action.list_branches": {
-  "en": "list the branches"
+  "be": "атрымаць спіс галін",
+  "en": "list the branches",
+  "ru": "получить список веток",
+  "uk": "отримати список гілок"
  },
  "err.action.list_repositories": {
-  "en": "list your repositories"
+  "be": "атрымаць спіс тваіх рэпазіторыяў",
+  "en": "list your repositories",
+  "ru": "получить список твоих репозиториев",
+  "uk": "отримати список твоїх репозиторіїв"
  },
  "err.action.send_test": {
-  "en": "send the test notification"
+  "be": "даслаць тэставае апавяшчэнне",
+  "en": "send the test notification",
+  "ru": "отправить тестовое уведомление",
+  "uk": "надіслати тестове сповіщення"
  },
  "err.action.set_language": {
-  "en": "change the language"
+  "be": "змяніць мову",
+  "en": "change the language",
+  "ru": "сменить язык",
+  "uk": "змінити мову"
  },
  "err.action.update_branch": {
-  "en": "update the branch filter"
+  "be": "абнавіць фільтр галін",
+  "en": "update the branch filter",
+  "ru": "обновить фильтр веток",
+  "uk": "оновити фільтр гілок"
  },
  "err.action.update_destination": {
-  "en": "update the destination"
+  "be": "абнавіць адрас дастаўкі",
+  "en": "update the destination",
+  "ru": "обновить адрес доставки",
+  "uk": "оновити адресу доставки"
  },
  "err.action.update_events": {
-  "en": "update the events"
+  "be": "абнавіць падзеі",
+  "en": "update the events",
+  "ru": "обновить события",
+  "uk": "оновити події"
  },
  "err.action.update_pr": {
-  "en": "update pull request settings"
+  "be": "абнавіць налады пул-рэквестаў",
+  "en": "update pull request settings",
+  "ru": "обновить настройки пул-реквестов",
+  "uk": "оновити налаштування пул-реквестів"
  },
  "err.action.update_release": {
-  "en": "update release settings"
+  "be": "абнавіць налады рэлізаў",
+  "en": "update release settings",
+  "ru": "обновить настройки релизов",
+  "uk": "оновити налаштування релізів"
  },
  "err.action.update_subscription": {
-  "en": "update the subscription"
+  "be": "абнавіць падпіску",
+  "en": "update the subscription",
+  "ru": "обновить подписку",
+  "uk": "оновити підписку"
  },
  "err.generic": {
-  "en": "Branchy could not {action}. Please try again."
+  "be": "Не атрымалася {action}. Паспрабуй яшчэ раз.",
+  "en": "Branchy could not {action}. Please try again.",
+  "ru": "Не получилось {action}. Попробуй ещё раз.",
+  "uk": "Не вдалося {action}. Спробуй ще раз."
  },
  "err.github.expired.hint": {
-  "en": "Reconnect to continue."
+  "be": "Перападлучыся, каб працягнуць.",
+  "en": "Reconnect to continue.",
+  "ru": "Переподключись, чтобы продолжить.",
+  "uk": "Перепідключися, щоб продовжити."
  },
  "err.github.expired.title": {
-  "en": "GitHub connection expired"
+  "be": "Падлучэнне да GitHub скончылася",
+  "en": "GitHub connection expired",
+  "ru": "Подключение к GitHub истекло",
+  "uk": "Підключення до GitHub закінчилося"
  },
  "err.github.rate_limited": {
-  "en": "GitHub is rate limiting Branchy. Please try again in a few minutes."
+  "be": "GitHub абмяжоўвае запыты Branchy. Паспрабуй праз некалькі хвілін.",
+  "en": "GitHub is rate limiting Branchy. Please try again in a few minutes.",
+  "ru": "GitHub ограничивает запросы Branchy. Попробуй через несколько минут.",
+  "uk": "GitHub обмежує запити Branchy. Спробуй за кілька хвилин."
  },
  "err.invalid.branch": {
-  "en": "Invalid branch filter."
+  "be": "Няправільны фільтр галін.",
+  "en": "Invalid branch filter.",
+  "ru": "Неверный фильтр веток.",
+  "uk": "Невірний фільтр гілок."
  },
  "err.invalid.destination": {
-  "en": "Invalid destination."
+  "be": "Няправільны адрас дастаўкі.",
+  "en": "Invalid destination.",
+  "ru": "Неверный адрес доставки.",
+  "uk": "Невірна адреса доставки."
  },
  "err.invalid.release": {
-  "en": "Invalid release setting."
+  "be": "Няправільная налада рэлізаў.",
+  "en": "Invalid release setting.",
+  "ru": "Неверная настройка релизов.",
+  "uk": "Невірне налаштування релізів."
  },
  "err.invalid.status": {
-  "en": "Invalid status."
+  "be": "Няправільны статус.",
+  "en": "Invalid status.",
+  "ru": "Неверный статус.",
+  "uk": "Невірний статус."
  },
  "err.need.branch": {
-  "en": "Choose at least one branch."
+  "be": "Абяры хоць адну галіну.",
+  "en": "Choose at least one branch.",
+  "ru": "Выбери хотя бы одну ветку.",
+  "uk": "Обери хоча б одну гілку."
  },
  "err.need.event": {
-  "en": "Choose at least one event."
+  "be": "Абяры хоць адну падзею.",
+  "en": "Choose at least one event.",
+  "ru": "Выбери хотя бы одно событие.",
+  "uk": "Обери хоча б одну подію."
  },
  "err.need.pr_action": {
-  "en": "Choose at least one pull request action."
+  "be": "Абяры хоць адно дзеянне з пул-рэквестамі.",
+  "en": "Choose at least one pull request action.",
+  "ru": "Выбери хотя бы одно действие с пул-реквестами.",
+  "uk": "Обери хоча б одну дію з пул-реквестами."
  },
  "err.not_connected.hint": {
-  "en": "Connect GitHub from the menu, then try again."
+  "be": "Падлучы GitHub у меню і паспрабуй зноў.",
+  "en": "Connect GitHub from the menu, then try again.",
+  "ru": "Подключи GitHub в меню и попробуй снова.",
+  "uk": "Підключи GitHub у меню й спробуй ще раз."
  },
  "err.not_connected.title": {
-  "en": "GitHub not connected"
+  "be": "GitHub не падлучаны",
+  "en": "GitHub not connected",
+  "ru": "GitHub не подключён",
+  "uk": "GitHub не підключено"
  },
  "err.repo.gone": {
-  "en": "{repo} is no longer accessible on GitHub."
+  "be": "Рэпазіторый {repo} больш недаступны на GitHub.",
+  "en": "{repo} is no longer accessible on GitHub.",
+  "ru": "Репозиторий {repo} больше недоступен на GitHub.",
+  "uk": "Репозиторій {repo} більше недоступний на GitHub."
  },
  "err.sub.duplicate": {
-  "en": "You already have a subscription with these exact settings."
+  "be": "У цябе ўжо ёсць падпіска роўна з такімі наладамі.",
+  "en": "You already have a subscription with these exact settings.",
+  "ru": "У тебя уже есть подписка ровно с такими настройками.",
+  "uk": "У тебе вже є підписка саме з такими налаштуваннями."
  },
  "err.sub.not_found.hint": {
-  "en": "It may already have been deleted."
+  "be": "Магчыма, яе ўжо выдалілі.",
+  "en": "It may already have been deleted.",
+  "ru": "Возможно, её уже удалили.",
+  "uk": "Можливо, її вже видалили."
  },
  "err.sub.not_found.title": {
-  "en": "Subscription not found"
+  "be": "Падпіска не знойдзена",
+  "en": "Subscription not found",
+  "ru": "Подписка не найдена",
+  "uk": "Підписку не знайдено"
  },
  "err.title": {
-  "en": "Something went wrong"
+  "be": "Нешта пайшло не так",
+  "en": "Something went wrong",
+  "ru": "Что-то пошло не так",
+  "uk": "Щось пішло не так"
  },
  "err.webhook.failed": {
-  "en": "Couldn't manage the webhook on {repo}. Check that you have admin rights on the repository, then try again."
+  "be": "Не атрымалася наладзіць вэбхук у {repo}. Правер, ці маеш ты правы адміністратара на рэпазіторый, і паспрабуй зноў.",
+  "en": "Couldn't manage the webhook on {repo}. Check that you have admin rights on the repository, then try again.",
+  "ru": "Не получилось настроить вебхук в {repo}. Проверь, что у тебя есть права администратора на репозиторий, и попробуй снова.",
+  "uk": "Не вдалося налаштувати вебхук у {repo}. Перевір, чи маєш права адміністратора на репозиторій, і спробуй ще раз."
  },
  "event.pull_request": {
-  "en": "Pull requests"
+  "be": "Пул-рэквесты",
+  "en": "Pull requests",
+  "ru": "Пул-реквесты",
+  "uk": "Пул-реквести"
  },
  "event.push": {
-  "en": "Push"
+  "be": "Пушы",
+  "en": "Push",
+  "ru": "Пуши",
+  "uk": "Пуші"
  },
  "event.release": {
-  "en": "Releases"
+  "be": "Рэлізы",
+  "en": "Releases",
+  "ru": "Релизы",
+  "uk": "Релізи"
  },
  "home.connect_hint": {
-  "en": "Connect GitHub to choose repositories and events."
+  "be": "Падлучы GitHub, каб абраць рэпазіторыі і падзеі.",
+  "en": "Connect GitHub to choose repositories and events.",
+  "ru": "Подключи GitHub, чтобы выбрать репозитории и события.",
+  "uk": "Підключи GitHub, щоб обрати репозиторії та події."
  },
  "home.connected": {
-  "en": "Connected as {login}"
+  "be": "Падлучаны як {login}",
+  "en": "Connected as {login}",
+  "ru": "Подключён как {login}",
+  "uk": "Підключено як {login}"
  },
  "home.group.body": {
-  "en": "Settings live in a direct message. Open one to connect GitHub and choose what this chat receives."
+  "be": "Налады жывуць у асабістых паведамленнях. Адкрый іх, каб падлучыць GitHub і абраць, што будзе прыходзіць у гэты чат.",
+  "en": "Settings live in a direct message. Open one to connect GitHub and choose what this chat receives.",
+  "ru": "Настройки живут в личных сообщениях. Открой их, чтобы подключить GitHub и выбрать, что будет приходить в этот чат.",
+  "uk": "Налаштування живуть в особистих повідомленнях. Відкрий їх, щоб підключити GitHub і обрати, що приходитиме в цей чат."
  },
  "home.hint": {
-  "en": "GitHub notifications, delivered where you want them."
+  "be": "Апавяшчэнні GitHub — там, дзе табе зручна.",
+  "en": "GitHub notifications, delivered where you want them.",
+  "ru": "Уведомления GitHub — там, где тебе удобно.",
+  "uk": "Сповіщення GitHub — там, де тобі зручно."
  },
  "home.not_connected": {
-  "en": "Not connected to GitHub"
+  "be": "GitHub не падлучаны",
+  "en": "Not connected to GitHub",
+  "ru": "GitHub не подключён",
+  "uk": "GitHub не підключено"
  },
  "home.nudge": {
-  "en": "Send /start to open the Branchy menu."
+  "be": "Дашлі /start, каб адкрыць меню Branchy.",
+  "en": "Send /start to open the Branchy menu.",
+  "ru": "Отправь /start, чтобы открыть меню Branchy.",
+  "uk": "Надішли /start, щоб відкрити меню Branchy."
  },
  "home.subs.many": {
-  "en": "{count} subscriptions."
+  "be": "Падпісак: {count}.",
+  "en": "{count} subscriptions.",
+  "ru": "Подписок: {count}.",
+  "uk": "Підписок: {count}."
  },
  "home.subs.none": {
-  "en": "No subscriptions yet. Tap New subscription to begin."
+  "be": "Пакуль няма падпісак. Націсні «Новая падпіска», каб пачаць.",
+  "en": "No subscriptions yet. Tap New subscription to begin.",
+  "ru": "Пока нет подписок. Нажми «Новая подписка», чтобы начать.",
+  "uk": "Поки що немає підписок. Натисни «Нова підписка», щоб почати."
  },
  "home.subs.one": {
-  "en": "1 subscription."
+  "be": "1 падпіска.",
+  "en": "1 subscription.",
+  "ru": "1 подписка.",
+  "uk": "1 підписка."
  },
  "home.title": {
-  "en": "Branchy"
+  "be": "Branchy",
+  "en": "Branchy",
+  "ru": "Branchy",
+  "uk": "Branchy"
  },
  "lang.hint": {
-  "en": "Applies to this bot's replies, and is shared with the other bots."
+  "be": "Уплывае на адказы гэтага бота; налада агульная з астатнімі ботамі.",
+  "en": "Applies to this bot's replies, and is shared with the other bots.",
+  "ru": "Влияет на ответы этого бота; настройка общая с остальными ботами.",
+  "uk": "Впливає на відповіді цього бота; налаштування спільне з іншими ботами."
  },
  "lang.title": {
-  "en": "Language"
+  "be": "Мова",
+  "en": "Language",
+  "ru": "Язык",
+  "uk": "Мова"
  },
  "page.indicator": {
-  "en": "Page {page} of {pages}"
+  "be": "Старонка {page} з {pages}",
+  "en": "Page {page} of {pages}",
+  "ru": "Страница {page} из {pages}",
+  "uk": "Сторінка {page} з {pages}"
  },
  "pr.closed": {
-  "en": "Closed"
+  "be": "Закрыццё",
+  "en": "Closed",
+  "ru": "Закрытие",
+  "uk": "Закриття"
  },
  "pr.hint": {
-  "en": "Select at least one action. “Opened” also covers reopened pull requests."
+  "be": "Абяры хоць адно дзеянне. «Адкрыццё» ахоплівае і пераадкрытыя пул-рэквесты.",
+  "en": "Select at least one action. “Opened” also covers reopened pull requests.",
+  "ru": "Выбери хотя бы одно действие. «Открытие» включает и переоткрытые пул-реквесты.",
+  "uk": "Обери хоча б одну дію. «Відкриття» охоплює й перевідкриті пул-реквести."
  },
  "pr.merged": {
-  "en": "Merged"
+  "be": "Зліццё",
+  "en": "Merged",
+  "ru": "Слияние",
+  "uk": "Злиття"
  },
  "pr.none": {
-  "en": "None selected"
+  "be": "Нічога не абрана",
+  "en": "None selected",
+  "ru": "Ничего не выбрано",
+  "uk": "Нічого не обрано"
  },
  "pr.opened": {
-  "en": "Opened"
+  "be": "Адкрыццё",
+  "en": "Opened",
+  "ru": "Открытие",
+  "uk": "Відкриття"
  },
  "pr.title": {
-  "en": "Pull request actions"
+  "be": "Дзеянні з пул-рэквестамі",
+  "en": "Pull request actions",
+  "ru": "Действия с пул-реквестами",
+  "uk": "Дії з пул-реквестами"
  },
  "release.all": {
-  "en": "Releases and pre-releases"
+  "be": "Рэлізы і перадрэлізы",
+  "en": "Releases and pre-releases",
+  "ru": "Релизы и пре-релизы",
+  "uk": "Релізи та пре-релізи"
  },
  "release.hint": {
-  "en": "Choose which releases this subscription reports on."
+  "be": "Абяры, пра якія рэлізы паведамляе гэтая падпіска.",
+  "en": "Choose which releases this subscription reports on.",
+  "ru": "Выбери, о каких релизах сообщает эта подписка.",
+  "uk": "Обери, про які релізи повідомляє ця підписка."
  },
  "release.prereleases": {
-  "en": "Pre-releases only"
+  "be": "Толькі перадрэлізы",
+  "en": "Pre-releases only",
+  "ru": "Только пре-релизы",
+  "uk": "Лише пре-релізи"
  },
  "release.releases": {
-  "en": "Releases only"
+  "be": "Толькі рэлізы",
+  "en": "Releases only",
+  "ru": "Только релизы",
+  "uk": "Лише релізи"
  },
  "release.title": {
-  "en": "Release notifications"
+  "be": "Апавяшчэнні пра рэлізы",
+  "en": "Release notifications",
+  "ru": "Уведомления о релизах",
+  "uk": "Сповіщення про релізи"
  },
  "repo.archived": {
-  "en": "This repository is archived, so GitHub webhooks cannot be configured."
+  "be": "Рэпазіторый у архіве, таму вэбхукі GitHub тут наладзіць нельга.",
+  "en": "This repository is archived, so GitHub webhooks cannot be configured.",
+  "ru": "Репозиторий в архиве, поэтому вебхуки GitHub здесь настроить нельзя.",
+  "uk": "Репозиторій в архіві, тому вебхуки GitHub тут налаштувати не можна."
  },
  "repo.choose.hint": {
-  "en": "Pick the repository this subscription watches."
+  "be": "Абяры рэпазіторый, за якім будзе сачыць гэтая падпіска.",
+  "en": "Pick the repository this subscription watches.",
+  "ru": "Выбери репозиторий, за которым будет следить эта подписка.",
+  "uk": "Обери репозиторій, за яким стежитиме ця підписка."
  },
  "repo.choose.title": {
-  "en": "Choose a repository"
+  "be": "Выбар рэпазіторыя",
+  "en": "Choose a repository",
+  "ru": "Выбор репозитория",
+  "uk": "Вибір репозиторію"
  },
  "repo.default_branch": {
-  "en": "Default branch: {branch}"
+  "be": "Прадвызначаная галіна: {branch}",
+  "en": "Default branch: {branch}",
+  "ru": "Ветка по умолчанию: {branch}",
+  "uk": "Гілка за замовчуванням: {branch}"
  },
  "repo.empty.hint": {
-  "en": "This GitHub account has no repositories Branchy can show."
+  "be": "У гэтага акаўнта GitHub няма рэпазіторыяў, якія Branchy можа паказаць.",
+  "en": "This GitHub account has no repositories Branchy can show.",
+  "ru": "У этого аккаунта GitHub нет репозиториев, которые Branchy может показать.",
+  "uk": "У цього акаунта GitHub немає репозиторіїв, які Branchy може показати."
  },
  "repo.empty.subscribe.hint": {
-  "en": "You need admin rights on a repository to subscribe to it."
+  "be": "Каб падпісацца на рэпазіторый, патрэбныя правы адміністратара.",
+  "en": "You need admin rights on a repository to subscribe to it.",
+  "ru": "Чтобы подписаться на репозиторий, нужны права администратора.",
+  "uk": "Щоб підписатися на репозиторій, потрібні права адміністратора."
  },
  "repo.empty.title": {
-  "en": "No repositories"
+  "be": "Няма рэпазіторыяў",
+  "en": "No repositories",
+  "ru": "Нет репозиториев",
+  "uk": "Немає репозиторіїв"
  },
  "repo.info.hint": {
-  "en": "What Branchy can do with this repository."
+  "be": "Што Branchy умее з гэтым рэпазіторыем.",
+  "en": "What Branchy can do with this repository.",
+  "ru": "Что Branchy умеет с этим репозиторием.",
+  "uk": "Що Branchy вміє з цим репозиторієм."
  },
  "repo.list.hint": {
-  "en": "Tap a repository to see what Branchy can do with it."
+  "be": "Націсні на рэпазіторый, каб убачыць, што Branchy з ім умее.",
+  "en": "Tap a repository to see what Branchy can do with it.",
+  "ru": "Нажми на репозиторий, чтобы посмотреть, что Branchy с ним умеет.",
+  "uk": "Натисни на репозиторій, щоб побачити, що Branchy з ним уміє."
  },
  "repo.list.title": {
-  "en": "Repositories"
+  "be": "Рэпазіторыі",
+  "en": "Repositories",
+  "ru": "Репозитории",
+  "uk": "Репозиторії"
  },
  "repo.no_access": {
-  "en": "no access"
+  "be": "няма доступу",
+  "en": "no access",
+  "ru": "нет доступа",
+  "uk": "немає доступу"
  },
  "repo.no_admin": {
-  "en": "You need admin rights here to add a webhook, so you cannot subscribe to this repository."
+  "be": "Каб дадаць вэбхук, тут патрэбныя правы адміністратара, таму падпісацца на гэты рэпазіторый не выйдзе.",
+  "en": "You need admin rights here to add a webhook, so you cannot subscribe to this repository.",
+  "ru": "Чтобы добавить вебхук, здесь нужны права администратора, поэтому подписаться на этот репозиторий не выйдет.",
+  "uk": "Щоб додати вебхук, тут потрібні права адміністратора, тому підписатися на цей репозиторій не вийде."
  },
  "status.active": {
-  "en": "Active"
+  "be": "Актыўная",
+  "en": "Active",
+  "ru": "Активна",
+  "uk": "Активна"
  },
  "status.paused": {
-  "en": "Paused"
+  "be": "На паўзе",
+  "en": "Paused",
+  "ru": "На паузе",
+  "uk": "На паузі"
  },
  "sub.advanced.hint": {
-  "en": "Fine-tune what this subscription reports."
+  "be": "Дакладная настройка таго, пра што паведамляе гэтая падпіска.",
+  "en": "Fine-tune what this subscription reports.",
+  "ru": "Точная настройка того, о чём сообщает эта подписка.",
+  "uk": "Точне налаштування того, про що повідомляє ця підписка."
  },
  "sub.advanced.title": {
-  "en": "Advanced settings"
+  "be": "Дадатковыя налады",
+  "en": "Advanced settings",
+  "ru": "Дополнительные настройки",
+  "uk": "Додаткові налаштування"
  },
  "sub.delete.body": {
-  "en": "This permanently removes the subscription and cannot be undone."
+  "be": "Падпіска выдаліцца назаўсёды, адмяніць гэта нельга.",
+  "en": "This permanently removes the subscription and cannot be undone.",
+  "ru": "Подписка удалится навсегда, отменить это нельзя.",
+  "uk": "Підписка видалиться назавжди, скасувати це не можна."
  },
  "sub.delete.title": {
-  "en": "Delete this subscription?"
+  "be": "Выдаліць гэтую падпіску?",
+  "en": "Delete this subscription?",
+  "ru": "Удалить эту подписку?",
+  "uk": "Видалити цю підписку?"
  },
  "sub.edit.events.hint": {
-  "en": "Select at least one event, then tap Save."
+  "be": "Абяры хоць адну падзею і націсні «Захаваць».",
+  "en": "Select at least one event, then tap Save.",
+  "ru": "Выбери хотя бы одно событие и нажми «Сохранить».",
+  "uk": "Обери хоча б одну подію й натисни «Зберегти»."
  },
  "sub.edit.events.title": {
-  "en": "Edit events"
+  "be": "Змяніць падзеі",
+  "en": "Edit events",
+  "ru": "Изменить события",
+  "uk": "Змінити події"
  },
  "sub.edit.hint": {
-  "en": "Choose what to change."
+  "be": "Абяры, што змяніць.",
+  "en": "Choose what to change.",
+  "ru": "Выбери, что изменить.",
+  "uk": "Обери, що змінити."
  },
  "sub.edit.title": {
-  "en": "Edit subscription"
+  "be": "Змяніць падпіску",
+  "en": "Edit subscription",
+  "ru": "Изменить подписку",
+  "uk": "Змінити підписку"
  },
  "sub.events.hint": {
-  "en": "Select at least one event, then continue."
+  "be": "Абяры хоць адну падзею і працягвай.",
+  "en": "Select at least one event, then continue.",
+  "ru": "Выбери хотя бы одно событие и продолжай.",
+  "uk": "Обери хоча б одну подію й продовжуй."
  },
  "sub.events.title": {
-  "en": "Choose events"
+  "be": "Выбар падзей",
+  "en": "Choose events",
+  "ru": "Выбор событий",
+  "uk": "Вибір подій"
  },
  "sub.field.destination": {
-  "en": "Destination: {value}"
+  "be": "Куды: {value}",
+  "en": "Destination: {value}",
+  "ru": "Куда: {value}",
+  "uk": "Куди: {value}"
  },
  "sub.field.status": {
-  "en": "Status: {value}"
+  "be": "Статус: {value}",
+  "en": "Status: {value}",
+  "ru": "Статус: {value}",
+  "uk": "Статус: {value}"
  },
  "sub.list.empty.hint": {
-  "en": "Create one from the menu to start receiving notifications."
+  "be": "Ствары падпіску ў меню, каб пачаць атрымліваць апавяшчэнні.",
+  "en": "Create one from the menu to start receiving notifications.",
+  "ru": "Создай подписку в меню, чтобы начать получать уведомления.",
+  "uk": "Створи підписку в меню, щоб почати отримувати сповіщення."
  },
  "sub.list.empty.title": {
-  "en": "No subscriptions"
+  "be": "Няма падпісак",
+  "en": "No subscriptions",
+  "ru": "Нет подписок",
+  "uk": "Немає підписок"
  },
  "sub.list.hint": {
-  "en": "Tap a subscription to view or edit it."
+  "be": "Націсні на падпіску, каб паглядзець ці змяніць яе.",
+  "en": "Tap a subscription to view or edit it.",
+  "ru": "Нажми на подписку, чтобы посмотреть или изменить её.",
+  "uk": "Натисни на підписку, щоб переглянути або змінити її."
  },
  "sub.list.paused": {
-  "en": "paused"
+  "be": "на паўзе",
+  "en": "paused",
+  "ru": "на паузе",
+  "uk": "на паузі"
  },
  "sub.list.title": {
-  "en": "Subscriptions"
+  "be": "Падпіскі",
+  "en": "Subscriptions",
+  "ru": "Подписки",
+  "uk": "Підписки"
  },
  "sub.pause.telegram_blocked": {
-  "en": "Paused automatically. Branchy could not deliver here. Restore access, then Resume."
+  "be": "Пастаўлена на паўзу аўтаматычна: Branchy не змог сюды даставіць. Аднаві доступ і націсні «Аднавіць».",
+  "en": "Paused automatically. Branchy could not deliver here. Restore access, then Resume.",
+  "ru": "Поставлена на паузу автоматически: Branchy не смог сюда доставить. Восстанови доступ и нажми «Возобновить».",
+  "uk": "Поставлена на паузу автоматично: Branchy не зміг сюди доставити. Віднови доступ і натисни «Відновити»."
  },
  "sub.settings.hint": {
-  "en": "Review the settings, then create the subscription."
+  "be": "Праверы налады і ствары падпіску.",
+  "en": "Review the settings, then create the subscription.",
+  "ru": "Проверь настройки и создай подписку.",
+  "uk": "Перевір налаштування й створи підписку."
  },
  "sub.settings.need_branch": {
-  "en": "Pick at least one branch to finish."
+  "be": "Абяры хоць адну галіну, каб скончыць.",
+  "en": "Pick at least one branch to finish.",
+  "ru": "Выбери хотя бы одну ветку, чтобы закончить.",
+  "uk": "Обери хоча б одну гілку, щоб завершити."
  },
  "sub.settings.need_more": {
-  "en": "Finish the settings above to create the subscription."
+  "be": "Скончы налады вышэй, каб стварыць падпіску.",
+  "en": "Finish the settings above to create the subscription.",
+  "ru": "Закончи настройки выше, чтобы создать подписку.",
+  "uk": "Заверши налаштування вище, щоб створити підписку."
  },
  "sub.settings.need_pr": {
-  "en": "Pick at least one pull request action to finish."
+  "be": "Абяры хоць адно дзеянне з пул-рэквестамі, каб скончыць.",
+  "en": "Pick at least one pull request action to finish.",
+  "ru": "Выбери хотя бы одно действие с пул-реквестами, чтобы закончить.",
+  "uk": "Обери хоча б одну дію з пул-реквестами, щоб завершити."
  },
  "sub.settings.title": {
-  "en": "Event settings"
+  "be": "Налады падзей",
+  "en": "Event settings",
+  "ru": "Настройки событий",
+  "uk": "Налаштування подій"
  },
  "sub.view.hint": {
-  "en": "What this subscription reports, and where."
+  "be": "Пра што паведамляе гэтая падпіска і куды.",
+  "en": "What this subscription reports, and where.",
+  "ru": "О чём сообщает эта подписка и куда.",
+  "uk": "Про що повідомляє ця підписка й куди."
  },
  "sum.branches": {
-  "en": "Branches: {value}"
+  "be": "Галіны: {value}",
+  "en": "Branches: {value}",
+  "ru": "Ветки: {value}",
+  "uk": "Гілки: {value}"
  },
  "sum.events": {
-  "en": "Events: {value}"
+  "be": "Падзеі: {value}",
+  "en": "Events: {value}",
+  "ru": "События: {value}",
+  "uk": "Події: {value}"
  },
  "sum.pull_requests": {
-  "en": "Pull requests: {value}"
+  "be": "Пул-рэквесты: {value}",
+  "en": "Pull requests: {value}",
+  "ru": "Пул-реквесты: {value}",
+  "uk": "Пул-реквести: {value}"
  },
  "sum.releases": {
-  "en": "Releases: {value}"
+  "be": "Рэлізы: {value}",
+  "en": "Releases: {value}",
+  "ru": "Релизы: {value}",
+  "uk": "Релізи: {value}"
  },
  "toast.action_already_ran": {
-  "en": "This action already ran."
+  "be": "Гэтае дзеянне ўжо выканана.",
+  "en": "This action already ran.",
+  "ru": "Это действие уже выполнено.",
+  "uk": "Цю дію вже виконано."
  },
  "toast.action_expired": {
-  "en": "This action expired."
+  "be": "Дзеянне састарэла.",
+  "en": "This action expired.",
+  "ru": "Действие устарело.",
+  "uk": "Дія застаріла."
  },
  "toast.branch_updated": {
-  "en": "Branch filter updated."
+  "be": "Фільтр галін абноўлены.",
+  "en": "Branch filter updated.",
+  "ru": "Фильтр веток обновлён.",
+  "uk": "Фільтр гілок оновлено."
  },
  "toast.dest_updated": {
-  "en": "Destination updated."
+  "be": "Адрас дастаўкі абноўлены.",
+  "en": "Destination updated.",
+  "ru": "Адрес доставки обновлён.",
+  "uk": "Адресу доставки оновлено."
  },
  "toast.events_updated": {
-  "en": "Events updated."
+  "be": "Падзеі абноўлены.",
+  "en": "Events updated.",
+  "ru": "События обновлены.",
+  "uk": "Події оновлено."
  },
  "toast.files_failed": {
-  "en": "Could not load the file list."
+  "be": "Не атрымалася загрузіць спіс файлаў.",
+  "en": "Could not load the file list.",
+  "ru": "Не получилось загрузить список файлов.",
+  "uk": "Не вдалося завантажити список файлів."
  },
  "toast.github_expired": {
-  "en": "GitHub access expired."
+  "be": "Доступ да GitHub скончыўся.",
+  "en": "GitHub access expired.",
+  "ru": "Доступ к GitHub истёк.",
+  "uk": "Доступ до GitHub закінчився."
  },
  "toast.group_check_failed": {
-  "en": "Couldn't verify group access. Please try again."
+  "be": "Не атрымалася праверыць доступ да групы. Паспрабуй яшчэ раз.",
+  "en": "Couldn't verify group access. Please try again.",
+  "ru": "Не получилось проверить доступ к группе. Попробуй ещё раз.",
+  "uk": "Не вдалося перевірити доступ до групи. Спробуй ще раз."
  },
  "toast.lang_follow": {
-  "en": "Following your Telegram language."
+  "be": "Іду за мовай твайго Telegram.",
+  "en": "Following your Telegram language.",
+  "ru": "Следую языку твоего Telegram.",
+  "uk": "Слідую за мовою твого Telegram."
  },
  "toast.lang_set": {
-  "en": "Language updated."
+  "be": "Мова абноўлена.",
+  "en": "Language updated.",
+  "ru": "Язык обновлён.",
+  "uk": "Мову оновлено."
  },
  "toast.not_group_admin": {
-  "en": "You must be a group administrator."
+  "be": "Трэба быць адміністратарам групы.",
+  "en": "You must be a group administrator.",
+  "ru": "Нужно быть администратором группы.",
+  "uk": "Треба бути адміністратором групи."
  },
  "toast.pr_updated": {
-  "en": "Pull request settings updated."
+  "be": "Налады пул-рэквестаў абноўлены.",
+  "en": "Pull request settings updated.",
+  "ru": "Настройки пул-реквестов обновлены.",
+  "uk": "Налаштування пул-реквестів оновлено."
  },
  "toast.release_updated": {
-  "en": "Release settings updated."
+  "be": "Налады рэлізаў абноўлены.",
+  "en": "Release settings updated.",
+  "ru": "Настройки релизов обновлены.",
+  "uk": "Налаштування релізів оновлено."
  },
  "toast.snapshot_expired": {
-  "en": "This snapshot expired."
+  "be": "Гэты здымак састарэў.",
+  "en": "This snapshot expired.",
+  "ru": "Этот снимок устарел.",
+  "uk": "Цей знімок застарів."
  },
  "toast.sub_created": {
-  "en": "Subscription created."
+  "be": "Падпіска створана.",
+  "en": "Subscription created.",
+  "ru": "Подписка создана.",
+  "uk": "Підписку створено."
  },
  "toast.sub_deleted": {
-  "en": "Subscription deleted."
+  "be": "Падпіска выдалена.",
+  "en": "Subscription deleted.",
+  "ru": "Подписка удалена.",
+  "uk": "Підписку видалено."
  },
  "toast.sub_paused": {
-  "en": "Subscription paused."
+  "be": "Падпіска на паўзе.",
+  "en": "Subscription paused.",
+  "ru": "Подписка на паузе.",
+  "uk": "Підписку поставлено на паузу."
  },
  "toast.sub_resumed": {
-  "en": "Subscription resumed."
+  "be": "Падпіска адноўлена.",
+  "en": "Subscription resumed.",
+  "ru": "Подписка возобновлена.",
+  "uk": "Підписку відновлено."
  },
  "toast.test_sent": {
-  "en": "Test notification sent."
+  "be": "Тэставае апавяшчэнне дасланае.",
+  "en": "Test notification sent.",
+  "ru": "Тестовое уведомление отправлено.",
+  "uk": "Тестове сповіщення надіслано."
  }
 }
