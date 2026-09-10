@@ -13,6 +13,26 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+## v1.2.2 - 2026-09-10
+
+Branchy speaks sixteen languages.
+
+All 173 strings it says moved out of the Go source into a translation catalogue,
+the language comes from the shared hub, and there is a picker with a way back
+out of a manual choice. The GitHub notification cards stay English on purpose:
+one card is shared by every subscriber of a repository, so it has no single
+reader whose language it could be in.
+
+The buttons also stop contradicting themselves — the same action was two
+different colours on two screens.
+
+### Changed
+
+- `docs/releases.md` names the real cause of the `403` a digest pull used to
+  answer: the account running the deploy could not read the private package,
+  not anything about the digest. Pulling the tag first was a workaround for
+  that, and is no longer required.
+
 ## v1.2.2-alpha.1 - 2026-09-09
 
 ### Added
