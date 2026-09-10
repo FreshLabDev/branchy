@@ -17,21 +17,31 @@ import (
 )
 
 // ValidationError marks a failure caused by user input rather than a system
-// fault. Callers may surface its message to the user directly; other errors
-// should be logged and shown as a generic message.
+// fault. Callers may surface it to the user directly; other errors should be
+// logged and shown as a generic message.
+//
+// It names the sentence instead of carrying it. Which words a person reads
+// depends on the language they picked, and this layer has no business knowing
+// that — so it supplies an i18n key plus the data that goes in it, and the bot
+// renders both at the edge where the language is known.
+//
+// Args are i18n placeholder pairs: name, value, name, value, …
 type ValidationError struct {
-	Message string
+	Key  string
+	Args []string
 }
 
-func (e *ValidationError) Error() string { return e.Message }
+// Error returns the key. A log line is better served by a stable identifier
+// than by an English sentence the user may never have seen.
+func (e *ValidationError) Error() string { return e.Key }
 
-func invalid(message string) error { return &ValidationError{Message: message} }
+func invalid(key string, args ...string) error { return &ValidationError{Key: key, Args: args} }
 
 // translateWriteErr converts a duplicate-configuration database error into a
 // user-facing validation message; other errors pass through unchanged.
 func translateWriteErr(err error) error {
 	if errors.Is(err, db.ErrDuplicateConfig) {
-		return invalid("You already have a subscription with these exact settings.")
+		return invalid("err.sub.duplicate")
 	}
 	return err
 }
@@ -49,11 +59,11 @@ func translateGitHubErr(err error, repoFullName string) error {
 		// 403 covers several distinct causes (missing admin rights, rate limit,
 		// SSO enforcement), so the wording stays a hint, not an assertion.
 		if strings.Contains(strings.ToLower(apiErr.Body), "rate limit") {
-			return invalid("GitHub is rate limiting Branchy. Please try again in a few minutes.")
+			return invalid("err.github.rate_limited")
 		}
-		return invalid("Couldn't manage the webhook on " + repoFullName + ". Check that you have admin rights on the repository, then try again.")
+		return invalid("err.webhook.failed", "repo", repoFullName)
 	case 404:
-		return invalid(repoFullName + " is no longer accessible on GitHub.")
+		return invalid("err.repo.gone", "repo", repoFullName)
 	default:
 		return err
 	}
@@ -113,7 +123,7 @@ func (s *Service) repoMutex(repoID int64) *sync.Mutex {
 
 func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.Repository, destinationType string, destinationChatID int64, events []string, branchMode string, branchNames []string, pullRequestActions []string, releaseMode string) (string, error) {
 	if repo.Archived {
-		return "", invalid("This repository is archived, so GitHub webhooks cannot be configured.")
+		return "", invalid("repo.archived")
 	}
 	settings, err := normalizeSettings(events, branchMode, branchNames, pullRequestActions, releaseMode)
 	if err != nil {
@@ -160,7 +170,7 @@ func (s *Service) Create(ctx context.Context, telegramUserID int64, repo github.
 
 func (s *Service) SetStatus(ctx context.Context, telegramUserID int64, id, status string) error {
 	if status != "active" && status != "paused" {
-		return invalid("Invalid status.")
+		return invalid("err.invalid.status")
 	}
 	sub, err := s.store.GetSubscriptionForUser(ctx, telegramUserID, id)
 	if err != nil {
@@ -202,21 +212,21 @@ func (s *Service) SetBranch(ctx context.Context, telegramUserID int64, id, mode 
 func (s *Service) SetPullRequestActions(ctx context.Context, telegramUserID int64, id string, actions []string) error {
 	actions = db.NormalizePullRequestActions(actions)
 	if len(actions) == 0 {
-		return invalid("Choose at least one pull request action.")
+		return invalid("err.need.pr_action")
 	}
 	return translateWriteErr(s.store.UpdateSubscriptionPullRequestActions(ctx, telegramUserID, id, actions))
 }
 
 func (s *Service) SetReleaseMode(ctx context.Context, telegramUserID int64, id, releaseMode string) error {
 	if !validReleaseMode(releaseMode) {
-		return invalid("Invalid release setting.")
+		return invalid("err.invalid.release")
 	}
 	return translateWriteErr(s.store.UpdateSubscriptionReleaseMode(ctx, telegramUserID, id, releaseMode))
 }
 
 func (s *Service) SetDestination(ctx context.Context, telegramUserID int64, id, destinationType string, chatID int64) error {
 	if destinationType != "dm" && destinationType != "group" {
-		return invalid("Invalid destination.")
+		return invalid("err.invalid.destination")
 	}
 	return translateWriteErr(s.store.UpdateSubscriptionDestination(ctx, telegramUserID, id, destinationType, chatID))
 }
@@ -351,13 +361,13 @@ type settings struct {
 func normalizeSettings(events []string, branchMode string, branchNames []string, pullRequestActions []string, releaseMode string) (settings, error) {
 	events = db.NormalizeEvents(events)
 	if len(events) == 0 {
-		return settings{}, invalid("Choose at least one event.")
+		return settings{}, invalid("err.need.event")
 	}
 	if releaseMode == "" {
 		releaseMode = "all"
 	}
 	if !validReleaseMode(releaseMode) {
-		return settings{}, invalid("Invalid release setting.")
+		return settings{}, invalid("err.invalid.release")
 	}
 
 	if pullRequestActions == nil {
@@ -366,7 +376,7 @@ func normalizeSettings(events []string, branchMode string, branchNames []string,
 		pullRequestActions = db.NormalizePullRequestActions(pullRequestActions)
 	}
 	if contains(events, "pull_request") && len(pullRequestActions) == 0 {
-		return settings{}, invalid("Choose at least one pull request action.")
+		return settings{}, invalid("err.need.pr_action")
 	}
 
 	if !usesBranchFilter(events) {
@@ -396,11 +406,11 @@ func validateBranch(mode string, branchNames []string) error {
 		return nil
 	case "selected":
 		if len(db.NormalizeBranchNames(branchNames)) == 0 {
-			return invalid("Choose at least one branch.")
+			return invalid("err.need.branch")
 		}
 		return nil
 	default:
-		return invalid("Invalid branch filter.")
+		return invalid("err.invalid.branch")
 	}
 }
 

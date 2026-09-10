@@ -16,7 +16,15 @@ This file is for coding agents working on Branchy. Keep the project minimal, sec
 
 ## Hard Product Boundaries
 
-- English UI only.
+- The interface is translated. Every string a person reads in Telegram lives in
+  `internal/i18n/translations.json` and is rendered through `i18n.T(lang, key)`;
+  never write user-facing text inline. The language is resolved per update from
+  the shared core hub (`core.effective_language`) with the Telegram profile hint
+  as the fallback, and the picker's order and labels are fixed by the family
+  panel contract.
+- GitHub notification cards (`internal/notify`) stay English. One card is
+  rendered once and delivered to every subscriber of a repository, so there is
+  no single reader whose language it could be in.
 - `/start` is the only Telegram command.
 - All setup and settings use inline buttons.
 - Settings are configured in DM.
