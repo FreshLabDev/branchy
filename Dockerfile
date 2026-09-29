@@ -22,6 +22,12 @@ RUN apk add --no-cache ca-certificates \
 WORKDIR /app
 COPY --from=build /out/branchy /app/branchy
 COPY migrations /app/migrations
+# docker inspect answers which build is running without starting it.
+ARG VERSION=dev
+ARG COMMIT=none
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.source="https://github.com/FreshLabDev/branchy"
 USER branchy
 EXPOSE 8080
 ENTRYPOINT ["/app/branchy"]
