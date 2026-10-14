@@ -25,7 +25,7 @@ services:
       HTTP_ADDR: :8080
       MIGRATIONS_DIR: /app/migrations
       AUTO_MIGRATE: "true"
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://branchy.amdumo.fun}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://by.ws04.cc}
     expose:
       - "8080"
     # management carries the Cloudflare tunnel that terminates the GitHub
