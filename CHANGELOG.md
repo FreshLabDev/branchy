@@ -13,8 +13,23 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+## v1.2.3-alpha.1 - 2026-10-20
+
+Branchy moves to `by.ws04.cc` and to the stable Telegram client. Branchy has no
+test bot, so this alpha runs on the production bot.
+
 ### Changed
 
+- **Operators.** Branchy is served on `https://by.ws04.cc`: `amdumo.fun`
+  expired on 14 October. `PUBLIC_BASE_URL` defaults to it in
+  `deploy/ws04/compose.yaml`; it builds the GitHub OAuth redirect and the URL of
+  every repository webhook, so the OAuth App callback and the existing hooks
+  were moved to the new address the same day. A stack that sets
+  `PUBLIC_BASE_URL` itself is not affected.
+- `github.com/FreshLabDev/tg` moves from `v0.0.1-alpha.7` to `v0.1.0`, its
+  first stable version. For Branchy the one visible change is that an edited
+  temporary message no longer grows a link preview; media sends and inline
+  mode arrive in the client but Branchy does not use them.
 - **A release waits for CI.** `release.yml` runs `ci.yml` on the tagged commit
   and publishes nothing unless it passed. `v1.2.0` and its four pre-releases
   went out with a failing vulnerability scan because nothing connected the two.
