@@ -13,6 +13,20 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+## v1.2.3-alpha.2 - 2026-10-20
+
+`v1.2.3-alpha.1` was never published: CI's vulnerability scan refused it, as it
+had refused every push to `dev` since 14 October. This cut fixes what it found.
+
+### Security
+
+- Go moves from 1.26.6 to 1.26.10, and `golang.org/x/net` from 0.57.0 to
+  0.60.0, which brings `golang.org/x/text` 0.42.0. Together they close five
+  advisories in `net/http` and HTTP/2 that Branchy's webhook server is exposed
+  to (GO-2026-6611, -6612, -6613, -6617: a crash from an HPACK encoder race,
+  connection desynchronisation after a CONNECT, flow-control and CPU abuse on
+  HTTP/2 streams) and one panic on crafted input in `x/text` (GO-2026-6629).
+
 ## v1.2.3-alpha.1 - 2026-10-20
 
 Branchy moves to `by.ws04.cc` and to the stable Telegram client. Branchy has no
@@ -27,9 +41,9 @@ test bot, so this alpha runs on the production bot.
   were moved to the new address the same day. A stack that sets
   `PUBLIC_BASE_URL` itself is not affected.
 - `github.com/FreshLabDev/tg` moves from `v0.0.1-alpha.7` to `v0.1.0`, its
-  first stable version. For Branchy the one visible change is that an edited
-  temporary message no longer grows a link preview; media sends and inline
-  mode arrive in the client but Branchy does not use them.
+  first stable version. Nothing Branchy sends changes: the new media sends and
+  inline mode are unused here, and the link-preview fix is in an ephemeral
+  edit Branchy never makes.
 - **A release waits for CI.** `release.yml` runs `ci.yml` on the tagged commit
   and publishes nothing unless it passed. `v1.2.0` and its four pre-releases
   went out with a failing vulnerability scan because nothing connected the two.
