@@ -35,9 +35,11 @@ their own: they change no code of Branchy's, and the full test suite and
 
 ### Known Limitations
 
-- Published without CI: GitHub Actions do not start for FreshLabDev at the
-  moment. The CI steps were run by hand on the tagged commit, and the image
-  was built on WS04 and pushed from the operator's machine.
+- The image was built on WS04 and pushed by hand, not by `release.yml`:
+  GitHub Actions had not been starting for FreshLabDev since 11 November and
+  came back while this release was being cut. CI passed on the tagged commit
+  (the push to `main`); the release workflow on the tag was cancelled so it
+  would not overwrite the published image.
 
 ## v1.2.3-alpha.2 - 2026-10-20
 
