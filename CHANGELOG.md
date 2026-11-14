@@ -13,6 +13,32 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+## v1.2.3 - 2026-11-14
+
+Branchy on `by.ws04.cc`, on the stable Telegram client, with every known Go
+advisory against it closed. This is `v1.2.3-alpha.2`, which has run the
+production bot since 20 October, plus the security updates below. Coming from
+`v1.2.2`, read the two alphas under this section: the address change in
+`v1.2.3-alpha.1` is the one an operator has to know about.
+
+### Security
+
+- Go moves from 1.26.10 to 1.26.11: a crafted HTTP/1 request could crash the
+  webhook and OAuth server through a race on the `MaxBytesReader` header
+  (GO-2026-6859).
+- `golang.org/x/net` moves from 0.60.0 to 0.62.0, closing quadratic work on
+  crafted HTML (GO-2026-6860); `x/text` and `x/sync` follow it.
+
+These updates went straight into the stable version without an alpha of
+their own: they change no code of Branchy's, and the full test suite and
+`govulncheck` pass on them.
+
+### Known Limitations
+
+- Published without CI: GitHub Actions do not start for FreshLabDev at the
+  moment. The CI steps were run by hand on the tagged commit, and the image
+  was built on WS04 and pushed from the operator's machine.
+
 ## v1.2.3-alpha.2 - 2026-10-20
 
 `v1.2.3-alpha.1` was never published: CI's vulnerability scan refused it, as it
