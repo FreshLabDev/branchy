@@ -13,6 +13,77 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+## v1.2.3 - 2026-11-14
+
+Branchy on `by.ws04.cc`, on the stable Telegram client, with every known Go
+advisory against it closed. This is `v1.2.3-alpha.2`, which has run the
+production bot since 20 October, plus the security updates below. Coming from
+`v1.2.2`, read the two alphas under this section: the address change in
+`v1.2.3-alpha.1` is the one an operator has to know about.
+
+### Security
+
+- Go moves from 1.26.10 to 1.26.11: a crafted HTTP/1 request could crash the
+  webhook and OAuth server through a race on the `MaxBytesReader` header
+  (GO-2026-6859).
+- `golang.org/x/net` moves from 0.60.0 to 0.62.0, closing quadratic work on
+  crafted HTML (GO-2026-6860); `x/text` and `x/sync` follow it.
+
+These updates went straight into the stable version without an alpha of
+their own: they change no code of Branchy's, and the full test suite and
+`govulncheck` pass on them.
+
+### Known Limitations
+
+- Published without CI: GitHub Actions do not start for FreshLabDev at the
+  moment. The CI steps were run by hand on the tagged commit, and the image
+  was built on WS04 and pushed from the operator's machine.
+
+## v1.2.3-alpha.2 - 2026-10-20
+
+`v1.2.3-alpha.1` was never published: CI's vulnerability scan refused it, as it
+had refused every push to `dev` since 14 October. This cut fixes what it found.
+
+### Security
+
+- Go moves from 1.26.6 to 1.26.10, and `golang.org/x/net` from 0.57.0 to
+  0.60.0, which brings `golang.org/x/text` 0.42.0. Together they close five
+  advisories in `net/http` and HTTP/2 that Branchy's webhook server is exposed
+  to (GO-2026-6611, -6612, -6613, -6617: a crash from an HPACK encoder race,
+  connection desynchronisation after a CONNECT, flow-control and CPU abuse on
+  HTTP/2 streams) and one panic on crafted input in `x/text` (GO-2026-6629).
+
+## v1.2.3-alpha.1 - 2026-10-20
+
+Branchy moves to `by.ws04.cc` and to the stable Telegram client. Branchy has no
+test bot, so this alpha runs on the production bot.
+
+### Changed
+
+- **Operators.** Branchy is served on `https://by.ws04.cc`: `amdumo.fun`
+  expired on 14 October. `PUBLIC_BASE_URL` defaults to it in
+  `deploy/ws04/compose.yaml`; it builds the GitHub OAuth redirect and the URL of
+  every repository webhook, so the OAuth App callback and the existing hooks
+  were moved to the new address the same day. A stack that sets
+  `PUBLIC_BASE_URL` itself is not affected.
+- `github.com/FreshLabDev/tg` moves from `v0.0.1-alpha.7` to `v0.1.0`, its
+  first stable version. Nothing Branchy sends changes: the new media sends and
+  inline mode are unused here, and the link-preview fix is in an ephemeral
+  edit Branchy never makes.
+- **A release waits for CI.** `release.yml` runs `ci.yml` on the tagged commit
+  and publishes nothing unless it passed. `v1.2.0` and its four pre-releases
+  went out with a failing vulnerability scan because nothing connected the two.
+  When CI cannot run, `release.yml` can be started by hand with the tag and a
+  reason; that run skips CI and prints the reason at the top of the release
+  notes. See `docs/releases.md`.
+- The release notes end with the image digest to pin, which `docs/releases.md`
+  already said they did.
+- The image carries `org.opencontainers.image.version` and `.revision` labels,
+  so `docker inspect` names the build without starting it.
+- CI also runs weekly, so a new advisory against a dependency or the standard
+  library is noticed while nothing is being pushed.
+- Dependabot opens grouped version updates against `dev`.
+
 ## v1.2.2 - 2026-09-10
 
 Branchy speaks sixteen languages.
