@@ -3,9 +3,9 @@
 <p align="center"><strong>Clean GitHub notifications in Telegram.</strong><br/>Small Go service for repository events, subscriptions, and durable delivery.</p>
 
 <p align="center">
-  <a href="https://github.com/FreshLabDev/branchy/releases"><img src="https://img.shields.io/github/v/release/FreshLabDev/branchy?include_prereleases&sort=semver&style=for-the-badge&label=latest&labelColor=0f172a&color=4c8c4a" alt="latest version"></a>
+  <a href="https://github.com/asterfield-dev/branchy/releases"><img src="https://img.shields.io/github/v/release/asterfield-dev/branchy?include_prereleases&sort=semver&style=for-the-badge&label=latest&labelColor=0f172a&color=4c8c4a" alt="latest version"></a>
   <a href="docs/versioning.md"><img src="https://img.shields.io/badge/stable-v1.2.0-4c8c4a?style=for-the-badge&labelColor=0f172a" alt="stable version"></a>
-  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/FreshLabDev/branchy?style=for-the-badge&logo=go&logoColor=white&label=go&labelColor=0f172a&color=00ADD8" alt="go version"></a>
+  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/asterfield-dev/branchy?style=for-the-badge&logo=go&logoColor=white&label=go&labelColor=0f172a&color=00ADD8" alt="go version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-334155?style=for-the-badge&labelColor=0f172a" alt="license"></a>
   <a href="https://t.me/branchy_bot"><img src="https://img.shields.io/badge/telegram-%40branchy__bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0f172a" alt="telegram bot"></a>
 </p>
@@ -68,20 +68,20 @@ Branchy messages keep one event, one repository, and the useful links up front.
   <tr>
     <td>
       <strong>2 new commits</strong><br/>
-      pushed to FreshLabDev/branchy · <code>main</code> · <strong>amtiYo</strong><br/><br/>
+      pushed to asterfield-dev/branchy · <code>main</code> · <strong>amtiYo</strong><br/><br/>
       <code>f2a07de</code> fix Telegram layout<br/>
       <code>a4e7f27</code> clarify release flow<br/><br/>
       Open compare
     </td>
     <td>
       <strong>#42 Add branch filters</strong><br/>
-      opened in FreshLabDev/branchy · <code>feat → main</code> · <strong>amtiYo</strong><br/><br/>
+      opened in asterfield-dev/branchy · <code>feat → main</code> · <strong>amtiYo</strong><br/><br/>
       Description is rendered as a compact quote.<br/><br/>
       Open pull request · More
     </td>
     <td>
       <strong>v0.1.0</strong><br/>
-      Release in FreshLabDev/branchy · <code>v0.1.0</code> · <strong>amtiYo</strong><br/><br/>
+      Release in asterfield-dev/branchy · <code>v0.1.0</code> · <strong>amtiYo</strong><br/><br/>
       Release notes render from GitHub Markdown.<br/><br/>
       Open release
     </td>
@@ -276,7 +276,7 @@ release workflow published to GHCR and never builds one:
 
 ```sh
 # in the stack directory, alongside .env
-BRANCHY_IMAGE=ghcr.io/freshlabdev/branchy@sha256:<digest> docker compose up -d
+BRANCHY_IMAGE=ghcr.io/asterfield-dev/branchy@sha256:<digest> docker compose up -d
 ```
 
 Pin `BRANCHY_IMAGE` by digest rather than tag. A digest names one exact build,
@@ -308,7 +308,7 @@ docker compose config
 ---
 
 <p align="center">
-  <a href="https://github.com/FreshLabDev/branchy/releases">Releases</a> ·
+  <a href="https://github.com/asterfield-dev/branchy/releases">Releases</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="LICENSE">Apache-2.0</a> ·
   <a href="NOTICE">NOTICE</a>

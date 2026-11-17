@@ -22,7 +22,7 @@ import (
 	"branchy/internal/notify"
 	"branchy/internal/oauth"
 	"branchy/internal/subscriptions"
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
 	"branchy/internal/telegram"
 )
@@ -399,6 +399,11 @@ func (b *Bot) handleMyChatMember(ctx context.Context, upd tg.ChatMemberUpdated) 
 }
 
 func (b *Bot) handleCallback(ctx context.Context, cq tg.CallbackQuery) error {
+	// A press under an inline message has no message. Branchy sends none, so
+	// such a press is not one of its panels: stop the spinner and leave it.
+	if cq.Message == nil {
+		return b.client.AnswerCallbackQuery(ctx, cq.ID, "", false)
+	}
 	if err := b.upsertUser(ctx, &cq.From, &cq.Message.Chat); err != nil {
 		return err
 	}

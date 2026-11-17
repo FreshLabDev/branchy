@@ -19,7 +19,7 @@ import (
 	"branchy/internal/github"
 	"branchy/internal/i18n"
 	"branchy/internal/oauth"
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
 	"branchy/internal/telegram"
 )
@@ -411,7 +411,7 @@ func TestPRMoreCallbackDoesNotUseTokenAndScopesToChat(t *testing.T) {
 	cq := tg.CallbackQuery{
 		ID:      "cq-more",
 		From:    tg.User{ID: 42},
-		Message: tg.Message{Chat: tg.Chat{ID: -100, Type: "supergroup"}},
+		Message: &tg.Message{Chat: tg.Chat{ID: -100, Type: "supergroup"}},
 		Data:    "m:" + compact,
 	}
 	if err := bot.handleCallback(context.Background(), cq); err != nil {
@@ -501,7 +501,7 @@ func TestPRMoreCallbackFetchesFilesWithOwnerToken(t *testing.T) {
 	cq := tg.CallbackQuery{
 		ID:      "cq-more",
 		From:    tg.User{ID: 42},
-		Message: tg.Message{Chat: tg.Chat{ID: -100, Type: "supergroup"}},
+		Message: &tg.Message{Chat: tg.Chat{ID: -100, Type: "supergroup"}},
 		Data:    "m:" + db.CompactUUID(jobID),
 	}
 	if err := bot.handleCallback(context.Background(), cq); err != nil {
@@ -565,7 +565,7 @@ func TestPRMoreCallbackSendsOverlayWhenFilesFetchFails(t *testing.T) {
 	if err := bot.handleCallback(context.Background(), tg.CallbackQuery{
 		ID:      "cq-more",
 		From:    tg.User{ID: 42},
-		Message: tg.Message{Chat: tg.Chat{ID: -100, Type: "supergroup"}},
+		Message: &tg.Message{Chat: tg.Chat{ID: -100, Type: "supergroup"}},
 		Data:    "m:" + db.CompactUUID(jobID),
 	}); err != nil {
 		t.Fatal(err)
@@ -633,7 +633,7 @@ func TestPRMoreCallbackToastsExpiredGitHubToken(t *testing.T) {
 	if err := bot.handleCallback(context.Background(), tg.CallbackQuery{
 		ID:      "cq-more",
 		From:    tg.User{ID: 42},
-		Message: tg.Message{Chat: tg.Chat{ID: -100, Type: "supergroup"}},
+		Message: &tg.Message{Chat: tg.Chat{ID: -100, Type: "supergroup"}},
 		Data:    "m:" + db.CompactUUID(jobID),
 	}); err != nil {
 		t.Fatal(err)
@@ -751,7 +751,7 @@ func TestAboutCardStatesVersionAndLinksSourceInText(t *testing.T) {
 		"<b>Branchy</b> · <i>v1.2.1-alpha.3</i>",
 		"Clean GitHub notifications in Telegram.",
 		"<blockquote>Events · push, pull request, release",
-		`Source · <a href="https://github.com/FreshLabDev/branchy">FreshLabDev/branchy</a> · Apache-2.0`,
+		`Source · <a href="https://github.com/asterfield-dev/branchy">asterfield-dev/branchy</a> · Apache-2.0`,
 		`Admin · <a href="https://t.me/amtiyo">@amtiyo</a></blockquote>`,
 	} {
 		if !strings.Contains(text, want) {
@@ -779,7 +779,7 @@ func TestAboutCardStatesVersionAndLinksSourceInText(t *testing.T) {
 
 	// The card renders in whatever language is answering; only the labels move.
 	uk := aboutText("uk", "v1.2.1-alpha.3")
-	if !strings.Contains(uk, "FreshLabDev/branchy") || !strings.Contains(uk, "@amtiyo") {
+	if !strings.Contains(uk, "asterfield-dev/branchy") || !strings.Contains(uk, "@amtiyo") {
 		t.Fatalf("About card lost its facts when translated:\n%s", uk)
 	}
 }
@@ -833,7 +833,7 @@ func TestAboutFromGroupPanelEditsTheEphemeralMessage(t *testing.T) {
 	b := &Bot{store: &touchStore{}, client: telegram.New("token", tg.WithAPIBase(server.URL)), version: "v9.9.9"}
 	cq := tg.CallbackQuery{
 		ID: "1", From: tg.User{ID: 42}, Data: "about",
-		Message: tg.Message{
+		Message: &tg.Message{
 			MessageID: 5, EphemeralMessageID: 77,
 			Chat: tg.Chat{ID: -100, Type: "supergroup"},
 		},
@@ -873,7 +873,7 @@ func TestCloseOnlyDeletesEphemeralMessages(t *testing.T) {
 	// Callback data can be sent for any visible message, not only for the
 	// buttons a client was shown. "close" against a public message must not
 	// delete Branchy's notification cards.
-	public := tg.CallbackQuery{ID: "1", From: tg.User{ID: 42}, Data: "close", Message: tg.Message{MessageID: 5, Chat: group}}
+	public := tg.CallbackQuery{ID: "1", From: tg.User{ID: 42}, Data: "close", Message: &tg.Message{MessageID: 5, Chat: group}}
 	if _, err := b.dispatchCallback(context.Background(), public, i18n.DefaultLang); err != nil {
 		t.Fatal(err)
 	}
@@ -884,7 +884,7 @@ func TestCloseOnlyDeletesEphemeralMessages(t *testing.T) {
 	}
 
 	paths = nil
-	ephemeral := tg.CallbackQuery{ID: "2", From: tg.User{ID: 42}, Data: "close", Message: tg.Message{MessageID: 5, EphemeralMessageID: 77, Chat: group}}
+	ephemeral := tg.CallbackQuery{ID: "2", From: tg.User{ID: 42}, Data: "close", Message: &tg.Message{MessageID: 5, EphemeralMessageID: 77, Chat: group}}
 	if _, err := b.dispatchCallback(context.Background(), ephemeral, i18n.DefaultLang); err != nil {
 		t.Fatal(err)
 	}
@@ -909,7 +909,7 @@ func TestGroupHomeCallbackDoesNotRebuildTheDirectMessageMenu(t *testing.T) {
 	b := &Bot{store: &touchStore{}, client: telegram.New("token", tg.WithAPIBase(server.URL))}
 	cq := tg.CallbackQuery{
 		ID: "1", From: tg.User{ID: 42}, Data: "home",
-		Message: tg.Message{MessageID: 5, EphemeralMessageID: 77, Chat: tg.Chat{ID: -100, Type: "supergroup"}},
+		Message: &tg.Message{MessageID: 5, EphemeralMessageID: 77, Chat: tg.Chat{ID: -100, Type: "supergroup"}},
 	}
 	if _, err := b.dispatchCallback(context.Background(), cq, i18n.DefaultLang); err != nil {
 		t.Fatal(err)
@@ -933,7 +933,7 @@ func TestPublicGroupMessagesAreNeverEditedIntoPanels(t *testing.T) {
 	b := &Bot{store: &touchStore{}, client: telegram.New("token", tg.WithAPIBase(server.URL))}
 	cq := tg.CallbackQuery{
 		ID: "1", From: tg.User{ID: 42}, Data: "home",
-		Message: tg.Message{MessageID: 5, Chat: tg.Chat{ID: -100, Type: "supergroup"}},
+		Message: &tg.Message{MessageID: 5, Chat: tg.Chat{ID: -100, Type: "supergroup"}},
 	}
 	if _, err := b.dispatchCallback(context.Background(), cq, i18n.DefaultLang); err != nil {
 		t.Fatal(err)
@@ -1108,7 +1108,7 @@ func TestLanguageScreenMatchesTheFamilyGrid(t *testing.T) {
 	b := &Bot{store: &languageStore{effective: "uk"}, client: telegram.New("token", tg.WithAPIBase(server.URL))}
 	cq := tg.CallbackQuery{
 		ID: "1", From: tg.User{ID: 42}, Data: "lang",
-		Message: tg.Message{MessageID: 5, Chat: tg.Chat{ID: 42, Type: "private"}},
+		Message: &tg.Message{MessageID: 5, Chat: tg.Chat{ID: 42, Type: "private"}},
 	}
 	if _, err := b.dispatchCallback(context.Background(), cq, "uk"); err != nil {
 		t.Fatal(err)
@@ -1184,7 +1184,7 @@ func TestLanguageChoiceReachesTheSharedHub(t *testing.T) {
 	base := tg.Message{MessageID: 5, Chat: tg.Chat{ID: 42, Type: "private"}}
 
 	toast, err := b.dispatchCallback(context.Background(),
-		tg.CallbackQuery{ID: "1", From: tg.User{ID: 42}, Data: "lang:uk", Message: base}, "en")
+		tg.CallbackQuery{ID: "1", From: tg.User{ID: 42}, Data: "lang:uk", Message: &base}, "en")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1200,7 +1200,7 @@ func TestLanguageChoiceReachesTheSharedHub(t *testing.T) {
 	// chose to send, not only what it was shown.
 	store.set = ""
 	if _, err := b.dispatchCallback(context.Background(),
-		tg.CallbackQuery{ID: "2", From: tg.User{ID: 42}, Data: "lang:klingon", Message: base}, "en"); err != nil {
+		tg.CallbackQuery{ID: "2", From: tg.User{ID: 42}, Data: "lang:klingon", Message: &base}, "en"); err != nil {
 		t.Fatal(err)
 	}
 	if store.set != "" {
@@ -1210,7 +1210,7 @@ func TestLanguageChoiceReachesTheSharedHub(t *testing.T) {
 	// Follow Telegram withdraws the claim rather than setting a language.
 	store.set = ""
 	toast, err = b.dispatchCallback(context.Background(),
-		tg.CallbackQuery{ID: "3", From: tg.User{ID: 42, LanguageCode: "de-DE"}, Data: "lang:follow", Message: base}, "uk")
+		tg.CallbackQuery{ID: "3", From: tg.User{ID: 42, LanguageCode: "de-DE"}, Data: "lang:follow", Message: &base}, "uk")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1240,7 +1240,7 @@ func TestFollowTelegramRedrawsInWhatTheHubAnswersNotTheClientHint(t *testing.T) 
 	base := tg.Message{MessageID: 7, Chat: tg.Chat{ID: 42, Type: "private"}}
 
 	toast, err := b.dispatchCallback(context.Background(),
-		tg.CallbackQuery{ID: "1", From: tg.User{ID: 42, LanguageCode: "de-DE"}, Data: "lang:follow", Message: base}, "uk")
+		tg.CallbackQuery{ID: "1", From: tg.User{ID: 42, LanguageCode: "de-DE"}, Data: "lang:follow", Message: &base}, "uk")
 	if err != nil {
 		t.Fatal(err)
 	}

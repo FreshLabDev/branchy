@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 func TestEnsureTelegramCommandsRetriesOnlyFailedScope(t *testing.T) {

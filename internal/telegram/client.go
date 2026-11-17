@@ -2,7 +2,7 @@
 
 // Package telegram adapts the shared client to Branchy's own habits. The
 // protocol, transport, retries and token redaction all live in
-// github.com/FreshLabDev/tg; what stays here are the send shapes the
+// github.com/asterfield-dev/tg; what stays here are the send shapes the
 // notification outbox and the OAuth flow ask for, which encode Branchy's
 // conventions rather than Telegram's.
 package telegram
@@ -11,7 +11,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // delivered treats "Telegram accepted this and the receipt did not parse" as

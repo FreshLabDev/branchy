@@ -7,7 +7,7 @@
 # on the host can say which commit it was. BRANCHY_IMAGE must therefore name an
 # immutable GHCR reference, digest for preference:
 #
-#   BRANCHY_IMAGE=ghcr.io/freshlabdev/branchy@sha256:<digest>
+#   BRANCHY_IMAGE=ghcr.io/asterfield-dev/branchy@sha256:<digest>
 #
 # A tag is accepted but a digest is what makes a rollback exact.
 name: branchy

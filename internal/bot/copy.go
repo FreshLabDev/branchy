@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"branchy/internal/i18n"
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // Facts the About card states. They are the same in every language, so they are
@@ -14,8 +14,8 @@ import (
 const (
 	productName   = "Branchy"
 	aboutEvents   = "push, pull request, release"
-	sourceURL     = "https://github.com/FreshLabDev/branchy"
-	sourceLabel   = "FreshLabDev/branchy"
+	sourceURL     = "https://github.com/asterfield-dev/branchy"
+	sourceLabel   = "asterfield-dev/branchy"
 	sourceLicense = "Apache-2.0"
 	adminURL      = "https://t.me/amtiyo"
 	adminLabel    = "@amtiyo"
