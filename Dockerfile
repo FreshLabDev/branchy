@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-FROM golang:1.26.11-alpine AS build
+FROM golang:1.27.3-alpine AS build
 
 WORKDIR /src
 COPY go.mod go.sum* ./
@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
     -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o /out/branchy ./cmd/branchy
 
-FROM alpine:3.22
+FROM alpine:3.24
 # ca-certificates is required for outbound TLS to api.github.com and
 # api.telegram.org from the static (CGO-disabled) binary.
 RUN apk add --no-cache ca-certificates \
