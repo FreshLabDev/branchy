@@ -146,7 +146,7 @@ For Docker changes, also run:
 
 Branchy is licensed under Apache-2.0. Preserve the root `LICENSE` and `NOTICE` files and keep public documentation consistent with that license.
 
-- Telegram goes through `github.com/FreshLabDev/tg`, the client shared by the
+- Telegram goes through `github.com/asterfield-dev/tg`, the client shared by the
   bot family. `internal/telegram` is only an adapter for Branchy's send shapes
   (HTML by default, a parse-mode-free fallback, the button helper); no HTTP
   transport lives there. Bot logic lives in `internal/bot`.

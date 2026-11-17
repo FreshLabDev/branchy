@@ -13,6 +13,31 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+## v1.2.4 - 2026-11-17
+
+The GitHub organization FreshLabDev is now asterfield-dev, and the bot moves
+with it. Nothing a person sees in Telegram changes.
+
+### Changed
+
+- **Images are published as `ghcr.io/asterfield-dev/branchy`.** The
+  organization was renamed, and GitHub Container Registry does not redirect
+  the old name: `ghcr.io/freshlabdev/branchy` answers 403. Point the
+  deployment's image at the new path; every earlier digest is there under it
+  too.
+- tg moves from `v0.1.0` to `v0.4.0-alpha.2`, whose module path is
+  `github.com/asterfield-dev/tg`. A press on a button under an inline message
+  now arrives without a message; branchy sends none, so such a press is
+  answered and ignored.
+- Links, the module path and the docs point at `github.com/asterfield-dev`.
+  Old links still redirect.
+
+### Known Limitations
+
+- Released as a stable patch without a pre-release first, at the owner's
+  request: the change is the organization rename and the tg upgrade, checked
+  by the full test suite, not by a run on a test bot.
+
 ## v1.2.3 - 2026-11-14
 
 Branchy on `by.ws04.cc`, on the stable Telegram client, with every known Go
@@ -35,9 +60,11 @@ their own: they change no code of Branchy's, and the full test suite and
 
 ### Known Limitations
 
-- Published without CI: GitHub Actions do not start for FreshLabDev at the
-  moment. The CI steps were run by hand on the tagged commit, and the image
-  was built on WS04 and pushed from the operator's machine.
+- The image was built on WS04 and pushed by hand, not by `release.yml`:
+  GitHub Actions had not been starting for asterfield-dev since 11 November and
+  came back while this release was being cut. CI passed on the tagged commit
+  (the push to `main`); the release workflow on the tag was cancelled so it
+  would not overwrite the published image.
 
 ## v1.2.3-alpha.2 - 2026-10-20
 
@@ -66,7 +93,7 @@ test bot, so this alpha runs on the production bot.
   every repository webhook, so the OAuth App callback and the existing hooks
   were moved to the new address the same day. A stack that sets
   `PUBLIC_BASE_URL` itself is not affected.
-- `github.com/FreshLabDev/tg` moves from `v0.0.1-alpha.7` to `v0.1.0`, its
+- `github.com/asterfield-dev/tg` moves from `v0.0.1-alpha.7` to `v0.1.0`, its
   first stable version. Nothing Branchy sends changes: the new media sends and
   inline mode are unused here, and the link-preview fix is in an ephemeral
   edit Branchy never makes.
@@ -223,7 +250,7 @@ any group member delete Branchy's notification cards.
   left as they are.
 
 
-- `github.com/FreshLabDev/tg` moves to `v0.0.1-alpha.7`. It carries one fix:
+- `github.com/asterfield-dev/tg` moves to `v0.0.1-alpha.7`. It carries one fix:
   a preflight probe is marked as a probe, so the `404 method not found` it
   expects stops being counted and logged as a transport failure. All four bots
   on the shared client now run the same version.
@@ -265,7 +292,7 @@ Telegram server that cannot deliver its notifications.
 - The bot moved out of the transport package. `internal/telegram` held both
   the HTTP client and 2300 lines of bot logic, which is why the client could
   not be swapped; the logic now lives in `internal/bot`.
-- Telegram goes through `github.com/FreshLabDev/tg`, the client shared by the
+- Telegram goes through `github.com/asterfield-dev/tg`, the client shared by the
   bot family. What stays in `internal/telegram` is an adapter of about seventy
   lines holding Branchy's own send shapes -- HTML by default, the
   parse-mode-free fallback the outbox needs, the button helper the OAuth flow

@@ -27,7 +27,7 @@ ARG VERSION=dev
 ARG COMMIT=none
 LABEL org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}" \
-      org.opencontainers.image.source="https://github.com/FreshLabDev/branchy"
+      org.opencontainers.image.source="https://github.com/asterfield-dev/branchy"
 USER branchy
 EXPOSE 8080
 ENTRYPOINT ["/app/branchy"]

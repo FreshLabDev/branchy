@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
 	"branchy/internal/bot"
 	"branchy/internal/config"

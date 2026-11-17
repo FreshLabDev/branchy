@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"branchy/internal/db"
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 func TestClassifyRateLimitUsesRetryAfter(t *testing.T) {

@@ -38,24 +38,24 @@ func TestGitHubEventEscapesHTML(t *testing.T) {
 func TestGitHubEventFormatsSingleCommit(t *testing.T) {
 	text := GitHubEvent(Event{
 		Type:         "push",
-		RepoFullName: "FreshLabDev/branchy",
+		RepoFullName: "asterfield-dev/branchy",
 		Actor:        "amtiYo",
 		Branch:       "main",
-		CompareURL:   "https://github.com/FreshLabDev/branchy/compare/a...b",
+		CompareURL:   "https://github.com/asterfield-dev/branchy/compare/a...b",
 		Commits: []Commit{{
 			SHA:     "9b0f75e340e43784ea868a51078b450d172e63d0",
 			Message: "fix: extract inline urls from text",
-			URL:     "https://github.com/FreshLabDev/branchy/commit/9b0f75e340e43784ea868a51078b450d172e63d0",
+			URL:     "https://github.com/asterfield-dev/branchy/commit/9b0f75e340e43784ea868a51078b450d172e63d0",
 			Author:  "amtiYo",
 		}},
 		CommitCount: 1,
 	})
 	for _, want := range []string{
 		"<h2>" + iconCommits + " 1 new commit</h2>",
-		"<p>pushed to FreshLabDev/branchy · <code>main</code> · <b>amtiYo</b></p>",
-		`<tg-button type="url" style="primary" url="https://github.com/FreshLabDev/branchy/compare/a...b">Open compare</tg-button>`,
+		"<p>pushed to asterfield-dev/branchy · <code>main</code> · <b>amtiYo</b></p>",
+		`<tg-button type="url" style="primary" url="https://github.com/asterfield-dev/branchy/compare/a...b">Open compare</tg-button>`,
 		`<tg-button type="copy_text" text="9b0f75e340e43784ea868a51078b450d172e63d0">Copy SHA</tg-button>`,
-		`<a href="https://github.com/FreshLabDev/branchy/commit/9b0f75e340e43784ea868a51078b450d172e63d0">9b0f75e</a> fix: extract inline urls from text`,
+		`<a href="https://github.com/asterfield-dev/branchy/commit/9b0f75e340e43784ea868a51078b450d172e63d0">9b0f75e</a> fix: extract inline urls from text`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("formatted commit notification missing %q:\n%s", want, text)
@@ -75,14 +75,14 @@ func TestGitHubEventFormatsSingleCommit(t *testing.T) {
 func TestGitHubEventFormatsMultipleCommits(t *testing.T) {
 	text := GitHubEvent(Event{
 		Type:         "push",
-		RepoFullName: "FreshLabDev/branchy",
+		RepoFullName: "asterfield-dev/branchy",
 		Actor:        "amtiYo",
 		Branch:       "dev",
-		CompareURL:   "https://github.com/FreshLabDev/branchy/compare/a...c",
+		CompareURL:   "https://github.com/asterfield-dev/branchy/compare/a...c",
 		Commits: []Commit{
-			{SHA: "cbfa2669fef76b17a16dfee3e124c78c69cd8fad", Message: "fix: handle runtime media edge cases", URL: "https://github.com/FreshLabDev/branchy/commit/cbfa2669fef76b17a16dfee3e124c78c69cd8fad", Author: "amtiYo"},
-			{SHA: "f58a52600b9c6bd6948851ad2bf475f54158c74b", Message: "fix: clarify dev audit comments", URL: "https://github.com/FreshLabDev/branchy/commit/f58a52600b9c6bd6948851ad2bf475f54158c74b", Author: "amtiYo"},
-			{SHA: "9580b30ffd74623036d9afd88fd0cd59513252fd", Message: "Merge pull request #22 from FreshLabDev/codex/fix-runtime", URL: "https://github.com/FreshLabDev/branchy/commit/9580b30ffd74623036d9afd88fd0cd59513252fd", Author: "amtiYo"},
+			{SHA: "cbfa2669fef76b17a16dfee3e124c78c69cd8fad", Message: "fix: handle runtime media edge cases", URL: "https://github.com/asterfield-dev/branchy/commit/cbfa2669fef76b17a16dfee3e124c78c69cd8fad", Author: "amtiYo"},
+			{SHA: "f58a52600b9c6bd6948851ad2bf475f54158c74b", Message: "fix: clarify dev audit comments", URL: "https://github.com/asterfield-dev/branchy/commit/f58a52600b9c6bd6948851ad2bf475f54158c74b", Author: "amtiYo"},
+			{SHA: "9580b30ffd74623036d9afd88fd0cd59513252fd", Message: "Merge pull request #22 from asterfield-dev/codex/fix-runtime", URL: "https://github.com/asterfield-dev/branchy/commit/9580b30ffd74623036d9afd88fd0cd59513252fd", Author: "amtiYo"},
 		},
 		CommitCount: 3,
 	})
@@ -237,19 +237,19 @@ func TestGitHubEventRendersGFMBodyToRichHTML(t *testing.T) {
 func TestGitHubEventFormatsPullRequest(t *testing.T) {
 	text := GitHubEvent(Event{
 		Type:         "pull_request",
-		RepoFullName: "FreshLabDev/branchy",
+		RepoFullName: "asterfield-dev/branchy",
 		Actor:        "amtiYo",
 		Branch:       "main",
 		Title:        `Fix <format> & "escape"`,
 		Action:       "opened",
 		Number:       7,
-		URL:          "https://github.com/FreshLabDev/branchy/pull/7",
+		URL:          "https://github.com/asterfield-dev/branchy/pull/7",
 		Body:         "This PR **improves** things.\n\nSee `notify` for details.",
 	})
 	for _, want := range []string{
 		"<h2>" + iconPR + " #7 Fix &lt;format&gt; &amp; &#34;escape&#34;</h2>",
-		"<p>opened in FreshLabDev/branchy · <code>main</code> · <b>amtiYo</b></p>",
-		`<tg-button type="url" style="primary" url="https://github.com/FreshLabDev/branchy/pull/7">Open pull request</tg-button>`,
+		"<p>opened in asterfield-dev/branchy · <code>main</code> · <b>amtiYo</b></p>",
+		`<tg-button type="url" style="primary" url="https://github.com/asterfield-dev/branchy/pull/7">Open pull request</tg-button>`,
 		"<p>This PR <b>improves</b> things.</p>",
 		"<p>See <code>notify</code> for details.</p>",
 	} {
@@ -266,7 +266,7 @@ func TestGitHubEventFormatsPullRequest(t *testing.T) {
 	if strings.Contains(text, "<hr>") || strings.Contains(text, "Pull request opened") {
 		t.Fatalf("PR cards should be title-first without a divider or extra action paragraph:\n%s", text)
 	}
-	if strings.Contains(text, `<a href="https://github.com/FreshLabDev/branchy/pull/7">#7`) {
+	if strings.Contains(text, `<a href="https://github.com/asterfield-dev/branchy/pull/7">#7`) {
 		t.Fatalf("rich PR title should not duplicate the Open button:\n%s", text)
 	}
 }
@@ -274,15 +274,15 @@ func TestGitHubEventFormatsPullRequest(t *testing.T) {
 func TestGitHubNotificationFallbackKeepsPRTitleLink(t *testing.T) {
 	got := GitHubNotification(Event{
 		Type:         "pull_request",
-		RepoFullName: "FreshLabDev/branchy",
+		RepoFullName: "asterfield-dev/branchy",
 		Actor:        "amtiYo",
 		Branch:       "main",
 		Title:        `Fix <format> & "escape"`,
 		Action:       "opened",
 		Number:       7,
-		URL:          "https://github.com/FreshLabDev/branchy/pull/7",
+		URL:          "https://github.com/asterfield-dev/branchy/pull/7",
 	})
-	if !strings.Contains(got.FallbackHTML, `<a href="https://github.com/FreshLabDev/branchy/pull/7">#7 Fix &lt;format&gt; &amp; &#34;escape&#34;</a>`) {
+	if !strings.Contains(got.FallbackHTML, `<a href="https://github.com/asterfield-dev/branchy/pull/7">#7 Fix &lt;format&gt; &amp; &#34;escape&#34;</a>`) {
 		t.Fatalf("classic fallback should keep the title link:\n%s", got.FallbackHTML)
 	}
 }
@@ -290,17 +290,17 @@ func TestGitHubNotificationFallbackKeepsPRTitleLink(t *testing.T) {
 func TestGitHubEventMergedPullRequestHidesBody(t *testing.T) {
 	text := GitHubEvent(Event{
 		Type:         "pull_request",
-		RepoFullName: "FreshLabDev/branchy",
+		RepoFullName: "asterfield-dev/branchy",
 		Actor:        "amtiYo",
 		Branch:       "main",
 		Title:        "Fix things",
 		Action:       "closed",
 		Merged:       true,
 		Number:       7,
-		URL:          "https://github.com/FreshLabDev/branchy/pull/7",
+		URL:          "https://github.com/asterfield-dev/branchy/pull/7",
 		Body:         "Body that should not be shown on merge.",
 	})
-	if !strings.Contains(text, "merged in FreshLabDev/branchy") {
+	if !strings.Contains(text, "merged in asterfield-dev/branchy") {
 		t.Fatalf("expected merged label in the quiet line:\n%s", text)
 	}
 	if strings.Contains(text, "should not be shown") {
@@ -311,30 +311,30 @@ func TestGitHubEventMergedPullRequestHidesBody(t *testing.T) {
 func TestGitHubEventFormatsRelease(t *testing.T) {
 	text := GitHubEvent(Event{
 		Type:         "release",
-		RepoFullName: "FreshLabDev/branchy",
+		RepoFullName: "asterfield-dev/branchy",
 		Actor:        "amtiYo",
 		Branch:       "main",
 		Title:        `v0.1.0-alpha.1 <format> & "escape"`,
 		Action:       "published",
 		TagName:      "v0.1.0-alpha.1",
 		Prerelease:   true,
-		URL:          "https://github.com/FreshLabDev/branchy/releases/tag/v0.1.0-alpha.1",
+		URL:          "https://github.com/asterfield-dev/branchy/releases/tag/v0.1.0-alpha.1",
 		Body: "## Added\n" +
-			"- **Commit notifications** with [compare links](https://github.com/FreshLabDev/branchy/compare/a...b)\n" +
+			"- **Commit notifications** with [compare links](https://github.com/asterfield-dev/branchy/compare/a...b)\n" +
 			"- _Release notes_ with `code` and ~~old wording~~\n" +
 			"> Keep it concise\n" +
-			"![Screenshot](https://github.com/FreshLabDev/branchy/assets/release.png)\n" +
+			"![Screenshot](https://github.com/asterfield-dev/branchy/assets/release.png)\n" +
 			"<ins>Underlined bit</ins>",
 	})
 	for _, want := range []string{
 		"<h2>" + iconRelease + " v0.1.0-alpha.1 &lt;format&gt; &amp; &#34;escape&#34;</h2>",
-		"<p>Pre-release in FreshLabDev/branchy · <code>v0.1.0-alpha.1</code> · <b>amtiYo</b></p>",
-		`<tg-button type="url" style="primary" url="https://github.com/FreshLabDev/branchy/releases/tag/v0.1.0-alpha.1">Open release</tg-button>`,
+		"<p>Pre-release in asterfield-dev/branchy · <code>v0.1.0-alpha.1</code> · <b>amtiYo</b></p>",
+		`<tg-button type="url" style="primary" url="https://github.com/asterfield-dev/branchy/releases/tag/v0.1.0-alpha.1">Open release</tg-button>`,
 		"<h2>Added</h2>",
-		`<li><b>Commit notifications</b> with <a href="https://github.com/FreshLabDev/branchy/compare/a...b">compare links</a></li>`,
+		`<li><b>Commit notifications</b> with <a href="https://github.com/asterfield-dev/branchy/compare/a...b">compare links</a></li>`,
 		"<li><i>Release notes</i> with <code>code</code> and <del>old wording</del></li>",
 		"<p>Keep it concise",
-		`<figure><img src="https://github.com/FreshLabDev/branchy/assets/release.png"><figcaption>Screenshot</figcaption></figure>`,
+		`<figure><img src="https://github.com/asterfield-dev/branchy/assets/release.png"><figcaption>Screenshot</figcaption></figure>`,
 		"Underlined bit",
 	} {
 		if !strings.Contains(text, want) {
@@ -362,10 +362,10 @@ func TestGitHubEventLongNotesDoNotAddExtraLink(t *testing.T) {
 	}
 	text := GitHubEvent(Event{
 		Type:         "release",
-		RepoFullName: "FreshLabDev/branchy",
+		RepoFullName: "asterfield-dev/branchy",
 		Actor:        "amtiYo",
 		TagName:      "v1.0.0",
-		URL:          "https://github.com/FreshLabDev/branchy/releases/tag/v1.0.0",
+		URL:          "https://github.com/asterfield-dev/branchy/releases/tag/v1.0.0",
 		Body:         body,
 	})
 	if strings.Contains(text, "Full release notes") || strings.Contains(text, "Read more") {
@@ -653,7 +653,7 @@ func TestPlainTextFromHTMLKeepsLinkDestination(t *testing.T) {
 func TestGitHubEventPRMoreUsesCallbackLinkButton(t *testing.T) {
 	text := GitHubEvent(Event{
 		Type:         "pull_request",
-		RepoFullName: "FreshLabDev/branchy",
+		RepoFullName: "asterfield-dev/branchy",
 		Author:       "amtiYo",
 		Actor:        "webhook-bot",
 		HeadBranch:   "feat/cards",
@@ -661,10 +661,10 @@ func TestGitHubEventPRMoreUsesCallbackLinkButton(t *testing.T) {
 		Title:        "Readable cards",
 		Action:       "opened",
 		Number:       7,
-		URL:          "https://github.com/FreshLabDev/branchy/pull/7",
+		URL:          "https://github.com/asterfield-dev/branchy/pull/7",
 		MoreJobID:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	})
-	if !strings.Contains(text, "<p>opened in FreshLabDev/branchy · <code>feat/cards → dev</code> · <b>amtiYo</b></p>") {
+	if !strings.Contains(text, "<p>opened in asterfield-dev/branchy · <code>feat/cards → dev</code> · <b>amtiYo</b></p>") {
 		t.Fatalf("PR quiet line should use author and head → base:\n%s", text)
 	}
 	want := `<tg-button type="callback_data" style="link" data="m:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">More</tg-button>`
@@ -683,7 +683,7 @@ func TestPRMoreHTMLHidesZeroDiffAndAddsSubpages(t *testing.T) {
 	got := PRMoreHTML(PRMoreSnapshot{
 		Number:       7,
 		Title:        "Readable cards",
-		URL:          "https://github.com/FreshLabDev/branchy/pull/7",
+		URL:          "https://github.com/asterfield-dev/branchy/pull/7",
 		Body:         "A **short** description.",
 		HeadBranch:   "feat/cards",
 		BaseBranch:   "dev",
@@ -702,8 +702,8 @@ func TestPRMoreHTMLHidesZeroDiffAndAddsSubpages(t *testing.T) {
 		"<code>feat/cards → dev</code>",
 		"Draft",
 		"GitHub has not computed the diff yet.",
-		`<tg-button type="url" style="primary" url="https://github.com/FreshLabDev/branchy/pull/7">Open</tg-button>`,
-		`url="https://github.com/FreshLabDev/branchy/pull/7/files">Files</tg-button>`,
+		`<tg-button type="url" style="primary" url="https://github.com/asterfield-dev/branchy/pull/7">Open</tg-button>`,
+		`url="https://github.com/asterfield-dev/branchy/pull/7/files">Files</tg-button>`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("PR More overlay missing %q:\n%s", want, got)

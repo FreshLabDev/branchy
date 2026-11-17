@@ -13,7 +13,7 @@ import (
 	"branchy/internal/db"
 	"branchy/internal/metrics"
 	"branchy/internal/notify"
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // Config tunes the worker loop. Zero values fall back to the defaults below, so
